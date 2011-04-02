@@ -1,2 +1,2 @@
-module Language.Cpp.Clang where
+module Clang where
 
