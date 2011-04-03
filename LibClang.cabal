@@ -1,15 +1,15 @@
 Name: LibClang
-Cabal-version: >= 1.2
+Cabal-version: >= 1.6
 Version: 0.0.1
 Author: Chetan Taralekar <chetant@gmail.com>
 Maintainer: Chetan Taralekar <chetant@gmail.com>
 Homepage: https://github.com/chetant/LibClang/issues
 License: BSD3
 License-file: LICENSE
-Synopsis: Clang provides haskell bindings for libclang (a C++ parsing library)
+Synopsis: Haskell bindings for libclang (a C++ parsing library)
 Description:
-  Clang package provides direct bindings to libclang.
-  This should be enough for parsing C/C++ code, walking the AST and querying nodes.
+  LibClang package provides direct bindings to libclang.
+  This should be enough for parsing C/C++ code, walking the AST and querying nodes and completion queries.
 
   NOTE .. When configuring, please ensure llvm-config is in path
        .. or provide the location of libclang and llvm includes
