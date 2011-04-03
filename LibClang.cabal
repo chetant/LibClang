@@ -1,6 +1,6 @@
 Name: LibClang
 Cabal-version: >= 1.6
-Version: 0.0.1
+Version: 0.0.2
 Author: Chetan Taralekar <chetant@gmail.com>
 Maintainer: Chetan Taralekar <chetant@gmail.com>
 Homepage: https://github.com/chetant/LibClang/issues
