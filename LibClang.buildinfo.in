@@ -1,0 +1,4 @@
+-- include-dirs: .
+-- extra-libraries: clang, LLVM-3.0svn
+cc-options: -I. @CFLAGS@
+ld-options: @LDFLAGS@

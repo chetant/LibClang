@@ -8,7 +8,7 @@ import Foreign.C
 import Foreign.ForeignPtr
 import Foreign.Ptr
 
-%#include <stdint.h>
+%#include <inttypes.h>
 %#include <stdlib.h>
 %#include <clang-c/Index.h>
 

@@ -1,7 +1,9 @@
 Name: LibClang
-Version: 0.0.1
 Cabal-version: >= 1.2
+Version: 0.0.1
 Author: Chetan Taralekar <chetant@gmail.com>
+Maintainer: Chetan Taralekar <chetant@gmail.com>
+Homepage: https://github.com/chetant/LibClang/issues
 License: BSD3
 License-file: LICENSE
 Synopsis: Clang provides haskell bindings for libclang (a C++ parsing library)
@@ -12,15 +14,13 @@ Description:
   NOTE .. When configuring, please provide the location of libclang includes
        .. if not in the default locations using --extra-include-dirs=<LOCATION>
 Category: Language
-build-type: Simple
+build-type: Configure
 
 Library
   hs-source-dirs: src
-  build-depends: base, greencard
+  build-depends: base, ffi, greencard
   build-tools: greencard
   c-sources: src/Clang/FFI_stub_ffi.c
-  include-dirs: .
-  extra-libraries: clang, LLVM-3.0svn
-  -- extra-libraries: clang, LLVMMCJIT, LLVMRuntimeDyld, LLVMObject, LLVMMCDisassembler, LLVMXCoreCodeGen, LLVMXCoreInfo, LLVMSystemZCodeGen, LLVMSystemZInfo, LLVMSparcCodeGen, LLVMSparcInfo, LLVMPowerPCCodeGen, LLVMPowerPCInfo, LLVMPowerPCAsmPrinter, LLVMPTXCodeGen, LLVMPTXInfo, LLVMMipsCodeGen, LLVMMipsInfo, LLVMMSP430CodeGen, LLVMMSP430Info, LLVMMSP430AsmPrinter, LLVMMBlazeDisassembler, LLVMMBlazeAsmParser, LLVMMBlazeCodeGen, LLVMMBlazeAsmPrinter, LLVMMBlazeInfo, LLVMLinker, LLVMipo, LLVMInterpreter, LLVMInstrumentation, LLVMJIT, LLVMExecutionEngine, LLVMCppBackend, LLVMCppBackendInfo, LLVMCellSPUCodeGen, LLVMCellSPUInfo, LLVMCBackend, LLVMCBackendInfo, LLVMBlackfinCodeGen, LLVMBlackfinInfo, LLVMBitWriter, LLVMX86Disassembler, LLVMX86AsmParser, LLVMX86CodeGen, LLVMX86AsmPrinter, LLVMX86Utils, LLVMX86Info, LLVMAsmParser, LLVMARMDisassembler, LLVMARMAsmParser, LLVMARMCodeGen, LLVMARMAsmPrinter, LLVMARMInfo, LLVMArchive, LLVMBitReader, LLVMAlphaCodeGen, LLVMSelectionDAG, LLVMAsmPrinter, LLVMMCParser, LLVMCodeGen, LLVMScalarOpts, LLVMInstCombine, LLVMTransformUtils, LLVMipa, LLVMAnalysis, LLVMTarget, LLVMCore, LLVMAlphaInfo, LLVMMC, LLVMSupport, pthread, dl, m
+  --   extra-libraries: clang, LLVMMCJIT, LLVMRuntimeDyld, LLVMObject, LLVMMCDisassembler, LLVMXCoreCodeGen, LLVMXCoreInfo, LLVMSystemZCodeGen, LLVMSystemZInfo, LLVMSparcCodeGen, LLVMSparcInfo, LLVMPowerPCCodeGen, LLVMPowerPCInfo, LLVMPowerPCAsmPrinter, LLVMPTXCodeGen, LLVMPTXInfo, LLVMMipsCodeGen, LLVMMipsInfo, LLVMMSP430CodeGen, LLVMMSP430Info, LLVMMSP430AsmPrinter, LLVMMBlazeDisassembler, LLVMMBlazeAsmParser, LLVMMBlazeCodeGen, LLVMMBlazeAsmPrinter, LLVMMBlazeInfo, LLVMLinker, LLVMipo, LLVMInterpreter, LLVMInstrumentation, LLVMJIT, LLVMExecutionEngine, LLVMCppBackend, LLVMCppBackendInfo, LLVMCellSPUCodeGen, LLVMCellSPUInfo, LLVMCBackend, LLVMCBackendInfo, LLVMBlackfinCodeGen, LLVMBlackfinInfo, LLVMBitWriter, LLVMX86Disassembler, LLVMX86AsmParser, LLVMX86CodeGen, LLVMX86AsmPrinter, LLVMX86Utils, LLVMX86Info, LLVMAsmParser, LLVMARMDisassembler, LLVMARMAsmParser, LLVMARMCodeGen, LLVMARMAsmPrinter, LLVMARMInfo, LLVMArchive, LLVMBitReader, LLVMAlphaCodeGen, LLVMSelectionDAG, LLVMAsmPrinter, LLVMMCParser, LLVMCodeGen, LLVMScalarOpts, LLVMInstCombine, LLVMTransformUtils, LLVMipa, LLVMAnalysis, LLVMTarget, LLVMCore, LLVMAlphaInfo, LLVMMC, LLVMSupport, pthread, dl, m
   exposed-modules:
     Clang, Clang.FFI
