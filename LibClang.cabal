@@ -11,16 +11,22 @@ Description:
   Clang package provides direct bindings to libclang.
   This should be enough for parsing C/C++ code, walking the AST and querying nodes.
 
-  NOTE .. When configuring, please provide the location of libclang includes
-       .. if not in the default locations using --extra-include-dirs=<LOCATION>
+  NOTE .. When configuring, please ensure llvm-config is in path
+       .. or provide the location of libclang and llvm includes
+       .. if not in the default locations using --configure-option=-I... 
+       .. You can also use --configure-option=--enable-llvm-shared=LLVMSHAREDLIB_PREFIX
+       .. if you'd like to link to the shared library
 Category: Language
-build-type: Configure
+Build-type: Configure
+Extra-Source-Files: configure, LibClang.buildinfo.in
+Source-Repository head
+  type: git
+  location: git://github.com/chetant/LibClang.git
 
 Library
   hs-source-dirs: src
-  build-depends: base, ffi, greencard
+  build-depends: base < 5, ffi, greencard
   build-tools: greencard
   c-sources: src/Clang/FFI_stub_ffi.c
-  --   extra-libraries: clang, LLVMMCJIT, LLVMRuntimeDyld, LLVMObject, LLVMMCDisassembler, LLVMXCoreCodeGen, LLVMXCoreInfo, LLVMSystemZCodeGen, LLVMSystemZInfo, LLVMSparcCodeGen, LLVMSparcInfo, LLVMPowerPCCodeGen, LLVMPowerPCInfo, LLVMPowerPCAsmPrinter, LLVMPTXCodeGen, LLVMPTXInfo, LLVMMipsCodeGen, LLVMMipsInfo, LLVMMSP430CodeGen, LLVMMSP430Info, LLVMMSP430AsmPrinter, LLVMMBlazeDisassembler, LLVMMBlazeAsmParser, LLVMMBlazeCodeGen, LLVMMBlazeAsmPrinter, LLVMMBlazeInfo, LLVMLinker, LLVMipo, LLVMInterpreter, LLVMInstrumentation, LLVMJIT, LLVMExecutionEngine, LLVMCppBackend, LLVMCppBackendInfo, LLVMCellSPUCodeGen, LLVMCellSPUInfo, LLVMCBackend, LLVMCBackendInfo, LLVMBlackfinCodeGen, LLVMBlackfinInfo, LLVMBitWriter, LLVMX86Disassembler, LLVMX86AsmParser, LLVMX86CodeGen, LLVMX86AsmPrinter, LLVMX86Utils, LLVMX86Info, LLVMAsmParser, LLVMARMDisassembler, LLVMARMAsmParser, LLVMARMCodeGen, LLVMARMAsmPrinter, LLVMARMInfo, LLVMArchive, LLVMBitReader, LLVMAlphaCodeGen, LLVMSelectionDAG, LLVMAsmPrinter, LLVMMCParser, LLVMCodeGen, LLVMScalarOpts, LLVMInstCombine, LLVMTransformUtils, LLVMipa, LLVMAnalysis, LLVMTarget, LLVMCore, LLVMAlphaInfo, LLVMMC, LLVMSupport, pthread, dl, m
   exposed-modules:
     Clang, Clang.FFI
