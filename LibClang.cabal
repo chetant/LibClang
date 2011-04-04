@@ -10,12 +10,8 @@ Synopsis: Haskell bindings for libclang (a C++ parsing library)
 Description:
   LibClang package provides direct bindings to libclang.
   This should be enough for parsing C/C++ code, walking the AST and querying nodes and completion queries.
-
-  NOTE .. When configuring, please ensure llvm-config is in path
-       .. or provide the location of libclang and llvm includes
-       .. if not in the default locations using --configure-option=-I... 
-       .. You can also use --configure-option=--enable-llvm-shared=LLVMSHAREDLIB_PREFIX
-       .. if you'd like to link to the shared library
+  NOTE: When configuring, please ensure llvm-config is in path or provide the location of libclang and llvm includes if not in the default locations using --configure-option=-I... 
+        You can also use --configure-option=--enable-llvm-shared=LLVMSHAREDLIB_PREFIX if you'd like to link to the shared library
 Category: Language
 Build-type: Configure
 Extra-Source-Files: configure, LibClang.buildinfo.in
@@ -24,9 +20,10 @@ Source-Repository head
   location: git://github.com/chetant/LibClang.git
 
 Library
-  hs-source-dirs: src
   build-depends: base < 5, ffi, greencard
   build-tools: greencard
+  extensions: TypeSynonymInstances
+  hs-source-dirs: src
   c-sources: src/Clang/FFI_stub_ffi.c
   exposed-modules:
     Clang, Clang.FFI

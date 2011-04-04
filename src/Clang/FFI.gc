@@ -880,14 +880,14 @@ data Type = Type TypeKind (Ptr ()) (Ptr ())
 --   CX_CXXProtected,
 --   CX_CXXPrivate
 -- };
-%enum CppAccessSpecifier Int [CX_CXXInvalidAccessSpecifier, CX_CXXPublic, CX_CXXProtected, CX_CXXPrivate]
+%enum CXXAccessSpecifier Int [CX_CXXInvalidAccessSpecifier, CX_CXXPublic, CX_CXXProtected, CX_CXXPrivate]
 
 -- enum CX_CXXAccessSpecifier clang_getCXXAccessSpecifier(CXCursor);
-%fun clang_getCXXAccessSpecifier :: Cursor -> IO CppAccessSpecifier
+%fun clang_getCXXAccessSpecifier :: Cursor -> IO CXXAccessSpecifier
 %call (cursor k p1 p2 p3)
 %code CXCursor a = {k, {p1, p2, p3}};
 %     r = clang_getCXXAccessSpecifier(a);
-%result (cppAccessSpecifier r)
+%result (cXXAccessSpecifier r)
 
 -- unsigned clang_getNumOverloadedDecls(CXCursor cursor);
 %fun clang_getNumOverloadedDecls :: Cursor -> IO Int
@@ -1028,7 +1028,7 @@ data Type = Type TypeKind (Ptr ()) (Ptr ())
 %result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- unsigned clang_CXXMethod_isStatic(CXCursor C);
-%fun clang_CppMethod_isStatic :: Cursor -> IO Bool
+%fun clang_CXXMethod_isStatic :: Cursor -> IO Bool
 %call (cursor k p1 p2 p3)
 %code CXCursor a = {k, {p1, p2, p3}};
 %     r = clang_CXXMethod_isStatic(a);
@@ -1039,7 +1039,7 @@ data Type = Type TypeKind (Ptr ()) (Ptr ())
 %call (cursor k p1 p2 p3)
 %code CXCursor a = {k, {p1, p2, p3}};
 %     r = clang_getTemplateCursorKind(a);
-%result (cursorKind r)  
+%result (cursorKind r)
 
 -- CXCursor clang_getSpecializedCursorTemplate(CXCursor C);
 %fun clang_getSpecializedCursorTemplate :: Cursor -> IO Cursor
