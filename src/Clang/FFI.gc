@@ -7,6 +7,7 @@ import Foreign.GreenCard
 import Foreign.C
 import Foreign.ForeignPtr
 import Foreign.Ptr
+import System.IO.Unsafe(unsafePerformIO)
 
 %#include <inttypes.h>
 %#include <stdlib.h>
@@ -95,7 +96,7 @@ newtype File = File (Ptr ())
 %result (cxString (ptr r))
 
 -- time_t clang_getFileTime(CXFile SFile);
-%fun clang_getFileTime :: File -> IO Word64
+%fun clang_getFileTime :: File -> IO Word32
 
 -- CXFile clang_getFile(CXTranslationUnit tu, const char *file_name);
 %fun clang_getFile :: TranslationUnit -> String -> IO File
@@ -241,6 +242,15 @@ unmarshall_diag = newForeignPtr clang_disposeDiagnostic
 -- };
 %enum DiagnosticDisplayOptions Int [CXDiagnostic_DisplaySourceLocation,CXDiagnostic_DisplayColumn,CXDiagnostic_DisplaySourceRanges,  CXDiagnostic_DisplayOption,  CXDiagnostic_DisplayCategoryId,CXDiagnostic_DisplayCategoryName]
 
+getDiagnosticDispOptSum :: [DiagnosticDisplayOptions] -> Int
+getDiagnosticDispOptSum = sum . (map toVal_)
+    where toVal_ Diagnostic_DisplaySourceLocation = 0x1
+          toVal_ Diagnostic_DisplayColumn = 0x2
+          toVal_ Diagnostic_DisplaySourceRanges = 0x4
+          toVal_ Diagnostic_DisplayOption = 0x8
+          toVal_ Diagnostic_DisplayCategoryId = 0x10
+          toVal_ Diagnostic_DisplayCategoryName = 0x20
+
 -- TODO: make options composable via the enum
 -- CXString clang_formatDiagnostic(CXDiagnostic Diagnostic, unsigned Options);
 %fun clang_formatDiagnostic :: Diagnostic -> Int -> IO CXString
@@ -288,7 +298,7 @@ unmarshall_diag = newForeignPtr clang_disposeDiagnostic
 
 -- CXSourceRange clang_getDiagnosticRange(CXDiagnostic Diagnostic,
 --                                                       unsigned Range);
-%fun clang_getDiagnosticRange :: Diagnostic -> Int -> SourceRange
+%fun clang_getDiagnosticRange :: Diagnostic -> Int -> IO SourceRange
 %call (fptr (ptr d)) (int i)
 %code CXSourceRange r = clang_getDiagnosticRange(d, i);
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
@@ -341,11 +351,21 @@ unmarshall_diag = newForeignPtr clang_disposeDiagnostic
 --   CXTranslationUnit_CXXPrecompiledPreamble = 0x10,
 --   CXTranslationUnit_CXXChainedPCH = 0x20
 -- };
-%enum TranslationUnit_Flags Int [CXTranslationUnit_None, CXTranslationUnit_DetailedPreprocessingRecord, CXTranslationUnit_Incomplete, CXTranslationUnit_PrecompiledPreamble, CXTranslationUnit_CacheCompletionResults, CXTranslationUnit_CXXPrecompiledPreamble, CXTranslationUnit_CXXChainedPCH]
+%enum TranslationUnitFlags Int [CXTranslationUnit_None, CXTranslationUnit_DetailedPreprocessingRecord, CXTranslationUnit_Incomplete, CXTranslationUnit_PrecompiledPreamble, CXTranslationUnit_CacheCompletionResults, CXTranslationUnit_CXXPrecompiledPreamble, CXTranslationUnit_CXXChainedPCH]
+
+getTranslationUnitFlagsSum :: [TranslationUnitFlags] -> Int
+getTranslationUnitFlagsSum = sum . (map toVal_)
+    where toVal_ TranslationUnit_None = 0x0
+          toVal_ TranslationUnit_DetailedPreprocessingRecord = 0x01
+          toVal_ TranslationUnit_Incomplete = 0x02
+          toVal_ TranslationUnit_PrecompiledPreamble = 0x04
+          toVal_ TranslationUnit_CacheCompletionResults = 0x08
+          toVal_ TranslationUnit_CXXPrecompiledPreamble = 0x10
+          toVal_ TranslationUnit_CXXChainedPCH = 0x20
 
 -- unsigned clang_defaultEditingTranslationUnitOptions(void);
 %fun clang_defaultEditingTranslationUnitOptions :: IO Int
-  
+
 -- CXTranslationUnit clang_parseTranslationUnit(CXIndex CIdx,
 --                                                     const char *source_filename,
 --                                          const char * const *command_line_args,
@@ -353,8 +373,8 @@ unmarshall_diag = newForeignPtr clang_disposeDiagnostic
 --                                             struct CXUnsavedFile *unsaved_files,
 --                                                      unsigned num_unsaved_files,
 --                                                             unsigned options);
-%fun clang_parseTranslationUnit :: Index -> Maybe String -> [String] -> [UnsavedFile] -> TranslationUnit_Flags -> IO (Maybe TranslationUnit)
-%call (fptr (ptr i)) (maybeT {nullPtr} (string s)) (listLenString ((fptr (ptr ss)), (int ns))) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs))) (translationUnit_Flags i2)
+%fun clang_parseTranslationUnit :: Index -> Maybe String -> [String] -> [UnsavedFile] -> Int -> IO (Maybe TranslationUnit)
+%call (fptr (ptr i)) (maybeT {nullPtr} (string s)) (listLenString ((fptr (ptr ss)), (int ns))) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs))) (int i2)
 %code r = clang_parseTranslationUnit(i,s,ss,ns,ufs,nufs,i2);
 %result (maybeT {nullPtr} (translationUnit (ptr r)))
 
