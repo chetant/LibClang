@@ -419,6 +419,11 @@ marshall_listLenUnsavedFile ufs = do
 -- };
 %enum SaveTranslationUnitFlags Int [CXSaveTranslationUnit_None]
 
+getSaveTranslationUnitFlagsSum :: [SaveTranslationUnitFlags] -> Int
+getSaveTranslationUnitFlagsSum = sum . (map toVal_)
+    where toVal_ SaveTranslationUnit_None = 0
+
+-- TODO: figure out how to convert this to array of flags
 -- unsigned clang_defaultSaveOptions(CXTranslationUnit TU);
 %fun clang_defaultSaveOptions :: TranslationUnit -> IO Int
 %call (fptr (ptr t))
@@ -437,7 +442,11 @@ marshall_listLenUnsavedFile ufs = do
 --   CXReparse_None = 0x0
 -- };
 %enum ReparseFlags Int [CXReparse_None]
- 
+
+getReparseFlagsSum :: [ReparseFlags] -> Int
+getReparseFlagsSum = sum . (map toVal_)
+    where toVal_ Reparse_None = 0
+
 -- unsigned clang_defaultReparseOptions(CXTranslationUnit TU);
 %fun clang_defaultReparseOptions :: TranslationUnit -> IO Int
 %call (fptr (ptr t))
@@ -448,10 +457,10 @@ marshall_listLenUnsavedFile ufs = do
 --                                                 unsigned num_unsaved_files,
 --                                           struct CXUnsavedFile *unsaved_files,
 --                                                 unsigned options);
-%fun clang_reparseTranslationUnit :: TranslationUnit -> [UnsavedFile] -> Int -> IO Int
+%fun clang_reparseTranslationUnit :: TranslationUnit -> [UnsavedFile] -> Int -> IO Bool
 %call (fptr (ptr t)) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs))) (int i)
 %code r = clang_reparseTranslationUnit(t, nufs, ufs, i);
-%result (int r)
+%result (bool r)
 
 -- enum CXCursorKind {
 --   CXCursor_UnexposedDecl                 = 1,
@@ -923,7 +932,7 @@ data Type = Type TypeKind (Ptr ()) (Ptr ())
 %code CXCursor a = {k, {p1, p2, p3}};
 %     CXCursor r = clang_getOverloadedDecl(a, i);
 %result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
-  
+
 -- CXType clang_getIBOutletCollectionType(CXCursor);
 %fun clang_getIBOutletCollectionType :: Cursor -> IO Type
 %call (cursor k p1 p2 p3)
@@ -1252,6 +1261,11 @@ data CompletionResult = CompletionResult CursorKind CompletionString
 --   CXCodeComplete_IncludeCodePatterns = 0x02
 -- };
 %enum CodeCompleteFlags Int [CXCodeComplete_IncludeMacros, CXCodeComplete_IncludeCodePatterns]
+
+getCodeCompleteFlagsSum :: [CodeCompleteFlags] -> Int
+getCodeCompleteFlagsSum = sum . (map toVal_)
+    where toVal_ CodeComplete_IncludeMacros = 0x01
+          toVal_ CodeComplete_IncludeCodePatterns = 0x02
 
 -- unsigned clang_defaultCodeCompleteOptions(void);
 foreign import ccall unsafe "clang-c/Index.h clang_defaultCodeCompleteOptions" defaultCodeCompleteOptions :: IO ()

@@ -9,6 +9,55 @@ module Clang.Cursor
 ,FFI.LanguageKind(..)
 ,FFI.Cursor
 ,FFI.CursorSet
+
+,nullCursor
+,getHash
+,getKind
+,getLinkage
+,getAvailability
+,getLanguage
+,getSemanticParent
+,getLexicalParent
+,getOverriddenCursors
+,getIncludedFile
+,Clang.Cursor.getLocation
+,getExtent
+,getType
+,Clang.Cursor.getResultType
+,getDeclObjCTypeEncoding
+,getSpelling
+,getDisplayName
+,getReferenced
+,getDefinition
+,getCanonicalCursor
+,getTemplateKind
+,getSpecializedTemplate
+
+-- attribute function
+,getIBOutletCollectionType
+
+,isDefinition
+,isDeclaration
+,isReference
+,isExpression
+,isStatement
+,isInvalid
+,isTranslationUnit
+,isPreprocessing
+,isUnexposed
+,Clang.Cursor.isVirtualBase
+,isStaticCppMethod
+
+-- CursorSet functions
+,createSet
+,setContains
+,setInsert
+
+,getCXXAccessSpecifier
+,getOverloadedDecls
+
+--CursorKind functions
+,getCursorKindSpelling
 ) where
 
 import System.IO.Unsafe(unsafePerformIO)
