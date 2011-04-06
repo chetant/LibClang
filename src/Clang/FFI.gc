@@ -1268,7 +1268,7 @@ getCodeCompleteFlagsSum = sum . (map toVal_)
           toVal_ CodeComplete_IncludeCodePatterns = 0x02
 
 -- unsigned clang_defaultCodeCompleteOptions(void);
-foreign import ccall unsafe "clang-c/Index.h clang_defaultCodeCompleteOptions" defaultCodeCompleteOptions :: IO ()
+foreign import ccall unsafe "clang-c/Index.h clang_defaultCodeCompleteOptions" defaultCodeCompleteOptions :: IO Int
 
 -- typedef struct {
 --   CXCompletionResult *Results;

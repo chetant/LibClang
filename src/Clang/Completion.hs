@@ -16,6 +16,9 @@ module Clang.Completion
 ) where
 
 import System.IO.Unsafe(unsafePerformIO)
+import Data.Bits((.&.))
+import Data.Maybe(catMaybes)
+import Control.Monad(mzero)
 
 import Clang.Type
 import Clang.Source
@@ -28,7 +31,10 @@ getNumChunks = unsafePerformIO . FFI.getNumCompletionChunks
 getPriority = unsafePerformIO . FFI.getCompletionPriority
 getAvailability = unsafePerformIO . FFI.getCompletionAvailability
 
-defaultCodeCompleteOptions = unsafePerformIO FFI.defaultCodeCompleteOptions
+defaultCodeCompleteOptions = catMaybes [val1 defVal, val2 defVal]
+    where defVal = unsafePerformIO FFI.defaultCodeCompleteOptions
+          val1 v = if (v .&. 0x01) == 0x01 then return FFI.CodeComplete_IncludeMacros else mzero
+          val2 v = if (v .&. 0x02) == 0x02 then return FFI.CodeComplete_IncludeCodePatterns else mzero
 
 codeCompleteAt :: FFI.TranslationUnit
                -> FilePath -- ^ Filename of the source file

@@ -14,6 +14,9 @@ module Clang.TranslationUnit
 ) where
 
 import System.IO.Unsafe(unsafePerformIO)
+import Data.Bits((.&.))
+import Data.Maybe(catMaybes)
+import Control.Monad(mzero)
 
 import Clang.Type
 import Clang.Source
@@ -35,7 +38,8 @@ parse :: FFI.Index -- ^ Index for the source
       -> IO (Maybe FFI.TranslationUnit)
 parse i ms ss ufs opts = FFI.parseTranslationUnit i ms ss ufs (FFI.getTranslationUnitFlagsSum opts)
 
-defaultSaveOptions = unsafePerformIO . FFI.defaultSaveOptions
+-- No other option right now
+defaultSaveOptions = [FFI.SaveTranslationUnit_None]
 
 save :: FFI.TranslationUnit -- ^ TranslationUnit to save
      -> FilePath -- ^ Filename to save to
@@ -43,7 +47,11 @@ save :: FFI.TranslationUnit -- ^ TranslationUnit to save
      -> IO Bool
 save t fname opts = FFI.saveTranslationUnit t fname (FFI.getSaveTranslationUnitFlagsSum opts)
 
-defaultReparseOptions = unsafePerformIO . FFI.defaultReparseOptions
+-- No other option right now
+defaultReparseOptions = [FFI.Reparse_None]
+    -- where defVal = unsafePerformIO . FFI.defaultReparseOptions
+    --       val1 v = if (v .&. 0x1) == 0x1 then return FFI.Diagnostic_DisplaySourceLocation else mzero
+
 reparse :: FFI.TranslationUnit -- ^ TranslationUnit to save
         -> [FFI.UnsavedFile] -- ^ All the unsaved files
         -> [FFI.ReparseFlags] -- ^ reparse options

@@ -1,6 +1,12 @@
 module Clang.CrossReference
 (
- 
+ getUSR
+,constructUSR_ObjCClass
+,constructUSR_ObjCCategory
+,constructUSR_ObjCProtocol
+,constructUSR_ObjCIvar
+,constructUSR_ObjCMethod
+,constructUSR_ObjCProperty
 ) where
 
 import System.IO.Unsafe(unsafePerformIO)
