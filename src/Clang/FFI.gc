@@ -1322,7 +1322,7 @@ unmarshall_codeCompleteResults = newForeignPtr clang_disposeCodeCompleteResults
 -- void clang_toggleCrashRecovery(unsigned isEnabled);
 %fun clang_toggleCrashRecovery :: Bool -> IO ()
 
--- TODO: implement me  
+-- TODO: test me  
 -- typedef void (*CXInclusionVisitor)(CXFile included_file,
 --                                    CXSourceLocation* inclusion_stack,
 --                                    unsigned include_len,
@@ -1330,3 +1330,12 @@ unmarshall_codeCompleteResults = newForeignPtr clang_disposeCodeCompleteResults
 -- void clang_getInclusions(CXTranslationUnit tu,
 --                                         CXInclusionVisitor visitor,
 --                                         CXClientData client_data);
+type InclusionVisitor = File -> Ptr SourceLocation -> Int -> Ptr () -> IO ()
+%fun clang_getInclusions :: TranslationUnit -> InclusionVisitor -> Ptr () -> IO ()
+%call (fptr (ptr t)) (inclusionVisitor (ptr f)) (ptr p)
+%code clang_getInclusions(t, f, p);
+
+foreign import ccall "wrapper" wrapInclusionVisitor :: InclusionVisitor -> IO (FunPtr InclusionVisitor)
+
+marshall_inclusionVisitor :: InclusionVisitor -> IO (Ptr InclusionVisitor)
+marshall_inclusionVisitor f = castFunPtrToPtr <$> wrapInclusionVisitor f
