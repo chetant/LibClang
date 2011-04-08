@@ -36,7 +36,7 @@ Source-Repository head
 Library
   build-depends: base < 5, ffi, greencard
   build-tools: greencard
-  extensions: TypeSynonymInstances
+  extensions: TypeSynonymInstances, EmptyDataDecls
   hs-source-dirs: src
   c-sources: src/Clang/FFI_stub_ffi.c
   exposed-modules:

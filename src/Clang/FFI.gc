@@ -1,4 +1,4 @@
-{-# LANGUAGE ForeignFunctionInterface, EmptyDataDecls #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
 module Clang.FFI where
 
 import Data.Word
@@ -251,7 +251,6 @@ getDiagnosticDispOptSum = sum . (map toVal_)
           toVal_ Diagnostic_DisplayCategoryId = 0x10
           toVal_ Diagnostic_DisplayCategoryName = 0x20
 
--- TODO: make options composable via the enum
 -- CXString clang_formatDiagnostic(CXDiagnostic Diagnostic, unsigned Options);
 %fun clang_formatDiagnostic :: Diagnostic -> Int -> IO CXString
 %call (fptr (ptr d)) (int i)
@@ -423,7 +422,6 @@ getSaveTranslationUnitFlagsSum :: [SaveTranslationUnitFlags] -> Int
 getSaveTranslationUnitFlagsSum = sum . (map toVal_)
     where toVal_ SaveTranslationUnit_None = 0
 
--- TODO: figure out how to convert this to array of flags
 -- unsigned clang_defaultSaveOptions(CXTranslationUnit TU);
 %fun clang_defaultSaveOptions :: TranslationUnit -> IO Int
 %call (fptr (ptr t))
@@ -954,6 +952,9 @@ data Type = Type TypeKind (Ptr ()) (Ptr ())
 -- unsigned clang_visitChildren(CXCursor parent,
 --                                             CXCursorVisitor visitor,
 --                                             CXClientData client_data);
+
+
+
 -- #ifdef __has_feature
 -- #  if __has_feature(blocks)
 -- typedef enum CXChildVisitResult 
