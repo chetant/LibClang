@@ -3381,6 +3381,60 @@ then
 	-------------------------------------------------" "$LINENO" 5
 fi
 
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for clang_getClangVersion in -lclang" >&5
+$as_echo_n "checking for clang_getClangVersion in -lclang... " >&6; }
+if test "${ac_cv_lib_clang_clang_getClangVersion+set}" = set; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lclang  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char clang_getClangVersion ();
+int
+main ()
+{
+return clang_getClangVersion ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_clang_clang_getClangVersion=yes
+else
+  ac_cv_lib_clang_clang_getClangVersion=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_clang_clang_getClangVersion" >&5
+$as_echo "$ac_cv_lib_clang_clang_getClangVersion" >&6; }
+if test "x$ac_cv_lib_clang_clang_getClangVersion" = x""yes; then :
+  clang_lib_found=yes
+else
+  clang_lib_found=no
+fi
+
+if test "$clang_lib_found" = no
+then
+	as_fn_error $? "
+-------------------------------------------------
+clang library not found.
+if the library is present, ensure it is available
+on the lib search path (export LDFLAGS=...)
+-------------------------------------------------" "$LINENO" 5
+else
+	LDFLAGS="$LDFLAGS -lclang"
+fi
+
 # Check for stdlib.h and inttypes
 if test "$ac_cv_header_stdlib_h" != yes
 then

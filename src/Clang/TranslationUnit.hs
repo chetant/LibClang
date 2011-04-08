@@ -4,6 +4,7 @@ module Clang.TranslationUnit
 ,FFI.TranslationUnitFlags(..)
 ,FFI.SaveTranslationUnitFlags(..)
 ,create
+,createIndex
 ,getSpelling
 ,createFromSourceFile
 ,parse
@@ -57,3 +58,6 @@ reparse :: FFI.TranslationUnit -- ^ TranslationUnit to save
         -> [FFI.ReparseFlags] -- ^ reparse options
         -> IO Bool
 reparse t ufs opts = FFI.reparseTranslationUnit t ufs (FFI.getReparseFlagsSum opts)
+
+-- index functions
+createIndex = FFI.createIndex

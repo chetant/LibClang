@@ -1,4 +1,0 @@
--- include-dirs: .
--- extra-libraries: clang, LLVM-3.0svn
-cc-options: -I.  -I/home/saiko/bin/llvm/include  -DNDEBUG -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -O3 -fomit-frame-pointer -fPIC
-ld-options:  -L/home/saiko/bin/llvm/lib  -lpthread -ldl -lm  -lLLVM-3.0svn

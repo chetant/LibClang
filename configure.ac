@@ -71,6 +71,19 @@ then
 	-------------------------------------------------])
 fi
 
+AC_CHECK_LIB([clang], [clang_getClangVersion], [clang_lib_found=yes], [clang_lib_found=no])
+if test "$clang_lib_found" = no
+then
+	AC_MSG_ERROR([
+-------------------------------------------------
+clang library not found.
+if the library is present, ensure it is available
+on the lib search path (export LDFLAGS=...)
+-------------------------------------------------])
+else
+	LDFLAGS="$LDFLAGS -lclang"
+fi
+
 # Check for stdlib.h and inttypes
 if test "$ac_cv_header_stdlib_h" != yes
 then
