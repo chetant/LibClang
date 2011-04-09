@@ -242,19 +242,22 @@ data UnsavedFile = UnsavedFile { usf_filename :: String, usf_contents :: String 
 --   unsigned private_flags;
 -- } CXString;
 data StringObj
-type CXString = ForeignPtr StringObj
+newtype CXString = CXString (ForeignPtr StringObj)
 
 %C CXString * mkStrObj() { return malloc(sizeof(CXString)); }
 %  void freeStrObj(CXString * str) { clang_disposeString(*str);free(str); }
 foreign import ccall unsafe "FFI_stub_ffi.h mkStrObj" mkStrObj :: IO (Ptr StringObj)
 foreign import ccall unsafe "FFI_stub_ffi.h &freeStrObj" freeStrObj :: FunPtr (Ptr StringObj -> IO ())
 
-unmarshall_cxString :: Ptr StringObj -> IO (ForeignPtr StringObj)
-unmarshall_cxString  = newForeignPtr freeStrObj
+unmarshall_cxString :: Ptr StringObj -> IO CXString
+unmarshall_cxString p = CXString <$> (newForeignPtr freeStrObj p)
+
+marshall_cxString :: CXString -> IO (ForeignPtr StringObj)
+marshall_cxString (CXString a) = return a
 
 -- const char *clang_getCString(CXString string);
 %fun clang_getCString :: CXString -> IO String
-%call (fptr (ptr d))
+%call (cxString (fptr (ptr d)))
 %code r = clang_getCString(*(CXString*)d);
 %result (string r)
 
@@ -1183,7 +1186,7 @@ data Type = Type TypeKind (Ptr ()) (Ptr ())
 -- CXString clang_constructUSR_ObjCIvar(const char *name,
 --                                                     CXString classUSR);
 %fun clang_constructUSR_ObjCIvar :: String -> CXString -> IO CXString
-%call (string s) (fptr (ptr x))
+%call (string s) (cxString (fptr (ptr x)))
 %code CXString *r = mkStrObj();*r = clang_constructUSR_ObjCIvar(s, *(CXString *)x);
 %result (cxString (ptr r))
 
@@ -1191,14 +1194,14 @@ data Type = Type TypeKind (Ptr ()) (Ptr ())
 --                                                       unsigned isInstanceMethod,
 --                                                       CXString classUSR);
 %fun clang_constructUSR_ObjCMethod :: String -> Bool -> CXString -> IO CXString
-%call (string s) (bool b) (fptr (ptr x))
+%call (string s) (bool b) (cxString (fptr (ptr x)))
 %code CXString *r = mkStrObj();*r = clang_constructUSR_ObjCMethod(s, b, *(CXString *)x);
 %result (cxString (ptr r))
 
 -- CXString clang_constructUSR_ObjCProperty(const char *property,
 --                                                         CXString classUSR);
 %fun clang_constructUSR_ObjCProperty :: String -> CXString -> IO CXString
-%call (string s) (fptr (ptr x))
+%call (string s) (cxString (fptr (ptr x)))
 %code CXString *r = mkStrObj();*r = clang_constructUSR_ObjCProperty(s, *(CXString *)x);
 %result (cxString (ptr r))
 
