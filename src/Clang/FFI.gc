@@ -290,10 +290,11 @@ data SourceLocation = SourceLocation (Ptr ()) (Ptr ()) Int
 %C void * srcLocListGetPtr(CXSourceLocation * s, int i, int pi) {return s[i].ptr_data[pi];}
 %  unsigned srcLocListGetData(CXSourceLocation * s, int i) {return s[i].int_data;}
 
-foreign import ccall unsafe "FFI_stub_ffi.h srcLocListGetPtr" srcLocListGetPtr_ :: Ptr () -> CInt -> CInt -> IO (Ptr ())
-foreign import ccall unsafe "FFI_stub_ffi.h srcLocListGetData" srcLocListGetData_ :: Ptr () -> CInt -> IO CInt
+foreign import ccall safe "FFI_stub_ffi.h srcLocListGetPtr" srcLocListGetPtr_ :: Ptr () -> CInt -> CInt -> IO (Ptr ())
+foreign import ccall safe "FFI_stub_ffi.h srcLocListGetData" srcLocListGetData_ :: Ptr () -> CInt -> IO CInt
 
 unmarshall_SrcLocList :: Ptr () -> CUInt -> IO [SourceLocation]
+unmarshall_SrcLocList sls 0 = return []
 unmarshall_SrcLocList sls nsl = mapM getSrcList_ [0..(nsl-1)]
     where getSrcList_ i = do
             p1 <- srcLocListGetPtr_ sls (fromIntegral i) 0
@@ -1525,9 +1526,18 @@ unmarshall_codeCompleteResults = newForeignPtr clang_disposeCodeCompleteResults
 type InclusionVisitorRaw = File -> Ptr () -> CUInt -> Ptr () -> IO ()
 type InclusionVisitor = File -> [SourceLocation] -> Ptr () -> IO ()
 
-%fun clang_getInclusions :: TranslationUnit -> InclusionVisitor -> Ptr () -> IO ()
-%call (fptr (ptr t)) (inclusionVisitor (ptr f)) (ptr p)
-%code clang_getInclusions(t, f, p);
+-- %fun clang_getInclusions :: TranslationUnit -> InclusionVisitor -> Ptr () -> IO ()
+-- %call (fptr (ptr t)) (inclusionVisitor (ptr f)) (ptr p)
+-- %code clang_getInclusions(t, f, p);
+
+getInclusions :: TranslationUnit -> InclusionVisitor -> Ptr () -> IO ()
+getInclusions tu iv p =
+  (marshall_fptr tu) >>= \ (t) ->
+  (marshall_inclusionVisitor iv) >>= \ (f) ->
+  prim_getInclusions_ t f p >> freeHaskellFunPtr f
+
+%C void prim_getInclusions_(HsPtr t,HsPtr f,HsPtr p){ do { clang_getInclusions(t, f, p);} while(0);}
+foreign import  ccall safe "FFI_stub_ffi.h prim_getInclusions_" prim_getInclusions_ :: Ptr a1 -> FunPtr InclusionVisitorRaw -> Ptr a3 -> IO ()
 
 foreign import ccall "wrapper" wrapInclusionVisitorRaw :: InclusionVisitorRaw -> IO (FunPtr InclusionVisitorRaw)
 
@@ -1536,5 +1546,5 @@ wrapInclusionVisitor f = \file pSrcLoc nSrcLoc pData -> do
                            srcLocs <- unmarshall_SrcLocList pSrcLoc nSrcLoc
                            f file srcLocs pData
 
-marshall_inclusionVisitor :: InclusionVisitor -> IO (Ptr InclusionVisitorRaw)
-marshall_inclusionVisitor f = castFunPtrToPtr <$> wrapInclusionVisitorRaw (wrapInclusionVisitor f)
+marshall_inclusionVisitor :: InclusionVisitor -> IO (FunPtr InclusionVisitorRaw)
+marshall_inclusionVisitor f = wrapInclusionVisitorRaw (wrapInclusionVisitor f)

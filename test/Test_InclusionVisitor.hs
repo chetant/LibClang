@@ -8,7 +8,7 @@ import Foreign.Ptr(nullPtr)
 
 printInclusions f sls p = do
   name <- FFI.getFileName f
-  print name
+  putStrLn $ "Included:" ++ show name
 
 main = do
   args <- getArgs
