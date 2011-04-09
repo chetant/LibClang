@@ -12,9 +12,7 @@ Description:
   .
   This should be enough for parsing C/C++ code, walking the AST and querying nodes and completion queries.
   .
-  * NOTE:
-  .
-  	When configuring, please ensure llvm-config is in path or provide the location of libclang and llvm includes if not in the default locations using 
+  * NOTE:  When configuring, please ensure llvm-config is in path or provide the location of libclang and llvm includes if not in the default locations using 
   .
   	@ --configure-option=-I... @
 	.
@@ -24,7 +22,7 @@ Description:
 	.
   	if you'd like to link to the shared library
   .
-  Also use <https://github.com/chetant/LibClang/issues> for report bugs
+  Also use <https://github.com/chetant/LibClang/issues> to report bugs
 
 Category: Language
 Build-type: Configure
