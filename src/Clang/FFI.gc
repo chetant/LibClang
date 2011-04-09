@@ -137,7 +137,7 @@ data SourceRange = SourceRange (Ptr ()) (Ptr ()) Int Int
 --                                                   unsigned column);
 %fun clang_getLocation :: TranslationUnit -> File -> Int -> Int -> IO SourceLocation
 %call (fptr (ptr t)) (file f) (int i) (int j)
-%code CXSourceLocation r = clang_getLocation(*(CXTranslationUnit*)t, f, i, j);
+%code CXSourceLocation r = clang_getLocation((CXTranslationUnit)t, f, i, j);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
 
 -- CXSourceLocation clang_getLocationForOffset(CXTranslationUnit tu,
@@ -145,7 +145,7 @@ data SourceRange = SourceRange (Ptr ()) (Ptr ()) Int Int
 --                                                            unsigned offset);
 %fun clang_getLocationForOffset :: TranslationUnit -> File -> Int -> IO SourceLocation
 %call (fptr (ptr t)) (file f) (int i)
-%code CXSourceLocation r = clang_getLocationForOffset(*(CXTranslationUnit*)t, f, i);
+%code CXSourceLocation r = clang_getLocationForOffset((CXTranslationUnit)t, f, i);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
 
 -- CXSourceRange clang_getNullRange();
@@ -221,13 +221,13 @@ unmarshall_diag = newForeignPtr clang_disposeDiagnostic
 -- unsigned clang_getNumDiagnostics(CXTranslationUnit Unit);
 %fun clang_getNumDiagnostics :: TranslationUnit -> IO Int
 %call (fptr (ptr t))
-%code unsigned r = clang_getNumDiagnostics(*(CXTranslationUnit*)t);
+%code unsigned r = clang_getNumDiagnostics((CXTranslationUnit)t);
 %result (int r)
 
 -- CXDiagnostic clang_getDiagnostic(CXTranslationUnit Unit, unsigned Index);
 %fun clang_getDiagnostic :: TranslationUnit -> Int -> IO Diagnostic
 %call (fptr (ptr t)) (int i)
-%code CXDiagnostic r = clang_getDiagnostic(*(CXTranslationUnit*)t, i);
+%code CXDiagnostic r = clang_getDiagnostic((CXTranslationUnit)t, i);
 %result (diag (ptr r))
 
 -- enum CXDiagnosticDisplayOptions {
