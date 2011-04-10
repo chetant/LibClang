@@ -3,9 +3,7 @@ module Clang.FFI
 (
  Index
 ,createIndex
-,clang_disposeIndex
 ,TranslationUnit
-,clang_disposeTranslationUnit
 ,ClientData
 ,UnsavedFile
 ,AvailabilityKind(..)
@@ -32,12 +30,6 @@ module Clang.FFI
 ,getNumDiagnostics
 ,getDiagnostic
 ,DiagnosticDisplayOptions(..)
-,diagnostic_DisplaySourceLocation
-,diagnostic_DisplayColumn
-,diagnostic_DisplaySourceRanges
-,diagnostic_DisplayOption
-,diagnostic_DisplayCategoryId
-,diagnostic_DisplayCategoryName
 ,getDiagnosticDispOptSum
 ,formatDiagnostic
 ,defaultDiagnosticDisplayOptions
@@ -143,9 +135,6 @@ module Clang.FFI
 ,getTokenSpelling
 ,getTokenLocation
 ,getTokenExtent
-,tokenListGetInt_
-,tokenListGetPtr_
-,clang_disposeTokens
 ,tokenize
 ,getCursorKindSpelling
 ,enableStackTraces
@@ -162,7 +151,6 @@ module Clang.FFI
 ,getCodeCompleteFlagsSum
 ,defaultCodeCompleteOptions
 ,CodeCompleteResults
-,clang_disposeCodeCompleteResults
 ,codeCompleteAt
 ,sortCodeCompletionResults
 ,codeCompleteGetNumDiagnostics
@@ -1319,14 +1307,21 @@ type TokenList = [Token]
 
 %C unsigned tokenListGetInt(CXToken *tlist, int i, int pi) {return tlist[i].int_data[pi];}
 %  void * tokenListGetPtr(CXToken *tlist, int i) {return tlist[i].ptr_data;}
+%  void * makeTokens(int n) { return malloc(n * sizeof(CXToken)); }
+%  void freeTokens(void * tlist) { free(tlist); }
+%  void setTokenList(CXToken *tlist,int i,int w,int x,int y,int z,void *p) {CXToken a = {{w, x, y, z}, p};tlist[i]=a;}
 
 foreign import ccall unsafe "FFI_stub_ffi.h tokenListGetInt" tokenListGetInt_ :: Ptr () -> CInt -> CInt -> IO CInt
 foreign import ccall unsafe "FFI_stub_ffi.h tokenListGetPtr" tokenListGetPtr_ :: Ptr () -> CInt -> IO (Ptr ())
+foreign import ccall unsafe "FFI_stub_ffi.h makeTokens" makeTokens_ :: CInt -> IO (Ptr ())
+foreign import ccall unsafe "FFI_stub_ffi.h &freeTokens" freeTokens_ :: FunPtr (Ptr () -> IO ())
+foreign import ccall unsafe "FFI_stub_ffi.h setTokenList" setTokenList_ :: 
+    Ptr () -> CInt -> CInt -> CInt -> CInt -> CInt -> Ptr () -> IO ()
 
 -- void clang_disposeTokens(CXTranslationUnit TU, CXToken *Tokens, unsigned NumTokens);
 foreign import ccall unsafe "FFI_stub_ffi.h clang_disposeTokens" clang_disposeTokens :: Ptr TranslationUnitObj -> Ptr () -> CUInt -> IO ()
 
-unmarshall_tokenList ::  Ptr TranslationUnitObj -> Int -> Ptr () -> IO TokenList
+unmarshall_tokenList :: Ptr TranslationUnitObj -> Int -> Ptr () -> IO TokenList
 unmarshall_tokenList t numO os = do
   tokens <- mapM getToken_ [0..nO]
   clang_disposeTokens t os (fromIntegral numO)
@@ -1340,8 +1335,15 @@ unmarshall_tokenList t numO os = do
             p <- tokenListGetPtr_ os i
             return $ Token i1 i2 i3 i4 p
 
--- marshall_tokenList ::  TokenList -> IO (Int, Ptr ())
--- marshall_tokenList (TokenList p ts)= return (length ts, p)
+marshall_tokenList ::  TokenList -> IO (Int, ForeignPtr ())
+marshall_tokenList ts = do
+  let numTs = length ts
+      ci = fromIntegral
+      setToken tptr ((Token w x y z p), i) = setTokenList_ tptr (ci i) (ci w) (ci x) (ci y) (ci z) p
+      fillTokens p = mapM_ (setToken p) $ zip ts [0..(numTs-1)]
+  tlist <- newForeignPtr freeTokens_ =<< makeTokens_ (ci numTs)
+  withForeignPtr tlist fillTokens
+  return (numTs, tlist)
 
 -- void clang_tokenize(CXTranslationUnit TU, CXSourceRange Range,
 --                                    CXToken **Tokens, unsigned *NumTokens);
@@ -1355,10 +1357,25 @@ unmarshall_tokenList t numO os = do
 -- void clang_annotateTokens(CXTranslationUnit TU,
 --                                          CXToken *Tokens, unsigned NumTokens,
 --                                          CXCursor *Cursors);
+unmarshall_cursorListExt ::  Int -> Ptr () -> IO CursorList
+unmarshall_cursorListExt numO os = do
+  cursors <- mapM getCursor_ [0..nO]
+  clang_disposeOverriddenCursors os
+  return cursors
+    where nO = fromIntegral (numO-1)
+          getCursor_ i = do
+            kind <- unmarshall_CursorKind <$> (cursorListGetKind_ os i)
+            p1 <- cursorListGetPtr_ os i 0
+            p2 <- cursorListGetPtr_ os i 1
+            p3 <- cursorListGetPtr_ os i 2
+            return $ Cursor kind p1 p2 p3
+
 -- TODO: implement me
 -- %fun clang_annotateTokens :: TranslationUnit -> TokenList -> IO CursorList
--- %call (fptr (ptr t)) (tokenList((int nts), (ptr ts)))
--- %code clang_annotateTokens(t, ts, nts, 
+-- %call (fptr (ptr t)) (tokenList ((int nts), (ptr ts)))
+-- %code CXCursor * cs = (CXCursor *)malloc(sizeof(CXCursor)*nts);
+-- %     clang_annotateTokens(t, ts, nts, cs);
+-- %result (cursorListExt (int nts) (ptr cs))
 
 -- CXString clang_getCursorKindSpelling(enum CXCursorKind Kind);
 %fun clang_getCursorKindSpelling :: CursorKind -> IO CXString
@@ -1378,7 +1395,7 @@ unmarshall_tokenList t numO os = do
 -- void clang_enableStackTraces(void);
 foreign import ccall unsafe "clang-c/Index.h clang_enableStackTraces" enableStackTraces :: IO ()
 
--- TODO: implement me
+-- TODO: implement me after figuring out what this function really does
 -- void clang_executeOnThread(void (*fn)(void*), void *user_data,
 --                                           unsigned stack_size);
 
@@ -1514,7 +1531,6 @@ unmarshall_codeCompleteResults = newForeignPtr clang_disposeCodeCompleteResults
 -- void clang_toggleCrashRecovery(unsigned isEnabled);
 %fun clang_toggleCrashRecovery :: Bool -> IO ()
 
--- TODO: test me  
 -- typedef void (*CXInclusionVisitor)(CXFile included_file,
 --                                    CXSourceLocation* inclusion_stack,
 --                                    unsigned include_len,
