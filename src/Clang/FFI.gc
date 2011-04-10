@@ -1128,10 +1128,56 @@ data Type = Type TypeKind (Ptr ()) (Ptr ())
 -- typedef enum CXChildVisitResult (*CXCursorVisitor)(CXCursor cursor,
 --                                                    CXCursor parent,
 --                                                    CXClientData client_data);
+type ChildVisitorRaw = Int -> Ptr () -> Ptr () -> Ptr () -> 
+                       Int -> Ptr () -> Ptr () -> Ptr () -> IO Int
+type ChildVisitor = Cursor -> Cursor -> Ptr () -> IO ChildVisitResult
+foreign import ccall "wrapper" wrapChildVisitorRaw :: ChildVisitorRaw -> IO (FunPtr ChildVisitorRaw)
+wrapChildVisitor :: ChildVisitor -> ChildVisitorRaw
+wrapChildVisitor = undefined
+
 -- unsigned clang_visitChildren(CXCursor parent,
 --                                             CXCursorVisitor visitor,
 --                                             CXClientData client_data);
+visitChildren :: Cursor -> ChildVisitor -> Ptr () -> IO Int
+visitChildren (Cursor k p1 p2 p3) f pd = do
+  fp <- wrapChildVisitorRaw (wrapChildVisitor f)
+  retVal <- fromIntegral <$> prim_visitChildren_ (marshall_CursorKind k) p1 p2 p3 pd fp
+  freeHaskellFunPtr fp
+  return retVal
 
+%C typedef enum CXChildVisitResult (*HSCursorVisitor)
+%     (HsInt ck,HsPtr cp1, HsPtr cp2,HsPtr cp3,
+%      HsInt pk,HsPtr pp1, HsPtr pp2,HsPtr pp3, CXClientData data);
+%  typedef struct {
+%    HSCursorVisitor visitor;
+%    CXClientData data;
+%  } HSChildVisitorData;
+%
+%  enum CXChildVisitResult primChildVisitor(CXCursor c, CXCursor p, CXClientData d)
+%  {
+%    HSChildVisitorData *hsdata = (HSChildVisitorData *)d;
+%    return hsdata->visitor(c.kind,c.data[0],c.data[1],c.data[2], 
+%                           p.kind,p.data[0],p.data[1],p.data[2], hsdata->data);
+%  }
+%
+%  unsigned prim_visitChildren_(HsInt ck,HsPtr p1,HsPtr p2,HsPtr p3,HsPtr pd,HsPtr fp)
+%  {
+%    CXCursor p = {ck, {p1,p2,p3}};
+%    HSChildVisitorData hsdata = {(HSCursorVisitor)fp,pd};
+%    return clang_visitChildren(p, primChildVisitor, (CXClientData)&hsdata);
+%  }
+
+foreign import ccall safe "FFI_stub_ffi.h prim_visitChildren_" prim_visitChildren_ :: Int -> Ptr () -> Ptr () -> Ptr () -> Ptr () -> FunPtr ChildVisitorRaw -> IO CUInt
+
+-- foreign import ccall "wrapper" wrapInclusionVisitorRaw :: InclusionVisitorRaw -> IO (FunPtr InclusionVisitorRaw)
+
+-- wrapInclusionVisitor :: InclusionVisitor -> InclusionVisitorRaw
+-- wrapInclusionVisitor f = \file pSrcLoc nSrcLoc pData -> do
+--                            srcLocs <- unmarshall_SrcLocList pSrcLoc nSrcLoc
+--                            f file srcLocs pData
+
+-- marshall_inclusionVisitor :: InclusionVisitor -> IO (FunPtr InclusionVisitorRaw)
+-- marshall_inclusionVisitor f = wrapInclusionVisitorRaw (wrapInclusionVisitor f)
 
 
 -- #ifdef __has_feature
@@ -1354,9 +1400,6 @@ marshall_tokenList ts = do
 %     clang_tokenize(t, a, &tokens, &numTokens);
 %result (tokenList t (int numTokens) (ptr tokens))
 
--- void clang_annotateTokens(CXTranslationUnit TU,
---                                          CXToken *Tokens, unsigned NumTokens,
---                                          CXCursor *Cursors);
 unmarshall_cursorListExt ::  Int -> Ptr () -> IO CursorList
 unmarshall_cursorListExt numO os = do
   cursors <- mapM getCursor_ [0..nO]
@@ -1370,12 +1413,15 @@ unmarshall_cursorListExt numO os = do
             p3 <- cursorListGetPtr_ os i 2
             return $ Cursor kind p1 p2 p3
 
--- TODO: implement me
--- %fun clang_annotateTokens :: TranslationUnit -> TokenList -> IO CursorList
--- %call (fptr (ptr t)) (tokenList ((int nts), (ptr ts)))
--- %code CXCursor * cs = (CXCursor *)malloc(sizeof(CXCursor)*nts);
--- %     clang_annotateTokens(t, ts, nts, cs);
--- %result (cursorListExt (int nts) (ptr cs))
+-- TODO: test me
+-- void clang_annotateTokens(CXTranslationUnit TU,
+--                                          CXToken *Tokens, unsigned NumTokens,
+--                                          CXCursor *Cursors);
+%fun clang_annotateTokens :: TranslationUnit -> TokenList -> IO CursorList
+%call (fptr (ptr t)) (tokenList ((int nts), (fptr (ptr ts))))
+%code CXCursor * cs = (CXCursor *)malloc(sizeof(CXCursor)*nts);
+%     clang_annotateTokens(t, ts, nts, cs);
+%result (cursorListExt nts (ptr cs))
 
 -- CXString clang_getCursorKindSpelling(enum CXCursorKind Kind);
 %fun clang_getCursorKindSpelling :: CursorKind -> IO CXString
