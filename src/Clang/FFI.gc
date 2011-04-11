@@ -113,6 +113,8 @@ module Clang.FFI
 ,getOverloadedDecl
 ,getIBOutletCollectionType
 ,ChildVisitResult(..)
+,ChildVisitor
+,visitChildren
 ,getCursorUSR
 ,constructUSR_ObjCClass
 ,constructUSR_ObjCCategory
@@ -136,6 +138,7 @@ module Clang.FFI
 ,getTokenLocation
 ,getTokenExtent
 ,tokenize
+,annotateTokens
 ,getCursorKindSpelling
 ,enableStackTraces
 ,CompletionString
@@ -216,7 +219,7 @@ type ClientData = ForeignPtr ClientDataObj
 --   const char *Contents;
 --   unsigned long Length;
 -- };
-data UnsavedFile = UnsavedFile { usf_filename :: String, usf_contents :: String }
+data UnsavedFile = UnsavedFile { unsavedFilename :: FilePath, unsavedContents :: String }
 
 %enum AvailabilityKind Int [CXAvailability_Available, CXAvailability_Deprecated, CXAvailability_NotAvailable]
 -- enum CXAvailabilityKind {
@@ -584,9 +587,9 @@ marshall_listLenUnsavedFile ufs = do
       ufsDataSize = fromIntegral unsavedFileSize
   arr_ <- mallocBytes (numUFs * ufsDataSize) :: IO (Ptr ())
   let setUF (i, uf) = do
-        fname <- newCString $ usf_filename uf
-        contents <- newCString $ usf_contents uf
-        let len = (fromIntegral . length) (usf_contents uf) :: CULong
+        fname <- newCString $ unsavedFilename uf
+        contents <- newCString $ unsavedContents uf
+        let len = (fromIntegral . length) (unsavedContents uf) :: CULong
         setCXUnsavedFile fname contents len arr_ (fromIntegral i)
   mapM_ setUF (zip [0..(numUFs-1)] ufs)
   arr <- newForeignPtr finalizerFree arr_
@@ -1124,13 +1127,16 @@ data Type = Type TypeKind (Ptr ()) (Ptr ())
 -- };
 %enum ChildVisitResult Int [CXChildVisit_Break, CXChildVisit_Continue, CXChildVisit_Recurse]
 
--- TODO: finish me
+-- TODO: test me
 -- typedef enum CXChildVisitResult (*CXCursorVisitor)(CXCursor cursor,
 --                                                    CXCursor parent,
 --                                                    CXClientData client_data);
 type ChildVisitorRaw = Int -> Ptr () -> Ptr () -> Ptr () -> 
                        Int -> Ptr () -> Ptr () -> Ptr () -> Ptr () -> IO Int
-type ChildVisitor = Cursor -> Cursor -> Ptr () -> IO ChildVisitResult
+type ChildVisitor =  Cursor -- ^ Current cursor
+                  -> Cursor -- ^ Parent cursor
+                  -> Ptr () -- ^ User data
+                  -> IO ChildVisitResult -- ^ Visitor result code indicating direction of visit
 foreign import ccall "wrapper" wrapChildVisitorRaw :: ChildVisitorRaw -> IO (FunPtr ChildVisitorRaw)
 wrapChildVisitor :: ChildVisitor -> ChildVisitorRaw
 wrapChildVisitor f = \ck cp1 cp2 cp3
@@ -1172,17 +1178,6 @@ visitChildren (Cursor k p1 p2 p3) f pd = do
 %  }
 
 foreign import ccall safe "FFI_stub_ffi.h prim_visitChildren_" prim_visitChildren_ :: Int -> Ptr () -> Ptr () -> Ptr () -> Ptr () -> FunPtr ChildVisitorRaw -> IO CUInt
-
--- foreign import ccall "wrapper" wrapInclusionVisitorRaw :: InclusionVisitorRaw -> IO (FunPtr InclusionVisitorRaw)
-
--- wrapInclusionVisitor :: InclusionVisitor -> InclusionVisitorRaw
--- wrapInclusionVisitor f = \file pSrcLoc nSrcLoc pData -> do
---                            srcLocs <- unmarshall_SrcLocList pSrcLoc nSrcLoc
---                            f file srcLocs pData
-
--- marshall_inclusionVisitor :: InclusionVisitor -> IO (FunPtr InclusionVisitorRaw)
--- marshall_inclusionVisitor f = wrapInclusionVisitorRaw (wrapInclusionVisitor f)
-
 
 -- #ifdef __has_feature
 -- #  if __has_feature(blocks)

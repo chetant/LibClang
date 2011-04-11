@@ -18,11 +18,11 @@
 --
 --      * "Clang.Completion"
 --
-
+--      * "Clang.Traversal"
+--
+--      * "Clang.File"
 
 module Clang where
-
-
 
 import Clang.Type
 import Clang.Cursor
@@ -33,3 +33,5 @@ import Clang.TranslationUnit
 import Clang.Token
 import Clang.Debug
 import Clang.Completion
+import Clang.Traversal
+import Clang.File

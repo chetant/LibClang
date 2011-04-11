@@ -77,6 +77,7 @@ getAvailability = unsafePerformIO . FFI.getCursorAvailability
 getLanguage = unsafePerformIO . FFI.getCursorLanguage
 getSemanticParent = unsafePerformIO . FFI.getCursorSemanticParent
 getLexicalParent = unsafePerformIO . FFI.getCursorLexicalParent
+getOverriddenCursors :: FFI.Cursor -> [FFI.Cursor]
 getOverriddenCursors = unsafePerformIO . FFI.getOverriddenCursors
 getIncludedFile = unsafePerformIO . FFI.getIncludedFile
 getLocation = unsafePerformIO . FFI.getCursorLocation
