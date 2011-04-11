@@ -1129,11 +1129,15 @@ data Type = Type TypeKind (Ptr ()) (Ptr ())
 --                                                    CXCursor parent,
 --                                                    CXClientData client_data);
 type ChildVisitorRaw = Int -> Ptr () -> Ptr () -> Ptr () -> 
-                       Int -> Ptr () -> Ptr () -> Ptr () -> IO Int
+                       Int -> Ptr () -> Ptr () -> Ptr () -> Ptr () -> IO Int
 type ChildVisitor = Cursor -> Cursor -> Ptr () -> IO ChildVisitResult
 foreign import ccall "wrapper" wrapChildVisitorRaw :: ChildVisitorRaw -> IO (FunPtr ChildVisitorRaw)
 wrapChildVisitor :: ChildVisitor -> ChildVisitorRaw
-wrapChildVisitor = undefined
+wrapChildVisitor f = \ck cp1 cp2 cp3
+                      pk pp1 pp2 pp3 pd -> marshall_ChildVisitResult <$> 
+                      f (Cursor (unmarshall_CursorKind ck) cp1 cp2 cp3)
+                        (Cursor (unmarshall_CursorKind pk) pp1 pp2 pp3)
+                        pd
 
 -- unsigned clang_visitChildren(CXCursor parent,
 --                                             CXCursorVisitor visitor,
