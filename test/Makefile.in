@@ -2,12 +2,13 @@ CC=@CC@
 CFLAGS=-std=gnu99 @CFLAGS@
 LDFLAGS=@LDFLAGS@
 
-all: Test_Diagnostics_c Test_Diagnostics_hs Test_InclusionVisitor_c Test_InclusionVisitor_hs
+all: Test_Diagnostics_c Test_Diagnostics_hs Test_InclusionVisitor_c Test_InclusionVisitor_hs Test_ChildVisitor_c Test_ChildVisitor_hs
 
 test: all
 	@echo "########### TESTING ##############"
-	@./runTest.sh Test_InclusionVisitor $(CFLAGS) Test_InclusionVisitor.c
 	@./runTest.sh Test_Diagnostics $(CFLAGS) Test_Diagnostics.c
+	@./runTest.sh Test_InclusionVisitor $(CFLAGS) Test_InclusionVisitor.c
+	@./runTest.sh Test_ChildVisitor $(CFLAGS) Test_ChildVisitor.c
 
 %_c : %.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $<

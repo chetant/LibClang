@@ -2,6 +2,7 @@ module Clang.Traversal
 (
  annotateTokens
 ,FFI.ChildVisitor
+,FFI.ChildVisitResult(..)
 ,FFI.visitChildren
 ) where
 
