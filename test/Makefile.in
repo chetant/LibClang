@@ -1,6 +1,6 @@
-CC=gcc
-CFLAGS=-std=gnu99 -I/home/saiko/bin/llvm/include/
-LDFLAGS=-L/home/saiko/bin/llvm/lib/ -lclang -lLLVM-3.0svn -lpthread -ldl -lm
+CC=@CC@
+CFLAGS=-std=gnu99 @CFLAGS@
+LDFLAGS=@LDFLAGS@
 
 all: Test_Diagnostics_c Test_Diagnostics_hs Test_InclusionVisitor_c Test_InclusionVisitor_hs
 

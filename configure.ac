@@ -94,5 +94,7 @@ then
 	AC_MSG_ERROR([Cannot find inttypes.h])
 fi
 
-AC_CONFIG_FILES([LibClang.buildinfo])
+AC_CONFIG_FILES([LibClang.buildinfo
+		 test/Makefile
+		])
 AC_OUTPUT
