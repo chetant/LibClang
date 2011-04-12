@@ -5,9 +5,9 @@ CTEST=${TEST}_c
 HSTEST=${TEST}_hs
 shift
 
-TMPFILE_C=`tempfile`
-TMPFILE_HS=`tempfile`
-./$CTEST $* > $TMPFILE_C
+TMPFILE_C=`mktemp`
+TMPFILE_HS=`mktemp`
+./$CTEST $* | grep -v "'linker' input unused" > $TMPFILE_C
 ./$HSTEST $* > $TMPFILE_HS
 if [ -n "`diff $TMPFILE_C $TMPFILE_HS`" ]
 then

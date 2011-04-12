@@ -6,7 +6,7 @@ int main(int argc, char * argv[])
   CXTranslationUnit txUnit = clang_parseTranslationUnit(index, 0, argv, argc, 0, 0, CXTranslationUnit_None);
 
   unsigned n = clang_getNumDiagnostics(txUnit);
-  printf("numDiags:%d\n", n);
+  /* printf("numDiags:%d\n", n); */
   for(unsigned i = 0, n = clang_getNumDiagnostics(txUnit); i != n; ++i)
   {
     CXDiagnostic diag = clang_getDiagnostic(txUnit, i);
