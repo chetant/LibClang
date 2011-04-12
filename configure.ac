@@ -24,6 +24,21 @@ then
 	fi
 fi
 
+AC_CHECK_HEADERS([clang-c/Index.h], [], [no_clang_include=yes])
+if test "$no_clang_include" = yes
+then
+	AC_MSG_ERROR([
+	-------------------------------------------------
+	Cannot find <clang-c/Index.h>
+	Please ensure libClang is installed and 
+	is in CFLAGS (-I...) or passed through configure
+	NOTE: if file is present and configured,
+	try running running "cabal build -vv" or 
+	           "runhaskell Setup.hs build -vv"
+	to get the exact commands run
+	-------------------------------------------------])
+fi
+
 AC_ARG_ENABLE([llvm-shared],[AS_HELP_STRING([--enable-llvm-shared=LIBSUFFIX],[build against LLVM shared libraries with libsuffix])],[llvm_shared=$enableval])
 if test "$llvm_shared" != ""
 then
@@ -54,21 +69,6 @@ else
 	then
 		LDFLAGS="$LDFLAGS `llvm-config --libs`"
 	fi
-fi
-
-AC_CHECK_HEADERS([clang-c/Index.h], [], [no_clang_include=yes])
-if test "$no_clang_include" = yes
-then
-	AC_MSG_ERROR([
-	-------------------------------------------------
-	Cannot find <clang-c/Index.h>
-	Please ensure libClang is installed and 
-	is in CFLAGS (-I...) or passed through configure
-	NOTE: if file is present and configured,
-	try running running "cabal build -vv" or 
-	           "runhaskell Setup.hs build -vv"
-	to get the exact commands run
-	-------------------------------------------------])
 fi
 
 AC_CHECK_LIB([clang], [clang_getClangVersion], [clang_lib_found=yes], [clang_lib_found=no])

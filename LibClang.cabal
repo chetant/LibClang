@@ -1,6 +1,6 @@
 Name: LibClang
 Cabal-version: >= 1.6
-Version: 0.0.6
+Version: 0.0.7
 Author: Chetan Taralekar <chetant@gmail.com>
 Maintainer: Chetan Taralekar <chetant@gmail.com>
 Homepage: https://github.com/chetant/LibClang/issues
@@ -38,4 +38,4 @@ Library
   hs-source-dirs: src
   c-sources: src/Clang/FFI_stub_ffi.c
   exposed-modules:
-    Clang,Clang.FFI,Clang.Type,Clang.Cursor,Clang.CrossReference,Clang.Source,Clang.Diagnostic,Clang.TranslationUnit,Clang.Token,Clang.Debug,Clang.Completion
+    Clang,Clang.FFI,Clang.Type,Clang.Cursor,Clang.CrossReference,Clang.Source,Clang.Diagnostic,Clang.TranslationUnit,Clang.Token,Clang.Debug,Clang.Completion,Clang.File,Clang.Traversal
