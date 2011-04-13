@@ -93,6 +93,7 @@ module Clang.FFI
 ,getCursorExtent
 ,TypeKind(..)
 ,Type
+,getTypeKind
 ,getCursorType
 ,equalTypes
 ,getCanonicalType
@@ -984,6 +985,8 @@ unmarshall_cursorList numO os = do
 -- } CXType;
 data Type = Type TypeKind (Ptr ()) (Ptr ())
 %dis type k p1 p2 = Type (typeKind k) (ptr p1) (ptr p2)
+
+getTypeKind (Type k _ _) = k
 
 -- CXType clang_getCursorType(CXCursor C);
 %fun clang_getCursorType :: Cursor -> IO Type

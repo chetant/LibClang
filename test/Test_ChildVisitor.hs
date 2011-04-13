@@ -9,7 +9,7 @@ import Foreign.Ptr(nullPtr)
 
 visitor :: ChildVisitor
 visitor c p d = do
-  print "BOOY"
+  print "BOO"
   return ChildVisit_Continue
 
 main = do

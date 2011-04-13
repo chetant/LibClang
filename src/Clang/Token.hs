@@ -1,7 +1,7 @@
 module Clang.Token
 (
  FFI.Token
-,getKind
+,Clang.Token.getKind
 ,getSpelling
 ,Clang.Token.getLocation
 ,getExtent

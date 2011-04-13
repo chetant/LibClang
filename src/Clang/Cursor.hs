@@ -12,7 +12,7 @@ module Clang.Cursor
 
 ,nullCursor
 ,getHash
-,getKind
+,Clang.Cursor.getKind
 ,getLinkage
 ,getAvailability
 ,getLanguage

@@ -5,6 +5,7 @@ module Clang.Type
 ,FFI.TypeKind(..)
 ,FFI.CXXAccessSpecifier(..)
 
+,getKind
 ,getCanonicalType
 ,getPointeeType
 ,getResultType
@@ -25,6 +26,8 @@ instance Show FFI.CXString where
 
 instance Eq FFI.Type where
     a == b = unsafePerformIO (FFI.equalTypes a b)
+
+getKind = FFI.getTypeKind
 
 getCanonicalType = unsafePerformIO . FFI.getCanonicalType
 getPointeeType = unsafePerformIO . FFI.getPointeeType
