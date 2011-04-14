@@ -18,6 +18,7 @@ import System.IO.Unsafe(unsafePerformIO)
 import Data.Bits((.&.))
 import Data.Maybe(catMaybes)
 import Control.Monad(mzero)
+import Foreign.ForeignPtr(withForeignPtr)
 
 import Clang.Type
 import Clang.Source
@@ -60,4 +61,6 @@ reparse :: FFI.TranslationUnit -- ^ TranslationUnit to save
 reparse t ufs opts = FFI.reparseTranslationUnit t ufs (FFI.getReparseFlagsSum opts)
 
 -- index functions
-createIndex = FFI.createIndex
+withCreateIndex i1 i2 f = do
+  i <- FFI.createIndex i1 i2
+  withForeignPtr i f

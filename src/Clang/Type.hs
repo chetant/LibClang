@@ -15,6 +15,7 @@ module Clang.Type
 ,isRestrictQualifiedType
 ,isPODType
 ,isVirtualBase
+,getTypeKindSpelling
 )
 where
 

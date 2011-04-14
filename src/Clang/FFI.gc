@@ -206,10 +206,10 @@ data TranslationUnitObj
 type TranslationUnit = ForeignPtr TranslationUnitObj
 
 -- void clang_disposeTranslationUnit(CXTranslationUnit);
-foreign import ccall unsafe "clang-c/Index.h &clang_disposeTranslationUnit" clang_disposeTranslationUnit :: FunPtr (Ptr TranslationUnitObj -> IO ())
+foreign import ccall unsafe "clang-c/Index.h &clang_disposeTranslationUnit" clang_disposeTranslationUnitPtr :: FunPtr (Ptr TranslationUnitObj -> IO ())
 
 unmarshall_translationUnit :: Ptr TranslationUnitObj -> IO (ForeignPtr TranslationUnitObj)
-unmarshall_translationUnit = newForeignPtr clang_disposeTranslationUnit
+unmarshall_translationUnit = newForeignPtr clang_disposeTranslationUnitPtr
 
 -- typedef void *CXClientData;
 data ClientDataObj
