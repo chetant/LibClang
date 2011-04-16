@@ -2,7 +2,7 @@ import System(getArgs)
 import Data.Maybe(maybe)
 import Control.Monad((<=<))
 import Control.Applicative((<$>))
-import Clang.TranslationUnit(createIndex, parse, TranslationUnitFlags(..))
+import Clang.TranslationUnit(withCreateIndex, withParse, TranslationUnitFlags(..))
 import Clang.Traversal(visitChildren, ChildVisitResult(..))
 import Clang.Cursor(getTranslationUnitCursor)
 import Clang.Traversal(ChildVisitor, ChildVisitResult(..))
@@ -16,9 +16,9 @@ visitor c p d = do
   putStrLn $ "Type:" ++ str
   return ChildVisit_Continue
 
+test tu = visitChildren (getTranslationUnitCursor tu) visitor nullPtr
+
 main = do
   (arg:args) <- getArgs
-  index <- createIndex False False
-  tu <- maybe (error "No TXUnit!") id <$>
-        parse index (Just arg) args [] [TranslationUnit_None]
-  visitChildren (getTranslationUnitCursor tu) visitor nullPtr
+  withCreateIndex False False $ \index -> 
+      withParse index (Just arg) args [] [TranslationUnit_None] test (error "No TXUnit!")

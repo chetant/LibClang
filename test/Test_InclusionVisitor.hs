@@ -10,10 +10,9 @@ printInclusions f sls p = do
   name <- FFI.getFileName f
   putStrLn $ "Included:" ++ show name
 
+test tu = FFI.getInclusions tu printInclusions nullPtr
+
 main = do
-  args <- getArgs
-  index <- Clang.createIndex False False
-  mtu <- Clang.parse index Nothing args [] [Clang.TranslationUnit_None]
-  when (isNothing mtu) $ error "No TXUnit!"
-  let tu = fromJust mtu
-  FFI.getInclusions tu printInclusions nullPtr
+  (arg:args) <- getArgs
+  Clang.withCreateIndex False False $ \index -> 
+      Clang.withParse index (Just arg) args [] [Clang.TranslationUnit_None] test (error "No TXUnit!")

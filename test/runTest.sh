@@ -11,11 +11,8 @@ TMPFILE_HS=`mktemp`
 ./$HSTEST $* > $TMPFILE_HS
 if [ -n "`diff $TMPFILE_C $TMPFILE_HS`" ]
 then
-  echo $TEST failed!
-  echo $TMPFILE_C $TMPFILE_HS
-  diff $TMPFILE_C $TMPFILE_HS
-  # exit 1
+  echo FAILED: $TEST refOutput:$TMPFILE_C testOutput:$TMPFILE_HS
 else
-  echo $TEST succesfull!
+  echo SUCCESS: $TEST
   rm $TMPFILE_HS $TMPFILE_C
 fi

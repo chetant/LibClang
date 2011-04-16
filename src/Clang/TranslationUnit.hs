@@ -3,11 +3,11 @@ module Clang.TranslationUnit
  FFI.Index
 ,FFI.TranslationUnitFlags(..)
 ,FFI.SaveTranslationUnitFlags(..)
-,create
-,createIndex
 ,getSpelling
-,createFromSourceFile
-,parse
+,withCreateIndex
+,withCreate
+,withCreateFromSourceFile
+,withParse
 ,defaultSaveOptions
 ,save
 ,defaultReparseOptions
@@ -17,7 +17,7 @@ module Clang.TranslationUnit
 import System.IO.Unsafe(unsafePerformIO)
 import Data.Bits((.&.))
 import Data.Maybe(catMaybes)
-import Control.Monad(mzero)
+import Control.Monad(mzero, (<=<))
 import Foreign.ForeignPtr(withForeignPtr)
 
 import Clang.Type
@@ -25,20 +25,26 @@ import Clang.Source
 import qualified Clang.FFI as FFI
 
 getSpelling = unsafePerformIO . FFI.getTranslationUnitSpelling
-create = FFI.createTranslationUnit
-createFromSourceFile :: FFI.Index -- ^ Index for the source
+withCreate i s f = flip withForeignPtr f =<< FFI.createTranslationUnit i s
+
+withCreateFromSourceFile :: FFI.Index -- ^ Index for the source
                      -> FilePath -- ^ Source filename
                      -> [String] -- ^ Command line arguments ( this can include all clang compatible flags)
                      -> [FFI.UnsavedFile] -- ^ Unsaved files
-                     -> IO FFI.TranslationUnit
-createFromSourceFile = FFI.createTranslationUnitFromSourceFile
-parse :: FFI.Index -- ^ Index for the source
+                     -> (FFI.TranslationUnit -> IO a) -- ^ Function that will process the TranslationUnit
+                     -> IO a
+withCreateFromSourceFile i fn ss ufs f = flip withForeignPtr f =<< FFI.createTranslationUnitFromSourceFile i fn ss ufs
+
+withParse :: FFI.Index -- ^ Index for the source
       -> Maybe FilePath -- ^ Source filename
       -> [String] -- ^ Command line arguments ( this can include all clang compatible flags)
       -> [FFI.UnsavedFile] -- ^ Unsaved files
       -> [FFI.TranslationUnitFlags] -- ^ TranslationUnit flags
-      -> IO (Maybe FFI.TranslationUnit)
-parse i ms ss ufs opts = FFI.parseTranslationUnit i ms ss ufs (FFI.getTranslationUnitFlagsSum opts)
+      -> (FFI.TranslationUnit -> IO a) -- ^ Function that will process the TranslationUnit
+      -> IO a -- ^ Result to be returned if source couldn't be parsed
+      -> IO a
+withParse i ms ss ufs opts f nr = maybe nr (flip withForeignPtr f) =<< 
+                                  FFI.parseTranslationUnit i ms ss ufs (FFI.getTranslationUnitFlagsSum opts)
 
 -- No other option right now
 defaultSaveOptions = [FFI.SaveTranslationUnit_None]
@@ -51,8 +57,6 @@ save t fname opts = FFI.saveTranslationUnit t fname (FFI.getSaveTranslationUnitF
 
 -- No other option right now
 defaultReparseOptions = [FFI.Reparse_None]
-    -- where defVal = unsafePerformIO . FFI.defaultReparseOptions
-    --       val1 v = if (v .&. 0x1) == 0x1 then return FFI.Diagnostic_DisplaySourceLocation else mzero
 
 reparse :: FFI.TranslationUnit -- ^ TranslationUnit to save
         -> [FFI.UnsavedFile] -- ^ All the unsaved files
@@ -61,6 +65,4 @@ reparse :: FFI.TranslationUnit -- ^ TranslationUnit to save
 reparse t ufs opts = FFI.reparseTranslationUnit t ufs (FFI.getReparseFlagsSum opts)
 
 -- index functions
-withCreateIndex i1 i2 f = do
-  i <- FFI.createIndex i1 i2
-  withForeignPtr i f
+withCreateIndex i1 i2 f = flip withForeignPtr f =<< FFI.createIndex i1 i2
