@@ -1,18 +1,20 @@
 import System(getArgs)
 import Control.Monad(when)
 import Data.Maybe(fromJust, isNothing)
-import qualified Clang.FFI as FFI
-import qualified Clang.TranslationUnit as Clang
+import Clang.TranslationUnit(withCreateIndex, withParse, TranslationUnitFlags(..))
 import qualified Clang.Source as Clang
-import Foreign.Ptr(nullPtr)
+import Clang.Traversal
+import Clang.File(getFileName)
 
-printInclusions f sls p = do
-  name <- FFI.getFileName f
+printInclusions :: InclusionVisitor Int
+printInclusions f sls d = do
+  let name = getFileName f
   putStrLn $ "Included:" ++ show name
+  return d
 
-test tu = FFI.getInclusions tu printInclusions nullPtr
+test tu = getInclusions tu printInclusions Nothing
 
 main = do
   (arg:args) <- getArgs
-  Clang.withCreateIndex False False $ \index -> 
-      Clang.withParse index (Just arg) args [] [Clang.TranslationUnit_None] test (error "No TXUnit!")
+  withCreateIndex False False $ \index -> 
+      withParse index (Just arg) args [] [TranslationUnit_None] test (error "No TXUnit!")

@@ -4,6 +4,8 @@ module Clang.Traversal
 ,FFI.ChildVisitor
 ,FFI.ChildVisitResult(..)
 ,FFI.visitChildren
+,FFI.InclusionVisitor
+,FFI.getInclusions
 ) where
 
 import qualified Clang.FFI as FFI

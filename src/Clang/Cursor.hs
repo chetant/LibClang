@@ -32,7 +32,6 @@ module Clang.Cursor
 ,getCanonicalCursor
 ,getTemplateKind
 ,getSpecializedTemplate
-,getTranslationUnitCursor
 
 -- attribute function
 ,getIBOutletCollectionType
@@ -93,7 +92,6 @@ getDefinition = unsafePerformIO . FFI.getCursorDefinition
 getCanonicalCursor = unsafePerformIO . FFI.getCanonicalCursor
 getTemplateKind = unsafePerformIO . FFI.getTemplateCursorKind
 getSpecializedTemplate = unsafePerformIO . FFI.getSpecializedCursorTemplate
-getTranslationUnitCursor = unsafePerformIO . FFI.getTranslationUnitCursor
 
 -- attribute function
 getIBOutletCollectionType = unsafePerformIO . FFI.getIBOutletCollectionType

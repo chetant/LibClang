@@ -2,7 +2,8 @@ module Clang.File
 (
  FFI.UnsavedFile
 ,FFI.File
-,
+,getFileName
+,getFile
 ) where
 
 import Control.Monad((>=>))

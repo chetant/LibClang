@@ -12,6 +12,7 @@ module Clang.TranslationUnit
 ,save
 ,defaultReparseOptions
 ,reparse
+,getCursor
 ) where
 
 import System.IO.Unsafe(unsafePerformIO)
@@ -63,6 +64,8 @@ reparse :: FFI.TranslationUnit -- ^ TranslationUnit to save
         -> [FFI.ReparseFlags] -- ^ reparse options
         -> IO Bool
 reparse t ufs opts = FFI.reparseTranslationUnit t ufs (FFI.getReparseFlagsSum opts)
+
+getCursor = unsafePerformIO . FFI.getTranslationUnitCursor
 
 -- index functions
 withCreateIndex i1 i2 f = flip withForeignPtr f =<< FFI.createIndex i1 i2

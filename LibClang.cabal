@@ -1,6 +1,6 @@
 Name: LibClang
 Cabal-version: >= 1.6
-Version: 0.0.7
+Version: 0.0.8
 Author: Chetan Taralekar <chetant@gmail.com>
 Maintainer: Chetan Taralekar <chetant@gmail.com>
 Homepage: https://github.com/chetant/LibClang/issues
@@ -26,7 +26,7 @@ Description:
 
 Category: Language
 Build-type: Configure
-Extra-Source-Files: configure, LibClang.buildinfo.in
+Extra-Source-Files: configure, LibClang.buildinfo.in, test/Makefile.in, test/*.hs, test/*.c, test/runTest.sh
 Source-Repository head
   type: git
   location: git://github.com/chetant/LibClang.git
