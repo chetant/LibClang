@@ -266,7 +266,9 @@ newtype File = File (Ptr ())
 %result (cxString (ptr r))
 
 -- time_t clang_getFileTime(CXFile SFile);
-%fun clang_getFileTime :: File -> IO Word32
+-- %fun clang_getFileTime :: File -> IO CTime
+getFileTime (File ptr) = clang_getFileTime ptr
+foreign import ccall unsafe "clang-c/Index.h clang_getFileTime" clang_getFileTime :: Ptr () -> IO CTime
 
 -- CXFile clang_getFile(CXTranslationUnit tu, const char *file_name);
 %fun clang_getFile :: TranslationUnit -> String -> IO File
