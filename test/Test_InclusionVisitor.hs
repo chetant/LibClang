@@ -9,7 +9,7 @@ import Clang.File(getFileName)
 printInclusions :: InclusionVisitor Int
 printInclusions f sls d = do
   let name = getFileName f
-  putStrLn $ "Included:" ++ show name
+  putStrLn $ "Included:" ++ name
   return d
 
 test tu = getInclusions tu printInclusions Nothing
