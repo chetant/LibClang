@@ -744,6 +744,34 @@ getReparseFlagsSum = sum . (map toVal_)
 data Cursor = Cursor CursorKind (Ptr ()) (Ptr ()) (Ptr ())
 %dis cursor k p1 p2 p3 = Cursor (cursorKind k) (ptr p1) (ptr p2) (ptr p3)
 
+%C unsigned sizeOfCXCursor() {return sizeof(CXCursor);}
+%  void * getCXCursorData(CXCursor * p, int i){return p->data[i];}
+%  enum CXCursorKind getCXCursorKind(CXCursor * p){return p->kind;}
+%  void setCXCursorData(CXCursor * p, int i, void * ptr){p->data[i] = ptr;}
+%  void setCXCursorKind(CXCursor * p, int i, unsigned kind){p->kind = kind;}
+foreign import ccall unsafe "FFI_stub_ffi.h sizeOfCXCursor" sizeOfCXCursor :: CUInt
+foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorData" getCXCursorData :: Ptr () -> CInt -> IO (Ptr ())
+foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorKind" getCXCursorKind :: Ptr () -> IO CUInt
+foreign import ccall unsafe "FFI_stub_ffi.h setCXCursorData" setCXCursorData :: Ptr () -> CInt -> Ptr () -> IO ()
+foreign import ccall unsafe "FFI_stub_ffi.h setCXCursorKind" setCXCursorKind :: Ptr () -> CUInt -> IO ()
+
+instance Storable Cursor where
+    sizeOf _ = fromIntegral sizeOfCXCursor
+    alignment _ = 4
+    peek p = do
+      let ptr = castPtr p
+      k <- (unmarshall_CursorKind . fromIntegral) <$> getCXCursorKind ptr
+      p1 <- getCXCursorData ptr 0
+      p2 <- getCXCursorData ptr 1
+      p3 <- getCXCursorData ptr 2
+      return $ Cursor k p1 p2 p3
+    poke p (Cursor k p1 p2 p3) = do
+      let ptr = castPtr p
+      setCXCursorKind ptr $ fromIntegral (marshall_CursorKind k)
+      setCXCursorData ptr 0 p1
+      setCXCursorData ptr 0 p2
+      setCXCursorData ptr 0 p3
+
 -- CXCursor clang_getNullCursor(void);
 %fun clang_getNullCursor :: IO Cursor
 %code CXCursor r = clang_getNullCursor();
