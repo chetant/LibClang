@@ -748,7 +748,7 @@ data Cursor = Cursor CursorKind (Ptr ()) (Ptr ()) (Ptr ())
 %  void * getCXCursorData(CXCursor * p, int i){return p->data[i];}
 %  enum CXCursorKind getCXCursorKind(CXCursor * p){return p->kind;}
 %  void setCXCursorData(CXCursor * p, int i, void * ptr){p->data[i] = ptr;}
-%  void setCXCursorKind(CXCursor * p, int i, unsigned kind){p->kind = kind;}
+%  void setCXCursorKind(CXCursor * p, unsigned kind){p->kind = kind;}
 foreign import ccall unsafe "FFI_stub_ffi.h sizeOfCXCursor" sizeOfCXCursor :: CUInt
 foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorData" getCXCursorData :: Ptr () -> CInt -> IO (Ptr ())
 foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorKind" getCXCursorKind :: Ptr () -> IO CUInt
@@ -769,8 +769,8 @@ instance Storable Cursor where
       let ptr = castPtr p
       setCXCursorKind ptr $ fromIntegral (marshall_CursorKind k)
       setCXCursorData ptr 0 p1
-      setCXCursorData ptr 0 p2
-      setCXCursorData ptr 0 p3
+      setCXCursorData ptr 1 p2
+      setCXCursorData ptr 2 p3
 
 -- CXCursor clang_getNullCursor(void);
 %fun clang_getNullCursor :: IO Cursor
