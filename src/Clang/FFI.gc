@@ -1,4 +1,4 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE ForeignFunctionInterface, EmptyDataDecls #-}
 module Clang.FFI
 (
  Index
@@ -172,9 +172,12 @@ import Foreign.GreenCard
 import Foreign.C
 import Foreign.ForeignPtr
 import Foreign.Ptr
+import Foreign.Marshal.Utils(new)
 import System.IO.Unsafe(unsafePerformIO)
 import Data.Maybe(fromJust)
 import Control.Monad(when)
+
+import Clang.Alloc
 
 %#include <inttypes.h>
 %#include <stdlib.h>
@@ -1188,14 +1191,14 @@ wrapChildVisitor f = \ck cp1 cp2 cp3
 -- unsigned clang_visitChildren(CXCursor parent,
 --                                             CXCursorVisitor visitor,
 --                                             CXClientData client_data);
-visitChildren :: (Storable a) => Cursor -> ChildVisitor a -> Maybe a -> IO (Maybe a, Bool)
+visitChildren :: (Storable a, Alloc a) => Cursor -> ChildVisitor a -> Maybe a -> IO (Maybe a, Bool)
 visitChildren (Cursor k p1 p2 p3) f d = do
   fp <- wrapChildVisitorRaw (wrapChildVisitor f)
-  pd <- maybe (return nullPtr) (\x -> malloc >>= \p -> poke p x >> return p) d
+  pd <- maybe (return nullPtr) allocSet d
   retVal <- fromIntegral <$> prim_visitChildren_ (marshall_CursorKind k) p1 p2 p3 (castPtr pd) fp
   rData <- if pd == nullPtr
            then return Nothing
-           else peek pd >>= \d -> free pd >> return (Just d)
+           else peek pd >>= \d -> dealloc pd >> return (Just d)
   freeHaskellFunPtr fp
   return (rData, retVal == 0)
 
@@ -1635,12 +1638,12 @@ type InclusionVisitor a = File -> [SourceLocation] -> Maybe a -> IO (Maybe a)
 -- %call (ptr t) (inclusionVisitor (ptr f)) (ptr p)
 -- %code clang_getInclusions(t, f, p);
 
-getInclusions :: (Storable a) => TranslationUnit -> InclusionVisitor a -> Maybe a -> IO ()
+getInclusions :: (Storable a, Alloc a) => TranslationUnit -> InclusionVisitor a -> Maybe a -> IO ()
 getInclusions t iv d = do
   f <- marshall_inclusionVisitor iv
-  p <- maybe (return nullPtr) (\x -> malloc >>= \p -> poke p x >> return p) d
+  p <- maybe (return nullPtr) allocSet d
   prim_getInclusions_ t f (castPtr p)
-  when (p /= nullPtr) $ free p
+  when (p /= nullPtr) $ dealloc p
   freeHaskellFunPtr f
 
 %C void prim_getInclusions_(HsPtr t,HsPtr f,HsPtr p){ do { clang_getInclusions(t, f, p);} while(0);}

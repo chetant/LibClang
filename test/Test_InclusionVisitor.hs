@@ -4,11 +4,12 @@ import Data.Maybe(fromJust, isNothing)
 import Clang.TranslationUnit(withCreateIndex, withParse, TranslationUnitFlags(..))
 import qualified Clang.Source as Clang
 import Clang.Traversal
-import Clang.File(getFileName)
+import Clang.File(getName)
+import Clang.Alloc.Storable
 
 printInclusions :: InclusionVisitor Int
 printInclusions f sls d = do
-  let name = getFileName f
+  let name = getName f
   putStrLn $ "Included:" ++ name
   return d
 
