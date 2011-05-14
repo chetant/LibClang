@@ -160,7 +160,7 @@ module Clang.FFI
 ,codeCompleteGetNumDiagnostics
 ,codeCompleteGetDiagnostic
 ,getClangVersion
-,toggleCrashRecovery
+-- ,toggleCrashRecovery
 ,InclusionVisitor
 ,getInclusions
 ,wrapInclusionVisitor
@@ -1165,7 +1165,6 @@ getTypeKind (Type k _ _) = k
 -- };
 %enum ChildVisitResult (Eq) Int [CXChildVisit_Break, CXChildVisit_Continue, CXChildVisit_Recurse]
 
--- TODO: test me
 -- typedef enum CXChildVisitResult (*CXCursorVisitor)(CXCursor cursor,
 --                                                    CXCursor parent,
 --                                                    CXClientData client_data);
@@ -1620,8 +1619,8 @@ unmarshall_codeCompleteResults = newForeignPtr clang_disposeCodeCompleteResults
 %code CXString *r = mkStrObj();*r = clang_getClangVersion();
 %result (cxString (ptr r))
   
--- void clang_toggleCrashRecovery(unsigned isEnabled);
-%fun clang_toggleCrashRecovery :: Bool -> IO ()
+-- -- void clang_toggleCrashRecovery(unsigned isEnabled);
+-- %fun clang_toggleCrashRecovery :: Bool -> IO ()
 
 -- typedef void (*CXInclusionVisitor)(CXFile included_file,
 --                                    CXSourceLocation* inclusion_stack,

@@ -32,7 +32,7 @@ Source-Repository head
   location: git://github.com/chetant/LibClang.git
 
 Library
-  build-depends: base < 5, time, ffi, greencard
+  build-depends: base < 5, time, greencard
   hs-source-dirs: src
   c-sources: src/Clang/FFI_stub_ffi.c
   exposed-modules:
