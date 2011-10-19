@@ -168,12 +168,12 @@ module Clang.FFI
 
 import Data.Word
 import Control.Applicative((<$>))
-import Foreign.GreenCard
+import Foreign.GreenCard hiding (unsafePerformIO)
 import Foreign.C
-import Foreign.ForeignPtr
+import Foreign.ForeignPtr hiding (unsafeForeignPtrToPtr)
 import Foreign.Ptr
 import Foreign.Marshal.Utils(new)
-import System.IO.Unsafe(unsafePerformIO)
+import System.IO.Unsafe
 import Data.Maybe(fromJust)
 import Control.Monad(when)
 
