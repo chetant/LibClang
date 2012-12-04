@@ -11,7 +11,7 @@ test: all
 	@./runTest.sh Test_ChildVisitor $(CFLAGS) Test_ChildVisitor.c
 
 %_c : %.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $<
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
 %_hs : %.hs
 	ghc -o $@ $<
