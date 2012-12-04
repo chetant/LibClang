@@ -1,4 +1,4 @@
-import System(getArgs)
+import System.Environment(getArgs)
 import Control.Applicative((<$>))
 import Clang.TranslationUnit(withCreateIndex, withParse, TranslationUnitFlags(..), getCursor)
 import Clang.Traversal(ChildVisitor, visitChildren, ChildVisitResult(..))

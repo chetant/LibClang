@@ -1,6 +1,6 @@
 #include <clang-c/Index.h>
 
-int main(int argc, char * argv[])
+int main(int argc, const char * argv[])
 {
   CXIndex index = clang_createIndex(0, 0);
   CXTranslationUnit txUnit = clang_parseTranslationUnit(index, 0, argv, argc, 0, 0, CXTranslationUnit_None);
