@@ -6,12 +6,18 @@ import qualified Clang.Type as Type
 import qualified Clang.Cursor as Cursor
 import Clang.Alloc.Storable
 
-visitor :: ChildVisitor Int
-visitor c p d = do
-  putStrLn $ "Type:" ++ show (Type.getTypeKindSpelling . Type.getKind . Cursor.getType $ c)
+visitor :: String -> ChildVisitor Int
+visitor prefix c p d = do
+  let nameString = "Name :" ++ show (Cursor.getDisplayName c)
+  let typeString = "Kind :" ++ show (Cursor.getCursorKindSpelling . Cursor.getKind $ c)
+  putStrLn $ prefix ++ nameString ++ " " ++ typeString 
+  case  (Cursor.getKind c) of
+    Cursor.Cursor_ClassDecl -> visitChildren c (visitor " - ") Nothing 
+    Cursor.Cursor_CXXMethod -> visitChildren c (visitor " - ") Nothing                            
+    _ -> return (d, False)
   return (d, ChildVisit_Continue)
 
-test tu = visitChildren (getCursor tu) visitor Nothing
+test tu = visitChildren (getCursor tu) (visitor " ")  Nothing
 
 main = do
   (arg:args) <- getArgs
