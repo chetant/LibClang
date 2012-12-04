@@ -1,4 +1,4 @@
-import System(getArgs)
+import System.Environment(getArgs)
 import Control.Monad(when)
 import Data.Maybe(fromJust, isNothing)
 import qualified Clang.TranslationUnit as Clang
