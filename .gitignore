@@ -1,0 +1,12 @@
+*~
+dist/*
+test/*.hi
+test/*.o
+test/*_hs
+test/*_c
+test/Makefile
+LibClang.buildinfo
+config.log
+config.status
+src/Clang/FFI_stub_ffi.c
+src/Clang/FFI_stub_ffi.h
