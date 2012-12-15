@@ -176,12 +176,13 @@ import Foreign.Marshal.Utils(new)
 import System.IO.Unsafe
 import Data.Maybe(fromJust)
 import Control.Monad(when)
-
+import Debug.Trace
 import Clang.Alloc
 
 %#include <inttypes.h>
 %#include <stdlib.h>
 %#include <clang-c/Index.h>
+%#include <stdio.h>
 
 %prefix CX
 %prefix CX_
@@ -742,21 +743,26 @@ getReparseFlagsSum = sum . (map toVal_)
 
 -- typedef struct {
 --   enum CXCursorKind kind;
+--   int xdata;
 --   void *data[3];
 -- } CXCursor;
-data Cursor = Cursor CursorKind (Ptr ()) (Ptr ()) (Ptr ())
-%dis cursor k p1 p2 p3 = Cursor (cursorKind k) (ptr p1) (ptr p2) (ptr p3)
+data Cursor = Cursor CursorKind Int (Ptr ()) (Ptr ()) (Ptr ())
+%dis cursor k xdata p1 p2 p3 = Cursor (cursorKind k) (int xdata) (ptr p1) (ptr p2) (ptr p3)
 
 %C unsigned sizeOfCXCursor() {return sizeof(CXCursor);}
 %  void * getCXCursorData(CXCursor * p, int i){return p->data[i];}
 %  enum CXCursorKind getCXCursorKind(CXCursor * p){return p->kind;}
 %  void setCXCursorData(CXCursor * p, int i, void * ptr){p->data[i] = ptr;}
 %  void setCXCursorKind(CXCursor * p, unsigned kind){p->kind = kind;}
+%C unsigned getCXCursorXData(CXCursor * p){return p->xdata;}
+%  void setCXCursorXData(CXCursor * p, unsigned kind){p->xdata = i;}
 foreign import ccall unsafe "FFI_stub_ffi.h sizeOfCXCursor" sizeOfCXCursor :: CUInt
 foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorData" getCXCursorData :: Ptr () -> CInt -> IO (Ptr ())
 foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorKind" getCXCursorKind :: Ptr () -> IO CUInt
 foreign import ccall unsafe "FFI_stub_ffi.h setCXCursorData" setCXCursorData :: Ptr () -> CInt -> Ptr () -> IO ()
 foreign import ccall unsafe "FFI_stub_ffi.h setCXCursorKind" setCXCursorKind :: Ptr () -> CUInt -> IO ()
+foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorXData" getCXCursorXData :: Ptr () -> IO CUInt
+foreign import ccall unsafe "FFI_stub_ffi.h setCXCursorXData" setCXCursorXData :: Ptr () -> CUInt -> IO ()
 
 instance Storable Cursor where
     sizeOf _ = fromIntegral sizeOfCXCursor
@@ -764,13 +770,15 @@ instance Storable Cursor where
     peek p = do
       let ptr = castPtr p
       k <- (unmarshall_CursorKind . fromIntegral) <$> getCXCursorKind ptr
+      xdata <- fromIntegral <$> getCXCursorXData ptr
       p1 <- getCXCursorData ptr 0
       p2 <- getCXCursorData ptr 1
       p3 <- getCXCursorData ptr 2
-      return $ Cursor k p1 p2 p3
-    poke p (Cursor k p1 p2 p3) = do
+      return $ Cursor k xdata p1 p2 p3
+    poke p (Cursor k xdata p1 p2 p3) = do
       let ptr = castPtr p
       setCXCursorKind ptr $ fromIntegral (marshall_CursorKind k)
+      setCXCursorXData ptr $ fromIntegral xdata
       setCXCursorData ptr 0 p1
       setCXCursorData ptr 1 p2
       setCXCursorData ptr 2 p3
@@ -778,33 +786,33 @@ instance Storable Cursor where
 -- CXCursor clang_getNullCursor(void);
 %fun clang_getNullCursor :: IO Cursor
 %code CXCursor r = clang_getNullCursor();
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXCursor clang_getTranslationUnitCursor(CXTranslationUnit);
 %fun clang_getTranslationUnitCursor :: TranslationUnit -> IO Cursor
 %call (ptr t)
 %code CXCursor r = clang_getTranslationUnitCursor(t);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind}  {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- unsigned clang_equalCursors(CXCursor, CXCursor);
 %fun clang_equalCursors :: Cursor -> Cursor -> IO Bool
-%call (cursor k p1 p2 p3) (cursor k2 p12 p22 p32)
-%code CXCursor a = {k, {p1, p2, p3}};
-%     CXCursor b = {k2, {p12, p22, p32}};
+%call (cursor k xdata p1 p2 p3) (cursor k2 xdata2 p12 p22 p32)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     CXCursor b = {k2, xdata2, {p12, p22, p32}};
 %     unsigned r = clang_equalCursors(a, b);
 %result (bool r)
 
 -- unsigned clang_hashCursor(CXCursor);
 %fun clang_hashCursor :: Cursor -> IO Word32
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     unsigned r = clang_hashCursor(a);
 %result (word32 r)
   
 -- enum CXCursorKind clang_getCursorKind(CXCursor);
 %fun clang_getCursorKind :: Cursor -> IO CursorKind
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     enum CXCursorKind r = clang_getCursorKind(a);
 %result (cursorKind r)
 
@@ -836,15 +844,15 @@ instance Storable Cursor where
 
 -- enum CXLinkageKind clang_getCursorLinkage(CXCursor cursor);
 %fun clang_getCursorLinkage :: Cursor -> IO LinkageKind
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     enum CXLinkageKind r = clang_getCursorLinkage(a);
 %result (linkageKind r)
 
 -- enum CXAvailabilityKind clang_getCursorAvailability(CXCursor cursor);
 %fun clang_getCursorAvailability :: Cursor -> IO AvailabilityKind
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     enum CXAvailabilityKind r = clang_getCursorAvailability(a);
 %result (availabilityKind r)
 
@@ -858,8 +866,8 @@ instance Storable Cursor where
 
 -- enum CXLanguageKind clang_getCursorLanguage(CXCursor cursor);
 %fun clang_getCursorLanguage :: Cursor -> IO LanguageKind
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     enum CXLanguageKind r = clang_getCursorLanguage(a);
 %result (languageKind r)
 
@@ -880,38 +888,40 @@ unmarshall_cursorSet = newForeignPtr clang_disposeCXCursorSet
 
 -- unsigned clang_CXCursorSet_contains(CXCursorSet cset, CXCursor cursor);
 %fun clang_CXCursorSet_contains :: CursorSet -> Cursor -> IO Bool
-%call (fptr (ptr cs)) (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (fptr (ptr cs)) (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %result (bool {clang_CXCursorSet_contains(cs, a)})
 
 -- unsigned clang_CXCursorSet_insert(CXCursorSet cset, CXCursor cursor);
 %fun clang_CXCursorSet_insert :: CursorSet -> Cursor -> IO Bool
-%call (fptr (ptr cs)) (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (fptr (ptr cs)) (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %result (bool {clang_CXCursorSet_insert(cs, a)})
 
 -- CXCursor clang_getCursorSemanticParent(CXCursor cursor);
 %fun clang_getCursorSemanticParent :: Cursor -> IO Cursor
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCursorSemanticParent(a);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXCursor clang_getCursorLexicalParent(CXCursor cursor);
 %fun clang_getCursorLexicalParent :: Cursor -> IO Cursor
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCursorLexicalParent(a);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- We create a dummy type to get around greencard's inability to handle arrays
 -- data CursorList = CursorList (Ptr ()) [Cursor]
 type CursorList = [Cursor]
 
 %C enum CXCursorKind cursorListGetKind(CXCursor *clist, int i) {return clist[i].kind;}
+%C unsigned CXCursorKind cursorListGetXData(CXCursor *clist, int i) {return clist[i].xdata;}
 %  void * cursorListGetPtr(CXCursor *clist, int i, int pi) {return clist[i].data[pi];}
 
 foreign import ccall unsafe "FFI_stub_ffi.h cursorListGetKind" cursorListGetKind_ :: Ptr () -> CInt -> IO Int
+foreign import ccall unsafe "FFI_stub_ffi.h cursorListGetXData" cursorListGetXData_ :: Ptr () -> CInt -> IO Int
 foreign import ccall unsafe "FFI_stub_ffi.h cursorListGetPtr" cursorListGetPtr_ :: Ptr () -> CInt -> CInt -> IO (Ptr ())
 
 -- void clang_disposeOverriddenCursors(CXCursor *overridden);
@@ -925,23 +935,24 @@ unmarshall_cursorList numO os = do
     where nO = fromIntegral (numO-1)
           getCursor_ i = do
             kind <- unmarshall_CursorKind <$> (cursorListGetKind_ os i)
+	    xdata <- fromIntegral <$> (cursorListGetXData_ os i) 
             p1 <- cursorListGetPtr_ os i 0
             p2 <- cursorListGetPtr_ os i 1
             p3 <- cursorListGetPtr_ os i 2
-            return $ Cursor kind p1 p2 p3
+            return $ Cursor kind xdata p1 p2 p3
 
 -- void clang_getOverriddenCursors(CXCursor cursor, CXCursor **overridden, unsigned *num_overridden);
 %fun clang_getOverriddenCursors :: Cursor -> IO CursorList
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k xdata, {p1, p2, p3}};
 %     CXCursor * overrides;unsigned num_overrides;
 %     clang_getOverriddenCursors(a, &overrides, &num_overrides);
 %result (cursorList (int num_overrides) (ptr overrides))
 
 -- CXFile clang_getIncludedFile(CXCursor cursor);
 %fun clang_getIncludedFile :: Cursor -> IO File
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %result (file {clang_getIncludedFile(a)})
   
 -- CXCursor clang_getCursor(CXTranslationUnit, CXSourceLocation);
@@ -949,19 +960,19 @@ unmarshall_cursorList numO os = do
 %call (ptr t) (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXCursor r = clang_getCursor(t, l);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXSourceLocation clang_getCursorLocation(CXCursor);
 %fun clang_getCursorLocation :: Cursor -> IO SourceLocation
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXSourceLocation r = clang_getCursorLocation(a);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
 
 -- CXSourceRange clang_getCursorExtent(CXCursor);
 %fun clang_getCursorExtent :: Cursor -> IO SourceRange
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXSourceRange r = clang_getCursorExtent(a);
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
     
@@ -1025,8 +1036,8 @@ getTypeKind (Type k _ _) = k
 
 -- CXType clang_getCursorType(CXCursor C);
 %fun clang_getCursorType :: Cursor -> IO Type
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getCursorType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
@@ -1078,12 +1089,12 @@ getTypeKind (Type k _ _) = k
 %call (type k p1 p2)
 %code CXType a = {k, {p1, p2}};
 %     CXCursor r = clang_getTypeDeclaration(a);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXString clang_getDeclObjCTypeEncoding(CXCursor C);
 %fun clang_getDeclObjCTypeEncoding :: Cursor -> IO CXString
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString *r = mkStrObj();*r = clang_getDeclObjCTypeEncoding(a);
 %result (cxString (ptr r))
 
@@ -1102,8 +1113,8 @@ getTypeKind (Type k _ _) = k
 
 -- CXType clang_getCursorResultType(CXCursor C);
 %fun clang_getCursorResultType :: Cursor -> IO Type
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getCursorResultType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
@@ -1116,8 +1127,8 @@ getTypeKind (Type k _ _) = k
 
 -- unsigned clang_isVirtualBase(CXCursor);
 %fun clang_isVirtualBase :: Cursor -> IO Bool
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_isVirtualBase(a);
 %result (bool r)
     
@@ -1131,30 +1142,30 @@ getTypeKind (Type k _ _) = k
 
 -- enum CX_CXXAccessSpecifier clang_getCXXAccessSpecifier(CXCursor);
 %fun clang_getCXXAccessSpecifier :: Cursor -> IO CXXAccessSpecifier
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_getCXXAccessSpecifier(a);
 %result (cXXAccessSpecifier r)
 
 -- unsigned clang_getNumOverloadedDecls(CXCursor cursor);
 %fun clang_getNumOverloadedDecls :: Cursor -> IO Int
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_getNumOverloadedDecls(a);
 %result (int r)
 
 -- CXCursor clang_getOverloadedDecl(CXCursor cursor, 
 --                                                 unsigned index);
 %fun clang_getOverloadedDecl :: Cursor -> Int -> IO Cursor
-%call (cursor k p1 p2 p3) (int i)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3) (int i)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getOverloadedDecl(a, i);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXType clang_getIBOutletCollectionType(CXCursor);
 %fun clang_getIBOutletCollectionType :: Cursor -> IO Type
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getIBOutletCollectionType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
@@ -1168,18 +1179,18 @@ getTypeKind (Type k _ _) = k
 -- typedef enum CXChildVisitResult (*CXCursorVisitor)(CXCursor cursor,
 --                                                    CXCursor parent,
 --                                                    CXClientData client_data);
-type ChildVisitorRaw = Int -> Ptr () -> Ptr () -> Ptr () -> 
-                       Int -> Ptr () -> Ptr () -> Ptr () -> Ptr () -> IO Int
+type ChildVisitorRaw = Int -> Int -> Ptr () -> Ptr () -> Ptr () -> 
+                       Int -> Int -> Ptr () -> Ptr () -> Ptr () -> Ptr () -> IO Int
 type ChildVisitor a = Cursor -- ^ Current cursor
                     -> Cursor -- ^ Parent cursor
                     -> Maybe a -- ^ User data
                     -> IO (Maybe a, ChildVisitResult) -- ^ (user data to pass on, Visitor result code)
 foreign import ccall "wrapper" wrapChildVisitorRaw :: ChildVisitorRaw -> IO (FunPtr ChildVisitorRaw)
 wrapChildVisitor :: (Storable a) => ChildVisitor a -> ChildVisitorRaw
-wrapChildVisitor f = \ck cp1 cp2 cp3
-                      pk pp1 pp2 pp3 pd -> do
-                        let child = Cursor (unmarshall_CursorKind ck) cp1 cp2 cp3
-                            parent = Cursor (unmarshall_CursorKind pk) pp1 pp2 pp3
+wrapChildVisitor f = \ck cxdata cp1 cp2 cp3
+                      pk pxdata pp1 pp2 pp3 pd -> do
+                        let child = Cursor (unmarshall_CursorKind ck) cxdata cp1 cp2 cp3
+                            parent = Cursor (unmarshall_CursorKind pk) pxdata pp1 pp2 pp3
                             dataPtr = castPtr pd
                         (rData, vRes) <- if dataPtr == nullPtr
                                          then f child parent Nothing
@@ -1191,19 +1202,25 @@ wrapChildVisitor f = \ck cp1 cp2 cp3
 --                                             CXCursorVisitor visitor,
 --                                             CXClientData client_data);
 visitChildren :: (Storable a, Alloc a) => Cursor -> ChildVisitor a -> Maybe a -> IO (Maybe a, Bool)
-visitChildren (Cursor k p1 p2 p3) f d = do
+visitChildren (Cursor k xdata p1 p2 p3) f d = do
   fp <- wrapChildVisitorRaw (wrapChildVisitor f)
+  trace "here" $ return ()
   pd <- maybe (return nullPtr) allocSet d
-  retVal <- fromIntegral <$> prim_visitChildren_ (marshall_CursorKind k) p1 p2 p3 (castPtr pd) fp
+  trace "here" $ return ()
+  x <- prim_visitChildren_ (marshall_CursorKind k) xdata p1 p2 p3 (castPtr pd) fp
+  retVal <- return $ fromIntegral x
+  trace "here" $ return ()
   rData <- if pd == nullPtr
            then return Nothing
            else peek pd >>= \d -> dealloc pd >> return (Just d)
+  trace "here" $ return ()
   freeHaskellFunPtr fp
+  trace "here" $ return ()
   return (rData, retVal == 0)
 
 %C typedef enum CXChildVisitResult (*HSCursorVisitor)
-%     (HsInt ck,HsPtr cp1, HsPtr cp2,HsPtr cp3,
-%      HsInt pk,HsPtr pp1, HsPtr pp2,HsPtr pp3, CXClientData data);
+%     (HsInt ck,HsInt cxdata, HsPtr cp1, HsPtr cp2,HsPtr cp3,
+%      HsInt pk,HSInt pxdata, HsPtr pp1, HsPtr pp2,HsPtr pp3, CXClientData data);
 %  typedef struct {
 %    HSCursorVisitor visitor;
 %    CXClientData data;
@@ -1212,18 +1229,19 @@ visitChildren (Cursor k p1 p2 p3) f d = do
 %  enum CXChildVisitResult primChildVisitor(CXCursor c, CXCursor p, CXClientData d)
 %  {
 %    HSChildVisitorData *hsdata = (HSChildVisitorData *)d;
-%    return hsdata->visitor(c.kind,c.data[0],c.data[1],c.data[2], 
-%                           p.kind,p.data[0],p.data[1],p.data[2], hsdata->data);
+%    return hsdata->visitor(c.kind,c.xdata, c.data[0],c.data[1],c.data[2], 
+%                           p.kind,c.xdata, p.data[0],p.data[1],p.data[2], hsdata->data);
 %  }
 %
-%  unsigned prim_visitChildren_(HsInt ck,HsPtr p1,HsPtr p2,HsPtr p3,HsPtr pd,HsPtr fp)
+%  unsigned prim_visitChildren_(HsInt ck,HsInt cxdata, HsPtr p1,HsPtr p2,HsPtr p3,HsPtr pd,HsPtr fp)
 %  {
-%    CXCursor p = {ck, {p1,p2,p3}};
+%    CXCursor p = {ck, cxdata, {p1,p2,p3}};
+%    printf("%d", ck);
 %    HSChildVisitorData hsdata = {(HSCursorVisitor)fp,pd};
 %    return clang_visitChildren(p, primChildVisitor, (CXClientData)&hsdata);
 %  }
 
-foreign import ccall safe "FFI_stub_ffi.h prim_visitChildren_" prim_visitChildren_ :: Int -> Ptr () -> Ptr () -> Ptr () -> Ptr () -> FunPtr ChildVisitorRaw -> IO CUInt
+foreign import ccall safe "FFI_stub_ffi.h prim_visitChildren_" prim_visitChildren_ :: Int -> Int -> Ptr () -> Ptr () -> Ptr () -> Ptr () -> FunPtr ChildVisitorRaw -> IO CUInt
 
 -- #ifdef __has_feature
 -- #  if __has_feature(blocks)
@@ -1237,8 +1255,8 @@ foreign import ccall safe "FFI_stub_ffi.h prim_visitChildren_" prim_visitChildre
 
 -- CXString clang_getCursorUSR(CXCursor);
 %fun clang_getCursorUSR :: Cursor -> IO CXString
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString *r = mkStrObj();*r = clang_getCursorUSR(a);
 %result (cxString (ptr r))
 
@@ -1287,66 +1305,66 @@ foreign import ccall safe "FFI_stub_ffi.h prim_visitChildren_" prim_visitChildre
 
 -- CXString clang_getCursorSpelling(CXCursor);
 %fun clang_getCursorSpelling :: Cursor -> IO CXString
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString *r = mkStrObj();*r = clang_getCursorSpelling(a);
 %result (cxString (ptr r))
 
 -- CXString clang_getCursorDisplayName(CXCursor);
 %fun clang_getCursorDisplayName :: Cursor -> IO CXString
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString *r = mkStrObj();*r = clang_getCursorDisplayName(a);
 %result (cxString (ptr r))
   
 -- CXCursor clang_getCursorReferenced(CXCursor);
 %fun clang_getCursorReferenced :: Cursor -> IO Cursor
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCursorReferenced(a);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXCursor clang_getCursorDefinition(CXCursor);
 %fun clang_getCursorDefinition :: Cursor -> IO Cursor
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCursorDefinition(a);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- unsigned clang_isCursorDefinition(CXCursor);
 %fun clang_isCursorDefinition :: Cursor -> IO Bool
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_isCursorDefinition(a);
 %result (bool r)
 
 -- CXCursor clang_getCanonicalCursor(CXCursor);
 %fun clang_getCanonicalCursor :: Cursor -> IO Cursor
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCanonicalCursor(a);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- unsigned clang_CXXMethod_isStatic(CXCursor C);
 %fun clang_CXXMethod_isStatic :: Cursor -> IO Bool
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_CXXMethod_isStatic(a);
 %result (bool r)
 
 -- enum CXCursorKind clang_getTemplateCursorKind(CXCursor C);
 %fun clang_getTemplateCursorKind :: Cursor -> IO CursorKind
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_getTemplateCursorKind(a);
 %result (cursorKind r)
 
 -- CXCursor clang_getSpecializedCursorTemplate(CXCursor C);
 %fun clang_getSpecializedCursorTemplate :: Cursor -> IO Cursor
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getSpecializedCursorTemplate(a);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- typedef enum CXTokenKind {
 --   CXToken_Punctuation,
@@ -1453,10 +1471,11 @@ unmarshall_cursorListExt numO os = do
     where nO = fromIntegral (numO-1)
           getCursor_ i = do
             kind <- unmarshall_CursorKind <$> (cursorListGetKind_ os i)
+	    xdata <- fromIntegral <$> (cursorListGetXData_ os i)
             p1 <- cursorListGetPtr_ os i 0
             p2 <- cursorListGetPtr_ os i 1
             p3 <- cursorListGetPtr_ os i 2
-            return $ Cursor kind p1 p2 p3
+            return $ Cursor kind xdata p1 p2 p3
 
 -- TODO: test me
 -- void clang_annotateTokens(CXTranslationUnit TU,
