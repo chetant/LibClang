@@ -1204,18 +1204,13 @@ wrapChildVisitor f = \ck cxdata cp1 cp2 cp3
 visitChildren :: (Storable a, Alloc a) => Cursor -> ChildVisitor a -> Maybe a -> IO (Maybe a, Bool)
 visitChildren (Cursor k xdata p1 p2 p3) f d = do
   fp <- wrapChildVisitorRaw (wrapChildVisitor f)
-  trace "here" $ return ()
   pd <- maybe (return nullPtr) allocSet d
-  trace "here" $ return ()
   x <- prim_visitChildren_ (marshall_CursorKind k) xdata p1 p2 p3 (castPtr pd) fp
   retVal <- return $ fromIntegral x
-  trace "here" $ return ()
   rData <- if pd == nullPtr
            then return Nothing
            else peek pd >>= \d -> dealloc pd >> return (Just d)
-  trace "here" $ return ()
   freeHaskellFunPtr fp
-  trace "here" $ return ()
   return (rData, retVal == 0)
 
 %C typedef enum CXChildVisitResult (*HSCursorVisitor)
