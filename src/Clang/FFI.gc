@@ -754,8 +754,8 @@ data Cursor = Cursor CursorKind Int (Ptr ()) (Ptr ()) (Ptr ())
 %  enum CXCursorKind getCXCursorKind(CXCursor * p){return p->kind;}
 %  void setCXCursorData(CXCursor * p, int i, void * ptr){p->data[i] = ptr;}
 %  void setCXCursorKind(CXCursor * p, unsigned kind){p->kind = kind;}
-%C unsigned getCXCursorXData(CXCursor * p){return p->xdata;}
-%  void setCXCursorXData(CXCursor * p, unsigned kind){p->xdata = i;}
+%  unsigned getCXCursorXData(CXCursor * p){return p->xdata;}
+%  void setCXCursorXData(CXCursor * p, unsigned i){p->xdata = i;}
 foreign import ccall unsafe "FFI_stub_ffi.h sizeOfCXCursor" sizeOfCXCursor :: CUInt
 foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorData" getCXCursorData :: Ptr () -> CInt -> IO (Ptr ())
 foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorKind" getCXCursorKind :: Ptr () -> IO CUInt
@@ -917,7 +917,7 @@ unmarshall_cursorSet = newForeignPtr clang_disposeCXCursorSet
 type CursorList = [Cursor]
 
 %C enum CXCursorKind cursorListGetKind(CXCursor *clist, int i) {return clist[i].kind;}
-%C unsigned CXCursorKind cursorListGetXData(CXCursor *clist, int i) {return clist[i].xdata;}
+%  unsigned cursorListGetXData(CXCursor *clist, int i) {return clist[i].xdata;}
 %  void * cursorListGetPtr(CXCursor *clist, int i, int pi) {return clist[i].data[pi];}
 
 foreign import ccall unsafe "FFI_stub_ffi.h cursorListGetKind" cursorListGetKind_ :: Ptr () -> CInt -> IO Int
@@ -944,7 +944,7 @@ unmarshall_cursorList numO os = do
 -- void clang_getOverriddenCursors(CXCursor cursor, CXCursor **overridden, unsigned *num_overridden);
 %fun clang_getOverriddenCursors :: Cursor -> IO CursorList
 %call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k xdata, {p1, p2, p3}};
+%code CXCursor a = {k , xdata, {p1, p2, p3}};
 %     CXCursor * overrides;unsigned num_overrides;
 %     clang_getOverriddenCursors(a, &overrides, &num_overrides);
 %result (cursorList (int num_overrides) (ptr overrides))
@@ -1220,7 +1220,7 @@ visitChildren (Cursor k xdata p1 p2 p3) f d = do
 
 %C typedef enum CXChildVisitResult (*HSCursorVisitor)
 %     (HsInt ck,HsInt cxdata, HsPtr cp1, HsPtr cp2,HsPtr cp3,
-%      HsInt pk,HSInt pxdata, HsPtr pp1, HsPtr pp2,HsPtr pp3, CXClientData data);
+%      HsInt pk,HsInt pxdata, HsPtr pp1, HsPtr pp2,HsPtr pp3, CXClientData data);
 %  typedef struct {
 %    HSCursorVisitor visitor;
 %    CXClientData data;
@@ -1236,7 +1236,6 @@ visitChildren (Cursor k xdata p1 p2 p3) f d = do
 %  unsigned prim_visitChildren_(HsInt ck,HsInt cxdata, HsPtr p1,HsPtr p2,HsPtr p3,HsPtr pd,HsPtr fp)
 %  {
 %    CXCursor p = {ck, cxdata, {p1,p2,p3}};
-%    printf("%d", ck);
 %    HSChildVisitorData hsdata = {(HSCursorVisitor)fp,pd};
 %    return clang_visitChildren(p, primChildVisitor, (CXClientData)&hsdata);
 %  }
