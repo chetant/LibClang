@@ -534,14 +534,15 @@ getDiagnosticDispOptSum = sum . (map toVal_)
 --   CXTranslationUnit_None = 0x0,
 --   CXTranslationUnit_DetailedPreprocessingRecord = 0x01,
 --   CXTranslationUnit_Incomplete = 0x02,
-  
 --   CXTranslationUnit_PrecompiledPreamble = 0x04,
-  
 --   CXTranslationUnit_CacheCompletionResults = 0x08,
 --   CXTranslationUnit_CXXPrecompiledPreamble = 0x10,
---   CXTranslationUnit_CXXChainedPCH = 0x20
--- };
-%enum TranslationUnitFlags (Eq) Int [CXTranslationUnit_None, CXTranslationUnit_DetailedPreprocessingRecord, CXTranslationUnit_Incomplete, CXTranslationUnit_PrecompiledPreamble, CXTranslationUnit_CacheCompletionResults, CXTranslationUnit_CXXPrecompiledPreamble, CXTranslationUnit_CXXChainedPCH]
+--   CXTranslationUnit_CXXChainedPCH = 0x20,
+--   CXTranslationUnit_NestedMacroExpansions = 0x40,
+--   CXTranslationUnit_NestedMacroInstantiations =
+--     CXTranslationUnit_NestedMacroExpansions
+-- }
+%enum TranslationUnitFlags (Eq) Int [CXTranslationUnit_None,CXTranslationUnit_DetailedPreprocessingRecord,CXTranslationUnit_Incomplete,CXTranslationUnit_PrecompiledPreamble,CXTranslationUnit_CacheCompletionResults,CXTranslationUnit_CXXPrecompiledPreamble,CXTranslationUnit_CXXChainedPCH,CXTranslationUnit_NestedMacroExpansions,CXTranslationUnit_NestedMacroInstantiations]
 
 getTranslationUnitFlagsSum :: [TranslationUnitFlags] -> Int
 getTranslationUnitFlagsSum = sum . (map toVal_)
