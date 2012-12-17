@@ -1551,9 +1551,10 @@ unmarshall_cursorList numO os = do
 --   CXType_ObjCObjectPointer = 109,
 --   CXType_FunctionNoProto = 110,
 --   CXType_FunctionProto = 111
+--   CXType_ConstantArray = 112
 -- };
 
-%enum TypeKind (Eq) Int [CXType_Invalid,CXType_Unexposed,CXType_Void,CXType_Bool,CXType_Char_U,CXType_UChar,CXType_Char16,CXType_Char32,CXType_UShort,CXType_UInt,CXType_ULong,CXType_ULongLong,CXType_UInt128,CXType_Char_S,CXType_SChar,CXType_WChar,CXType_Short,CXType_Int,CXType_Long,CXType_LongLong,CXType_Int128,CXType_Float,CXType_Double,CXType_LongDouble,CXType_NullPtr,CXType_Overload,CXType_Dependent,CXType_ObjCId,CXType_ObjCClass,CXType_ObjCSel,CXType_FirstBuiltin,CXType_LastBuiltin,CXType_Complex,CXType_Pointer,CXType_BlockPointer,CXType_LValueReference,CXType_RValueReference,CXType_Record,CXType_Enum,CXType_Typedef,CXType_ObjCInterface,CXType_ObjCObjectPointer,CXType_FunctionNoProto,CXType_FunctionProto]
+%enum TypeKind (Eq) Int [CXType_Invalid,CXType_Unexposed,CXType_Void,CXType_Bool,CXType_Char_U,CXType_UChar,CXType_Char16,CXType_Char32,CXType_UShort,CXType_UInt,CXType_ULong,CXType_ULongLong,CXType_UInt128,CXType_Char_S,CXType_SChar,CXType_WChar,CXType_Short,CXType_Int,CXType_Long,CXType_LongLong,CXType_Int128,CXType_Float,CXType_Double,CXType_LongDouble,CXType_NullPtr,CXType_Overload,CXType_Dependent,CXType_ObjCId,CXType_ObjCClass,CXType_ObjCSel,CXType_FirstBuiltin,CXType_LastBuiltin,CXType_Complex,CXType_Pointer,CXType_BlockPointer,CXType_LValueReference,CXType_RValueReference,CXType_Record,CXType_Enum,CXType_Typedef,CXType_ObjCInterface,CXType_ObjCObjectPointer,CXType_FunctionNoProto,CXType_FunctionProto,CXType_ConstantArray]
 
 -- typedef struct {
 --   enum CXTypeKind kind;
