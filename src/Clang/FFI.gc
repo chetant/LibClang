@@ -171,6 +171,7 @@ import Control.Applicative((<$>))
 import Foreign.GreenCard hiding (unsafePerformIO)
 import Foreign.C
 import Foreign.ForeignPtr hiding (unsafeForeignPtrToPtr)
+import Foreign.ForeignPtr.Unsafe(unsafeForeignPtrToPtr)
 import Foreign.Ptr
 import Foreign.Marshal.Utils(new)
 import System.IO.Unsafe
@@ -189,7 +190,7 @@ import Clang.Alloc
 %prefix clang_
 
 marshall_fptr :: ForeignPtr a -> IO (Ptr a)
-marshall_fptr  = return . unsafeForeignPtrToPtr
+marshall_fptr  = return . Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr
 
 -- typedef void *CXIndex;
 data IndexObj
