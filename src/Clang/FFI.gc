@@ -171,24 +171,26 @@ import Control.Applicative((<$>))
 import Foreign.GreenCard hiding (unsafePerformIO)
 import Foreign.C
 import Foreign.ForeignPtr hiding (unsafeForeignPtrToPtr)
+import Foreign.ForeignPtr.Unsafe(unsafeForeignPtrToPtr)
 import Foreign.Ptr
 import Foreign.Marshal.Utils(new)
 import System.IO.Unsafe
 import Data.Maybe(fromJust)
 import Control.Monad(when)
-
+import Debug.Trace
 import Clang.Alloc
 
 %#include <inttypes.h>
 %#include <stdlib.h>
 %#include <clang-c/Index.h>
+%#include <stdio.h>
 
 %prefix CX
 %prefix CX_
 %prefix clang_
 
 marshall_fptr :: ForeignPtr a -> IO (Ptr a)
-marshall_fptr  = return . unsafeForeignPtrToPtr
+marshall_fptr  = return . Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr
 
 -- typedef void *CXIndex;
 data IndexObj
@@ -533,14 +535,15 @@ getDiagnosticDispOptSum = sum . (map toVal_)
 --   CXTranslationUnit_None = 0x0,
 --   CXTranslationUnit_DetailedPreprocessingRecord = 0x01,
 --   CXTranslationUnit_Incomplete = 0x02,
-  
 --   CXTranslationUnit_PrecompiledPreamble = 0x04,
-  
 --   CXTranslationUnit_CacheCompletionResults = 0x08,
 --   CXTranslationUnit_CXXPrecompiledPreamble = 0x10,
---   CXTranslationUnit_CXXChainedPCH = 0x20
--- };
-%enum TranslationUnitFlags (Eq) Int [CXTranslationUnit_None, CXTranslationUnit_DetailedPreprocessingRecord, CXTranslationUnit_Incomplete, CXTranslationUnit_PrecompiledPreamble, CXTranslationUnit_CacheCompletionResults, CXTranslationUnit_CXXPrecompiledPreamble, CXTranslationUnit_CXXChainedPCH]
+--   CXTranslationUnit_CXXChainedPCH = 0x20,
+--   CXTranslationUnit_NestedMacroExpansions = 0x40,
+--   CXTranslationUnit_NestedMacroInstantiations =
+--     CXTranslationUnit_NestedMacroExpansions
+-- }
+%enum TranslationUnitFlags (Eq) Int [CXTranslationUnit_None,CXTranslationUnit_DetailedPreprocessingRecord,CXTranslationUnit_Incomplete,CXTranslationUnit_PrecompiledPreamble,CXTranslationUnit_CacheCompletionResults,CXTranslationUnit_CXXPrecompiledPreamble,CXTranslationUnit_CXXChainedPCH,CXTranslationUnit_NestedMacroExpansions,CXTranslationUnit_NestedMacroInstantiations]
 
 getTranslationUnitFlagsSum :: [TranslationUnitFlags] -> Int
 getTranslationUnitFlagsSum = sum . (map toVal_)
@@ -649,114 +652,647 @@ getReparseFlagsSum = sum . (map toVal_)
 %call (ptr t) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs))) (int i)
 %code r = clang_reparseTranslationUnit(t, nufs, ufs, i);
 %result (bool r)
-
 -- enum CXCursorKind {
+--   /* Declarations */
+--   /**
+--    * \brief A declaration whose specific kind is not exposed via this
+--    * interface.
+--    *
+--    * Unexposed declarations have the same operations as any other kind
+--    * of declaration; one can extract their location information,
+--    * spelling, find their definitions, etc. However, the specific kind
+--    * of the declaration is not reported.
+--    */
 --   CXCursor_UnexposedDecl                 = 1,
+--   /** \brief A C or C++ struct. */
 --   CXCursor_StructDecl                    = 2,
+--   /** \brief A C or C++ union. */
 --   CXCursor_UnionDecl                     = 3,
+--   /** \brief A C++ class. */
 --   CXCursor_ClassDecl                     = 4,
+--   /** \brief An enumeration. */
 --   CXCursor_EnumDecl                      = 5,
+--   /**
+--    * \brief A field (in C) or non-static data member (in C++) in a
+--    * struct, union, or C++ class.
+--    */
 --   CXCursor_FieldDecl                     = 6,
+--   /** \brief An enumerator constant. */
 --   CXCursor_EnumConstantDecl              = 7,
+--   /** \brief A function. */
 --   CXCursor_FunctionDecl                  = 8,
+--   /** \brief A variable. */
 --   CXCursor_VarDecl                       = 9,
+--   /** \brief A function or method parameter. */
 --   CXCursor_ParmDecl                      = 10,
+--   /** \brief An Objective-C @interface. */
 --   CXCursor_ObjCInterfaceDecl             = 11,
+--   /** \brief An Objective-C @interface for a category. */
 --   CXCursor_ObjCCategoryDecl              = 12,
+--   /** \brief An Objective-C @protocol declaration. */
 --   CXCursor_ObjCProtocolDecl              = 13,
+--   /** \brief An Objective-C @property declaration. */
 --   CXCursor_ObjCPropertyDecl              = 14,
+--   /** \brief An Objective-C instance variable. */
 --   CXCursor_ObjCIvarDecl                  = 15,
+--   /** \brief An Objective-C instance method. */
 --   CXCursor_ObjCInstanceMethodDecl        = 16,
+--   /** \brief An Objective-C class method. */
 --   CXCursor_ObjCClassMethodDecl           = 17,
+--   /** \brief An Objective-C @implementation. */
 --   CXCursor_ObjCImplementationDecl        = 18,
+--   /** \brief An Objective-C @implementation for a category. */
 --   CXCursor_ObjCCategoryImplDecl          = 19,
+--   /** \brief A typedef */
 --   CXCursor_TypedefDecl                   = 20,
+--   /** \brief A C++ class method. */
 --   CXCursor_CXXMethod                     = 21,
+--   /** \brief A C++ namespace. */
 --   CXCursor_Namespace                     = 22,
+--   /** \brief A linkage specification, e.g. 'extern "C"'. */
 --   CXCursor_LinkageSpec                   = 23,
+--   /** \brief A C++ constructor. */
 --   CXCursor_Constructor                   = 24,
+--   /** \brief A C++ destructor. */
 --   CXCursor_Destructor                    = 25,
+--   /** \brief A C++ conversion function. */
 --   CXCursor_ConversionFunction            = 26,
+--   /** \brief A C++ template type parameter. */
 --   CXCursor_TemplateTypeParameter         = 27,
+--   /** \brief A C++ non-type template parameter. */
 --   CXCursor_NonTypeTemplateParameter      = 28,
+--   /** \brief A C++ template template parameter. */
 --   CXCursor_TemplateTemplateParameter     = 29,
+--   /** \brief A C++ function template. */
 --   CXCursor_FunctionTemplate              = 30,
+--   /** \brief A C++ class template. */
 --   CXCursor_ClassTemplate                 = 31,
+--   /** \brief A C++ class template partial specialization. */
 --   CXCursor_ClassTemplatePartialSpecialization = 32,
+--   /** \brief A C++ namespace alias declaration. */
 --   CXCursor_NamespaceAlias                = 33,
+--   /** \brief A C++ using directive. */
 --   CXCursor_UsingDirective                = 34,
+--   /** \brief A C++ using declaration. */
 --   CXCursor_UsingDeclaration              = 35,
+--   /** \brief A C++ alias declaration */
+--   CXCursor_TypeAliasDecl                 = 36,
+--   /** \brief An Objective-C @synthesize definition. */
+--   CXCursor_ObjCSynthesizeDecl            = 37,
+--   /** \brief An Objective-C @dynamic definition. */
+--   CXCursor_ObjCDynamicDecl               = 38,
+--   /** \brief An access specifier. */
+--   CXCursor_CXXAccessSpecifier            = 39,
+-- 
 --   CXCursor_FirstDecl                     = CXCursor_UnexposedDecl,
---   CXCursor_LastDecl                      = CXCursor_UsingDeclaration,
+--   CXCursor_LastDecl                      = CXCursor_CXXAccessSpecifier,
+-- 
+--   /* References */
 --   CXCursor_FirstRef                      = 40, /* Decl references */
 --   CXCursor_ObjCSuperClassRef             = 40,
 --   CXCursor_ObjCProtocolRef               = 41,
 --   CXCursor_ObjCClassRef                  = 42,
+--   /**
+--    * \brief A reference to a type declaration.
+--    *
+--    * A type reference occurs anywhere where a type is named but not
+--    * declared. For example, given:
+--    *
+--    * \code
+--    * typedef unsigned size_type;
+--    * size_type size;
+--    * \endcode
+--    *
+--    * The typedef is a declaration of size_type (CXCursor_TypedefDecl),
+--    * while the type of the variable "size" is referenced. The cursor
+--    * referenced by the type of size is the typedef for size_type.
+--    */
 --   CXCursor_TypeRef                       = 43,
 --   CXCursor_CXXBaseSpecifier              = 44,
+--   /** 
+--    * \brief A reference to a class template, function template, template
+--    * template parameter, or class template partial specialization.
+--    */
 --   CXCursor_TemplateRef                   = 45,
+--   /**
+--    * \brief A reference to a namespace or namespace alias.
+--    */
 --   CXCursor_NamespaceRef                  = 46,
+--   /**
+--    * \brief A reference to a member of a struct, union, or class that occurs in 
+--    * some non-expression context, e.g., a designated initializer.
+--    */
 --   CXCursor_MemberRef                     = 47,
+--   /**
+--    * \brief A reference to a labeled statement.
+--    *
+--    * This cursor kind is used to describe the jump to "start_over" in the 
+--    * goto statement in the following example:
+--    *
+--    * \code
+--    *   start_over:
+--    *     ++counter;
+--    *
+--    *     goto start_over;
+--    * \endcode
+--    *
+--    * A label reference cursor refers to a label statement.
+--    */
 --   CXCursor_LabelRef                      = 48,
-  
+--   
+--   /**
+--    * \brief A reference to a set of overloaded functions or function templates
+--    * that has not yet been resolved to a specific function or function template.
+--    *
+--    * An overloaded declaration reference cursor occurs in C++ templates where
+--    * a dependent name refers to a function. For example:
+--    *
+--    * \code
+--    * template<typename T> void swap(T&, T&);
+--    *
+--    * struct X { ... };
+--    * void swap(X&, X&);
+--    *
+--    * template<typename T>
+--    * void reverse(T* first, T* last) {
+--    *   while (first < last - 1) {
+--    *     swap(*first, *--last);
+--    *     ++first;
+--    *   }
+--    * }
+--    *
+--    * struct Y { };
+--    * void swap(Y&, Y&);
+--    * \endcode
+--    *
+--    * Here, the identifier "swap" is associated with an overloaded declaration
+--    * reference. In the template definition, "swap" refers to either of the two
+--    * "swap" functions declared above, so both results will be available. At
+--    * instantiation time, "swap" may also refer to other functions found via
+--    * argument-dependent lookup (e.g., the "swap" function at the end of the
+--    * example).
+--    *
+--    * The functions \c clang_getNumOverloadedDecls() and 
+--    * \c clang_getOverloadedDecl() can be used to retrieve the definitions
+--    * referenced by this cursor.
+--    */
 --   CXCursor_OverloadedDeclRef             = 49,
-  
+--   
 --   CXCursor_LastRef                       = CXCursor_OverloadedDeclRef,
+-- 
+--   /* Error conditions */
 --   CXCursor_FirstInvalid                  = 70,
 --   CXCursor_InvalidFile                   = 70,
 --   CXCursor_NoDeclFound                   = 71,
 --   CXCursor_NotImplemented                = 72,
 --   CXCursor_InvalidCode                   = 73,
 --   CXCursor_LastInvalid                   = CXCursor_InvalidCode,
+-- 
+--   /* Expressions */
 --   CXCursor_FirstExpr                     = 100,
+-- 
+--   /**
+--    * \brief An expression whose specific kind is not exposed via this
+--    * interface.
+--    *
+--    * Unexposed expressions have the same operations as any other kind
+--    * of expression; one can extract their location information,
+--    * spelling, children, etc. However, the specific kind of the
+--    * expression is not reported.
+--    */
 --   CXCursor_UnexposedExpr                 = 100,
+-- 
+--   /**
+--    * \brief An expression that refers to some value declaration, such
+--    * as a function, varible, or enumerator.
+--    */
 --   CXCursor_DeclRefExpr                   = 101,
+-- 
+--   /**
+--    * \brief An expression that refers to a member of a struct, union,
+--    * class, Objective-C class, etc.
+--    */
 --   CXCursor_MemberRefExpr                 = 102,
+-- 
+--   /** \brief An expression that calls a function. */
 --   CXCursor_CallExpr                      = 103,
+-- 
+--   /** \brief An expression that sends a message to an Objective-C
 --    object or class. */
 --   CXCursor_ObjCMessageExpr               = 104,
+-- 
+--   /** \brief An expression that represents a block literal. */
 --   CXCursor_BlockExpr                     = 105,
---   CXCursor_LastExpr                      = 105,
+-- 
+--   /** \brief An integer literal.
+--    */
+--   CXCursor_IntegerLiteral                = 106,
+-- 
+--   /** \brief A floating point number literal.
+--    */
+--   CXCursor_FloatingLiteral               = 107,
+-- 
+--   /** \brief An imaginary number literal.
+--    */
+--   CXCursor_ImaginaryLiteral              = 108,
+-- 
+--   /** \brief A string literal.
+--    */
+--   CXCursor_StringLiteral                 = 109,
+-- 
+--   /** \brief A character literal.
+--    */
+--   CXCursor_CharacterLiteral              = 110,
+-- 
+--   /** \brief A parenthesized expression, e.g. "(1)".
+--    *
+--    * This AST node is only formed if full location information is requested.
+--    */
+--   CXCursor_ParenExpr                     = 111,
+-- 
+--   /** \brief This represents the unary-expression's (except sizeof and
+--    * alignof).
+--    */
+--   CXCursor_UnaryOperator                 = 112,
+-- 
+--   /** \brief [C99 6.5.2.1] Array Subscripting.
+--    */
+--   CXCursor_ArraySubscriptExpr            = 113,
+-- 
+--   /** \brief A builtin binary operation expression such as "x + y" or
+--    * "x <= y".
+--    */
+--   CXCursor_BinaryOperator                = 114,
+-- 
+--   /** \brief Compound assignment such as "+=".
+--    */
+--   CXCursor_CompoundAssignOperator        = 115,
+-- 
+--   /** \brief The ?: ternary operator.
+--    */
+--   CXCursor_ConditionalOperator           = 116,
+-- 
+--   /** \brief An explicit cast in C (C99 6.5.4) or a C-style cast in C++
+--    * (C++ [expr.cast]), which uses the syntax (Type)expr.
+--    *
+--    * For example: (int)f.
+--    */
+--   CXCursor_CStyleCastExpr                = 117,
+-- 
+--   /** \brief [C99 6.5.2.5]
+--    */
+--   CXCursor_CompoundLiteralExpr           = 118,
+-- 
+--   /** \brief Describes an C or C++ initializer list.
+--    */
+--   CXCursor_InitListExpr                  = 119,
+-- 
+--   /** \brief The GNU address of label extension, representing &&label.
+--    */
+--   CXCursor_AddrLabelExpr                 = 120,
+-- 
+--   /** \brief This is the GNU Statement Expression extension: ({int X=4; X;})
+--    */
+--   CXCursor_StmtExpr                      = 121,
+-- 
+--   /** \brief Represents a C1X generic selection.
+--    */
+--   CXCursor_GenericSelectionExpr          = 122,
+-- 
+--   /** \brief Implements the GNU __null extension, which is a name for a null
+--    * pointer constant that has integral type (e.g., int or long) and is the same
+--    * size and alignment as a pointer.
+--    *
+--    * The __null extension is typically only used by system headers, which define
+--    * NULL as __null in C++ rather than using 0 (which is an integer that may not
+--    * match the size of a pointer).
+--    */
+--   CXCursor_GNUNullExpr                   = 123,
+-- 
+--   /** \brief C++'s static_cast<> expression.
+--    */
+--   CXCursor_CXXStaticCastExpr             = 124,
+-- 
+--   /** \brief C++'s dynamic_cast<> expression.
+--    */
+--   CXCursor_CXXDynamicCastExpr            = 125,
+-- 
+--   /** \brief C++'s reinterpret_cast<> expression.
+--    */
+--   CXCursor_CXXReinterpretCastExpr        = 126,
+-- 
+--   /** \brief C++'s const_cast<> expression.
+--    */
+--   CXCursor_CXXConstCastExpr              = 127,
+-- 
+--   /** \brief Represents an explicit C++ type conversion that uses "functional"
+--    * notion (C++ [expr.type.conv]).
+--    *
+--    * Example:
+--    * \code
+--    *   x = int(0.5);
+--    * \endcode
+--    */
+--   CXCursor_CXXFunctionalCastExpr         = 128,
+-- 
+--   /** \brief A C++ typeid expression (C++ [expr.typeid]).
+--    */
+--   CXCursor_CXXTypeidExpr                 = 129,
+-- 
+--   /** \brief [C++ 2.13.5] C++ Boolean Literal.
+--    */
+--   CXCursor_CXXBoolLiteralExpr            = 130,
+-- 
+--   /** \brief [C++0x 2.14.7] C++ Pointer Literal.
+--    */
+--   CXCursor_CXXNullPtrLiteralExpr         = 131,
+-- 
+--   /** \brief Represents the "this" expression in C++
+--    */
+--   CXCursor_CXXThisExpr                   = 132,
+-- 
+--   /** \brief [C++ 15] C++ Throw Expression.
+--    *
+--    * This handles 'throw' and 'throw' assignment-expression. When
+--    * assignment-expression isn't present, Op will be null.
+--    */
+--   CXCursor_CXXThrowExpr                  = 133,
+-- 
+--   /** \brief A new expression for memory allocation and constructor calls, e.g:
+--    * "new CXXNewExpr(foo)".
+--    */
+--   CXCursor_CXXNewExpr                    = 134,
+-- 
+--   /** \brief A delete expression for memory deallocation and destructor calls,
+--    * e.g. "delete[] pArray".
+--    */
+--   CXCursor_CXXDeleteExpr                 = 135,
+-- 
+--   /** \brief A unary expression.
+--    */
+--   CXCursor_UnaryExpr                     = 136,
+-- 
+--   /** \brief ObjCStringLiteral, used for Objective-C string literals i.e. "foo".
+--    */
+--   CXCursor_ObjCStringLiteral             = 137,
+-- 
+--   /** \brief ObjCEncodeExpr, used for in Objective-C.
+--    */
+--   CXCursor_ObjCEncodeExpr                = 138,
+-- 
+--   /** \brief ObjCSelectorExpr used for in Objective-C.
+--    */
+--   CXCursor_ObjCSelectorExpr              = 139,
+-- 
+--   /** \brief Objective-C's protocol expression.
+--    */
+--   CXCursor_ObjCProtocolExpr              = 140,
+-- 
+--   /** \brief An Objective-C "bridged" cast expression, which casts between
+--    * Objective-C pointers and C pointers, transferring ownership in the process.
+--    *
+--    * \code
+--    *   NSString *str = (__bridge_transfer NSString *)CFCreateString();
+--    * \endcode
+--    */
+--   CXCursor_ObjCBridgedCastExpr           = 141,
+-- 
+--   /** \brief Represents a C++0x pack expansion that produces a sequence of
+--    * expressions.
+--    *
+--    * A pack expansion expression contains a pattern (which itself is an
+--    * expression) followed by an ellipsis. For example:
+--    *
+--    * \code
+--    * template<typename F, typename ...Types>
+--    * void forward(F f, Types &&...args) {
+--    *  f(static_cast<Types&&>(args)...);
+--    * }
+--    * \endcode
+--    */
+--   CXCursor_PackExpansionExpr             = 142,
+-- 
+--   /** \brief Represents an expression that computes the length of a parameter
+--    * pack.
+--    *
+--    * \code
+--    * template<typename ...Types>
+--    * struct count {
+--    *   static const unsigned value = sizeof...(Types);
+--    * };
+--    * \endcode
+--    */
+--   CXCursor_SizeOfPackExpr                = 143,
+-- 
+--   CXCursor_LastExpr                      = CXCursor_SizeOfPackExpr,
+-- 
+--   /* Statements */
 --   CXCursor_FirstStmt                     = 200,
+--   /**
+--    * \brief A statement whose specific kind is not exposed via this
+--    * interface.
+--    *
+--    * Unexposed statements have the same operations as any other kind of
+--    * statement; one can extract their location information, spelling,
+--    * children, etc. However, the specific kind of the statement is not
+--    * reported.
+--    */
 --   CXCursor_UnexposedStmt                 = 200,
-  
+--   
+--   /** \brief A labelled statement in a function. 
+--    *
+--    * This cursor kind is used to describe the "start_over:" label statement in 
+--    * the following example:
+--    *
+--    * \code
+--    *   start_over:
+--    *     ++counter;
+--    * \endcode
+--    *
+--    */
 --   CXCursor_LabelStmt                     = 201,
-  
---   CXCursor_LastStmt                      = CXCursor_LabelStmt,
+-- 
+--   /** \brief A group of statements like { stmt stmt }.
+--    *
+--    * This cursor kind is used to describe compound statements, e.g. function
+--    * bodies.
+--    */
+--   CXCursor_CompoundStmt                  = 202,
+-- 
+--   /** \brief A case statment.
+--    */
+--   CXCursor_CaseStmt                      = 203,
+-- 
+--   /** \brief A default statement.
+--    */
+--   CXCursor_DefaultStmt                   = 204,
+-- 
+--   /** \brief An if statement
+--    */
+--   CXCursor_IfStmt                        = 205,
+-- 
+--   /** \brief A switch statement.
+--    */
+--   CXCursor_SwitchStmt                    = 206,
+-- 
+--   /** \brief A while statement.
+--    */
+--   CXCursor_WhileStmt                     = 207,
+-- 
+--   /** \brief A do statement.
+--    */
+--   CXCursor_DoStmt                        = 208,
+-- 
+--   /** \brief A for statement.
+--    */
+--   CXCursor_ForStmt                       = 209,
+-- 
+--   /** \brief A goto statement.
+--    */
+--   CXCursor_GotoStmt                      = 210,
+-- 
+--   /** \brief An indirect goto statement.
+--    */
+--   CXCursor_IndirectGotoStmt              = 211,
+-- 
+--   /** \brief A continue statement.
+--    */
+--   CXCursor_ContinueStmt                  = 212,
+-- 
+--   /** \brief A break statement.
+--    */
+--   CXCursor_BreakStmt                     = 213,
+-- 
+--   /** \brief A return statement.
+--    */
+--   CXCursor_ReturnStmt                    = 214,
+-- 
+--   /** \brief A GNU inline assembly statement extension.
+--    */
+--   CXCursor_AsmStmt                       = 215,
+-- 
+--   /** \brief Objective-C's overall @try-@catc-@finall statement.
+--    */
+--   CXCursor_ObjCAtTryStmt                 = 216,
+-- 
+--   /** \brief Objective-C's @catch statement.
+--    */
+--   CXCursor_ObjCAtCatchStmt               = 217,
+-- 
+--   /** \brief Objective-C's @finally statement.
+--    */
+--   CXCursor_ObjCAtFinallyStmt             = 218,
+-- 
+--   /** \brief Objective-C's @throw statement.
+--    */
+--   CXCursor_ObjCAtThrowStmt               = 219,
+-- 
+--   /** \brief Objective-C's @synchronized statement.
+--    */
+--   CXCursor_ObjCAtSynchronizedStmt        = 220,
+-- 
+--   /** \brief Objective-C's autorelease pool statement.
+--    */
+--   CXCursor_ObjCAutoreleasePoolStmt       = 221,
+-- 
+--   /** \brief Objective-C's collection statement.
+--    */
+--   CXCursor_ObjCForCollectionStmt         = 222,
+-- 
+--   /** \brief C++'s catch statement.
+--    */
+--   CXCursor_CXXCatchStmt                  = 223,
+-- 
+--   /** \brief C++'s try statement.
+--    */
+--   CXCursor_CXXTryStmt                    = 224,
+-- 
+--   /** \brief C++'s for (* : *) statement.
+--    */
+--   CXCursor_CXXForRangeStmt               = 225,
+-- 
+--   /** \brief Windows Structured Exception Handling's try statement.
+--    */
+--   CXCursor_SEHTryStmt                    = 226,
+-- 
+--   /** \brief Windows Structured Exception Handling's except statement.
+--    */
+--   CXCursor_SEHExceptStmt                 = 227,
+-- 
+--   /** \brief Windows Structured Exception Handling's finally statement.
+--    */
+--   CXCursor_SEHFinallyStmt                = 228,
+-- 
+--   /** \brief The null satement ";": C99 6.8.3p3.
+--    *
+--    * This cursor kind is used to describe the null statement.
+--    */
+--   CXCursor_NullStmt                      = 230,
+-- 
+--   /** \brief Adaptor class for mixing declarations with statements and
+--    * expressions.
+--    */
+--   CXCursor_DeclStmt                      = 231,
+-- 
+--   CXCursor_LastStmt                      = CXCursor_DeclStmt,
+-- 
+--   /**
+--    * \brief Cursor that represents the translation unit itself.
+--    *
+--    * The translation unit cursor exists primarily to act as the root
+--    * cursor for traversing the contents of a translation unit.
+--    */
 --   CXCursor_TranslationUnit               = 300,
+-- 
+--   /* Attributes */
 --   CXCursor_FirstAttr                     = 400,
+--   /**
+--    * \brief An attribute whose specific kind is not exposed via this
+--    * interface.
+--    */
 --   CXCursor_UnexposedAttr                 = 400,
+-- 
 --   CXCursor_IBActionAttr                  = 401,
 --   CXCursor_IBOutletAttr                  = 402,
 --   CXCursor_IBOutletCollectionAttr        = 403,
---   CXCursor_LastAttr                      = CXCursor_IBOutletCollectionAttr,
-     
+--   CXCursor_CXXFinalAttr                  = 404,
+--   CXCursor_CXXOverrideAttr               = 405,
+--   CXCursor_AnnotateAttr                  = 406,
+--   CXCursor_LastAttr                      = CXCursor_AnnotateAttr,
+--      
+--   /* Preprocessing */
 --   CXCursor_PreprocessingDirective        = 500,
 --   CXCursor_MacroDefinition               = 501,
---   CXCursor_MacroInstantiation            = 502,
+--   CXCursor_MacroExpansion                = 502,
+--   CXCursor_MacroInstantiation            = CXCursor_MacroExpansion,
 --   CXCursor_InclusionDirective            = 503,
 --   CXCursor_FirstPreprocessing            = CXCursor_PreprocessingDirective,
 --   CXCursor_LastPreprocessing             = CXCursor_InclusionDirective
 -- };
-%enum CursorKind (Eq) Int [CXCursor_UnexposedDecl,CXCursor_StructDecl,CXCursor_UnionDecl,CXCursor_ClassDecl,CXCursor_EnumDecl,CXCursor_FieldDecl,CXCursor_EnumConstantDecl,CXCursor_FunctionDecl,CXCursor_VarDecl,CXCursor_ParmDecl,CXCursor_ObjCInterfaceDecl,CXCursor_ObjCCategoryDecl,CXCursor_ObjCProtocolDecl,CXCursor_ObjCPropertyDecl,CXCursor_ObjCIvarDecl,CXCursor_ObjCInstanceMethodDecl,CXCursor_ObjCClassMethodDecl,CXCursor_ObjCImplementationDecl,CXCursor_ObjCCategoryImplDecl,CXCursor_TypedefDecl,CXCursor_CXXMethod,CXCursor_Namespace,CXCursor_LinkageSpec,CXCursor_Constructor,CXCursor_Destructor,CXCursor_ConversionFunction,CXCursor_TemplateTypeParameter,CXCursor_NonTypeTemplateParameter,CXCursor_TemplateTemplateParameter,CXCursor_FunctionTemplate,CXCursor_ClassTemplate,CXCursor_ClassTemplatePartialSpecialization,CXCursor_NamespaceAlias,CXCursor_UsingDirective,CXCursor_UsingDeclaration,CXCursor_FirstDecl,CXCursor_LastDecl,CXCursor_FirstRef,CXCursor_ObjCSuperClassRef,CXCursor_ObjCProtocolRef,CXCursor_ObjCClassRef,CXCursor_TypeRef,CXCursor_CXXBaseSpecifier,CXCursor_TemplateRef,CXCursor_NamespaceRef,CXCursor_MemberRef,CXCursor_LabelRef,  CXCursor_OverloadedDeclRef,  CXCursor_LastRef,CXCursor_FirstInvalid,CXCursor_InvalidFile,CXCursor_NoDeclFound,CXCursor_NotImplemented,CXCursor_InvalidCode,CXCursor_LastInvalid,CXCursor_FirstExpr,CXCursor_UnexposedExpr,CXCursor_DeclRefExpr,CXCursor_MemberRefExpr,CXCursor_CallExpr,CXCursor_ObjCMessageExpr,CXCursor_BlockExpr,CXCursor_LastExpr,CXCursor_FirstStmt,CXCursor_UnexposedStmt,  CXCursor_LabelStmt,  CXCursor_LastStmt,CXCursor_TranslationUnit,CXCursor_FirstAttr,CXCursor_UnexposedAttr,CXCursor_IBActionAttr,CXCursor_IBOutletAttr,CXCursor_IBOutletCollectionAttr,CXCursor_LastAttr,     CXCursor_PreprocessingDirective,CXCursor_MacroDefinition,CXCursor_MacroInstantiation,CXCursor_InclusionDirective,CXCursor_FirstPreprocessing,CXCursor_LastPreprocessing]
+%enum CursorKind (Eq) Int [CXCursor_UnexposedDecl,CXCursor_StructDecl,CXCursor_UnionDecl,CXCursor_ClassDecl,CXCursor_EnumDecl,CXCursor_FieldDecl,CXCursor_EnumConstantDecl,CXCursor_FunctionDecl,CXCursor_VarDecl,CXCursor_ParmDecl,CXCursor_ObjCInterfaceDecl,CXCursor_ObjCCategoryDecl,CXCursor_ObjCProtocolDecl,CXCursor_ObjCPropertyDecl,CXCursor_ObjCIvarDecl,CXCursor_ObjCInstanceMethodDecl,CXCursor_ObjCClassMethodDecl,CXCursor_ObjCImplementationDecl,CXCursor_ObjCCategoryImplDecl,CXCursor_TypedefDecl,CXCursor_CXXMethod,CXCursor_Namespace,CXCursor_LinkageSpec,CXCursor_Constructor,CXCursor_Destructor,CXCursor_ConversionFunction,CXCursor_TemplateTypeParameter,CXCursor_NonTypeTemplateParameter,CXCursor_TemplateTemplateParameter,CXCursor_FunctionTemplate,CXCursor_ClassTemplate,CXCursor_ClassTemplatePartialSpecialization,CXCursor_NamespaceAlias,CXCursor_UsingDirective,CXCursor_UsingDeclaration,CXCursor_TypeAliasDecl,CXCursor_ObjCSynthesizeDecl,CXCursor_ObjCDynamicDecl,CXCursor_CXXAccessSpecifier,CXCursor_FirstDecl,CXCursor_LastDecl,CXCursor_FirstRef,CXCursor_ObjCSuperClassRef,CXCursor_ObjCProtocolRef,CXCursor_ObjCClassRef,CXCursor_TypeRef,CXCursor_CXXBaseSpecifier,CXCursor_TemplateRef,CXCursor_NamespaceRef,CXCursor_MemberRef,CXCursor_LabelRef,CXCursor_OverloadedDeclRef,CXCursor_LastRef,CXCursor_FirstInvalid,CXCursor_InvalidFile,CXCursor_NoDeclFound,CXCursor_NotImplemented,CXCursor_InvalidCode,CXCursor_LastInvalid,CXCursor_FirstExpr,CXCursor_UnexposedExpr,CXCursor_DeclRefExpr,CXCursor_MemberRefExpr,CXCursor_CallExpr,CXCursor_ObjCMessageExpr,CXCursor_BlockExpr,CXCursor_IntegerLiteral,CXCursor_FloatingLiteral,CXCursor_ImaginaryLiteral,CXCursor_StringLiteral,CXCursor_CharacterLiteral,CXCursor_ParenExpr,CXCursor_UnaryOperator,CXCursor_ArraySubscriptExpr,CXCursor_BinaryOperator,CXCursor_CompoundAssignOperator,CXCursor_ConditionalOperator,CXCursor_CStyleCastExpr,CXCursor_CompoundLiteralExpr,CXCursor_InitListExpr,CXCursor_AddrLabelExpr,CXCursor_StmtExpr,CXCursor_GenericSelectionExpr,CXCursor_GNUNullExpr,CXCursor_CXXStaticCastExpr,CXCursor_CXXDynamicCastExpr,CXCursor_CXXReinterpretCastExpr,CXCursor_CXXConstCastExpr,CXCursor_CXXFunctionalCastExpr,CXCursor_CXXTypeidExpr,CXCursor_CXXBoolLiteralExpr,CXCursor_CXXNullPtrLiteralExpr,CXCursor_CXXThisExpr,CXCursor_CXXThrowExpr,CXCursor_CXXNewExpr,CXCursor_CXXDeleteExpr,CXCursor_UnaryExpr,CXCursor_ObjCStringLiteral,CXCursor_ObjCEncodeExpr,CXCursor_ObjCSelectorExpr,CXCursor_ObjCProtocolExpr,CXCursor_ObjCBridgedCastExpr,CXCursor_PackExpansionExpr,CXCursor_SizeOfPackExpr,CXCursor_LastExpr,CXCursor_FirstStmt,CXCursor_UnexposedStmt,CXCursor_LabelStmt,CXCursor_CompoundStmt,CXCursor_CaseStmt,CXCursor_DefaultStmt,CXCursor_IfStmt,CXCursor_SwitchStmt,CXCursor_WhileStmt,CXCursor_DoStmt,CXCursor_ForStmt,CXCursor_GotoStmt,CXCursor_IndirectGotoStmt,CXCursor_ContinueStmt,CXCursor_BreakStmt,CXCursor_ReturnStmt,CXCursor_AsmStmt,CXCursor_ObjCAtTryStmt,CXCursor_ObjCAtCatchStmt,CXCursor_ObjCAtFinallyStmt,CXCursor_ObjCAtThrowStmt,CXCursor_ObjCAtSynchronizedStmt,CXCursor_ObjCAutoreleasePoolStmt,CXCursor_ObjCForCollectionStmt,CXCursor_CXXCatchStmt,CXCursor_CXXTryStmt,CXCursor_CXXForRangeStmt,CXCursor_SEHTryStmt,CXCursor_SEHExceptStmt,CXCursor_SEHFinallyStmt,CXCursor_NullStmt,CXCursor_DeclStmt,CXCursor_LastStmt,CXCursor_TranslationUnit,CXCursor_FirstAttr,CXCursor_UnexposedAttr,CXCursor_IBActionAttr,CXCursor_IBOutletAttr,CXCursor_IBOutletCollectionAttr,CXCursor_CXXFinalAttr,CXCursor_CXXOverrideAttr,CXCursor_AnnotateAttr,CXCursor_LastAttr,CXCursor_PreprocessingDirective,CXCursor_MacroDefinition,CXCursor_MacroExpansion,CXCursor_MacroInstantiation,CXCursor_InclusionDirective,CXCursor_FirstPreprocessing,CXCursor_LastPreprocessing]
 
 -- typedef struct {
 --   enum CXCursorKind kind;
+--   int xdata;
 --   void *data[3];
 -- } CXCursor;
-data Cursor = Cursor CursorKind (Ptr ()) (Ptr ()) (Ptr ())
-%dis cursor k p1 p2 p3 = Cursor (cursorKind k) (ptr p1) (ptr p2) (ptr p3)
+data Cursor = Cursor CursorKind Int (Ptr ()) (Ptr ()) (Ptr ())
+%dis cursor k xdata p1 p2 p3 = Cursor (cursorKind k) (int xdata) (ptr p1) (ptr p2) (ptr p3)
 
 %C unsigned sizeOfCXCursor() {return sizeof(CXCursor);}
 %  void * getCXCursorData(CXCursor * p, int i){return p->data[i];}
 %  enum CXCursorKind getCXCursorKind(CXCursor * p){return p->kind;}
 %  void setCXCursorData(CXCursor * p, int i, void * ptr){p->data[i] = ptr;}
 %  void setCXCursorKind(CXCursor * p, unsigned kind){p->kind = kind;}
+%  unsigned getCXCursorXData(CXCursor * p){return p->xdata;}
+%  void setCXCursorXData(CXCursor * p, unsigned i){p->xdata = i;}
 foreign import ccall unsafe "FFI_stub_ffi.h sizeOfCXCursor" sizeOfCXCursor :: CUInt
 foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorData" getCXCursorData :: Ptr () -> CInt -> IO (Ptr ())
 foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorKind" getCXCursorKind :: Ptr () -> IO CUInt
 foreign import ccall unsafe "FFI_stub_ffi.h setCXCursorData" setCXCursorData :: Ptr () -> CInt -> Ptr () -> IO ()
 foreign import ccall unsafe "FFI_stub_ffi.h setCXCursorKind" setCXCursorKind :: Ptr () -> CUInt -> IO ()
+foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorXData" getCXCursorXData :: Ptr () -> IO CUInt
+foreign import ccall unsafe "FFI_stub_ffi.h setCXCursorXData" setCXCursorXData :: Ptr () -> CUInt -> IO ()
 
 instance Storable Cursor where
     sizeOf _ = fromIntegral sizeOfCXCursor
@@ -764,13 +1300,15 @@ instance Storable Cursor where
     peek p = do
       let ptr = castPtr p
       k <- (unmarshall_CursorKind . fromIntegral) <$> getCXCursorKind ptr
+      xdata <- fromIntegral <$> getCXCursorXData ptr
       p1 <- getCXCursorData ptr 0
       p2 <- getCXCursorData ptr 1
       p3 <- getCXCursorData ptr 2
-      return $ Cursor k p1 p2 p3
-    poke p (Cursor k p1 p2 p3) = do
+      return $ Cursor k xdata p1 p2 p3
+    poke p (Cursor k xdata p1 p2 p3) = do
       let ptr = castPtr p
       setCXCursorKind ptr $ fromIntegral (marshall_CursorKind k)
+      setCXCursorXData ptr $ fromIntegral xdata
       setCXCursorData ptr 0 p1
       setCXCursorData ptr 1 p2
       setCXCursorData ptr 2 p3
@@ -778,33 +1316,33 @@ instance Storable Cursor where
 -- CXCursor clang_getNullCursor(void);
 %fun clang_getNullCursor :: IO Cursor
 %code CXCursor r = clang_getNullCursor();
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXCursor clang_getTranslationUnitCursor(CXTranslationUnit);
 %fun clang_getTranslationUnitCursor :: TranslationUnit -> IO Cursor
 %call (ptr t)
 %code CXCursor r = clang_getTranslationUnitCursor(t);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind}  {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- unsigned clang_equalCursors(CXCursor, CXCursor);
 %fun clang_equalCursors :: Cursor -> Cursor -> IO Bool
-%call (cursor k p1 p2 p3) (cursor k2 p12 p22 p32)
-%code CXCursor a = {k, {p1, p2, p3}};
-%     CXCursor b = {k2, {p12, p22, p32}};
+%call (cursor k xdata p1 p2 p3) (cursor k2 xdata2 p12 p22 p32)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     CXCursor b = {k2, xdata2, {p12, p22, p32}};
 %     unsigned r = clang_equalCursors(a, b);
 %result (bool r)
 
 -- unsigned clang_hashCursor(CXCursor);
 %fun clang_hashCursor :: Cursor -> IO Word32
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     unsigned r = clang_hashCursor(a);
 %result (word32 r)
   
 -- enum CXCursorKind clang_getCursorKind(CXCursor);
 %fun clang_getCursorKind :: Cursor -> IO CursorKind
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     enum CXCursorKind r = clang_getCursorKind(a);
 %result (cursorKind r)
 
@@ -836,15 +1374,15 @@ instance Storable Cursor where
 
 -- enum CXLinkageKind clang_getCursorLinkage(CXCursor cursor);
 %fun clang_getCursorLinkage :: Cursor -> IO LinkageKind
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     enum CXLinkageKind r = clang_getCursorLinkage(a);
 %result (linkageKind r)
 
 -- enum CXAvailabilityKind clang_getCursorAvailability(CXCursor cursor);
 %fun clang_getCursorAvailability :: Cursor -> IO AvailabilityKind
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     enum CXAvailabilityKind r = clang_getCursorAvailability(a);
 %result (availabilityKind r)
 
@@ -858,8 +1396,8 @@ instance Storable Cursor where
 
 -- enum CXLanguageKind clang_getCursorLanguage(CXCursor cursor);
 %fun clang_getCursorLanguage :: Cursor -> IO LanguageKind
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     enum CXLanguageKind r = clang_getCursorLanguage(a);
 %result (languageKind r)
 
@@ -880,38 +1418,40 @@ unmarshall_cursorSet = newForeignPtr clang_disposeCXCursorSet
 
 -- unsigned clang_CXCursorSet_contains(CXCursorSet cset, CXCursor cursor);
 %fun clang_CXCursorSet_contains :: CursorSet -> Cursor -> IO Bool
-%call (fptr (ptr cs)) (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (fptr (ptr cs)) (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %result (bool {clang_CXCursorSet_contains(cs, a)})
 
 -- unsigned clang_CXCursorSet_insert(CXCursorSet cset, CXCursor cursor);
 %fun clang_CXCursorSet_insert :: CursorSet -> Cursor -> IO Bool
-%call (fptr (ptr cs)) (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (fptr (ptr cs)) (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %result (bool {clang_CXCursorSet_insert(cs, a)})
 
 -- CXCursor clang_getCursorSemanticParent(CXCursor cursor);
 %fun clang_getCursorSemanticParent :: Cursor -> IO Cursor
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCursorSemanticParent(a);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXCursor clang_getCursorLexicalParent(CXCursor cursor);
 %fun clang_getCursorLexicalParent :: Cursor -> IO Cursor
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCursorLexicalParent(a);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- We create a dummy type to get around greencard's inability to handle arrays
 -- data CursorList = CursorList (Ptr ()) [Cursor]
 type CursorList = [Cursor]
 
 %C enum CXCursorKind cursorListGetKind(CXCursor *clist, int i) {return clist[i].kind;}
+%  unsigned cursorListGetXData(CXCursor *clist, int i) {return clist[i].xdata;}
 %  void * cursorListGetPtr(CXCursor *clist, int i, int pi) {return clist[i].data[pi];}
 
 foreign import ccall unsafe "FFI_stub_ffi.h cursorListGetKind" cursorListGetKind_ :: Ptr () -> CInt -> IO Int
+foreign import ccall unsafe "FFI_stub_ffi.h cursorListGetXData" cursorListGetXData_ :: Ptr () -> CInt -> IO Int
 foreign import ccall unsafe "FFI_stub_ffi.h cursorListGetPtr" cursorListGetPtr_ :: Ptr () -> CInt -> CInt -> IO (Ptr ())
 
 -- void clang_disposeOverriddenCursors(CXCursor *overridden);
@@ -925,23 +1465,24 @@ unmarshall_cursorList numO os = do
     where nO = fromIntegral (numO-1)
           getCursor_ i = do
             kind <- unmarshall_CursorKind <$> (cursorListGetKind_ os i)
+	    xdata <- fromIntegral <$> (cursorListGetXData_ os i) 
             p1 <- cursorListGetPtr_ os i 0
             p2 <- cursorListGetPtr_ os i 1
             p3 <- cursorListGetPtr_ os i 2
-            return $ Cursor kind p1 p2 p3
+            return $ Cursor kind xdata p1 p2 p3
 
 -- void clang_getOverriddenCursors(CXCursor cursor, CXCursor **overridden, unsigned *num_overridden);
 %fun clang_getOverriddenCursors :: Cursor -> IO CursorList
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k , xdata, {p1, p2, p3}};
 %     CXCursor * overrides;unsigned num_overrides;
 %     clang_getOverriddenCursors(a, &overrides, &num_overrides);
 %result (cursorList (int num_overrides) (ptr overrides))
 
 -- CXFile clang_getIncludedFile(CXCursor cursor);
 %fun clang_getIncludedFile :: Cursor -> IO File
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %result (file {clang_getIncludedFile(a)})
   
 -- CXCursor clang_getCursor(CXTranslationUnit, CXSourceLocation);
@@ -949,19 +1490,19 @@ unmarshall_cursorList numO os = do
 %call (ptr t) (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXCursor r = clang_getCursor(t, l);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXSourceLocation clang_getCursorLocation(CXCursor);
 %fun clang_getCursorLocation :: Cursor -> IO SourceLocation
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXSourceLocation r = clang_getCursorLocation(a);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
 
 -- CXSourceRange clang_getCursorExtent(CXCursor);
 %fun clang_getCursorExtent :: Cursor -> IO SourceRange
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXSourceRange r = clang_getCursorExtent(a);
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
     
@@ -1010,9 +1551,10 @@ unmarshall_cursorList numO os = do
 --   CXType_ObjCObjectPointer = 109,
 --   CXType_FunctionNoProto = 110,
 --   CXType_FunctionProto = 111
+--   CXType_ConstantArray = 112
 -- };
 
-%enum TypeKind (Eq) Int [CXType_Invalid,CXType_Unexposed,CXType_Void,CXType_Bool,CXType_Char_U,CXType_UChar,CXType_Char16,CXType_Char32,CXType_UShort,CXType_UInt,CXType_ULong,CXType_ULongLong,CXType_UInt128,CXType_Char_S,CXType_SChar,CXType_WChar,CXType_Short,CXType_Int,CXType_Long,CXType_LongLong,CXType_Int128,CXType_Float,CXType_Double,CXType_LongDouble,CXType_NullPtr,CXType_Overload,CXType_Dependent,CXType_ObjCId,CXType_ObjCClass,CXType_ObjCSel,CXType_FirstBuiltin,CXType_LastBuiltin,CXType_Complex,CXType_Pointer,CXType_BlockPointer,CXType_LValueReference,CXType_RValueReference,CXType_Record,CXType_Enum,CXType_Typedef,CXType_ObjCInterface,CXType_ObjCObjectPointer,CXType_FunctionNoProto,CXType_FunctionProto]
+%enum TypeKind (Eq) Int [CXType_Invalid,CXType_Unexposed,CXType_Void,CXType_Bool,CXType_Char_U,CXType_UChar,CXType_Char16,CXType_Char32,CXType_UShort,CXType_UInt,CXType_ULong,CXType_ULongLong,CXType_UInt128,CXType_Char_S,CXType_SChar,CXType_WChar,CXType_Short,CXType_Int,CXType_Long,CXType_LongLong,CXType_Int128,CXType_Float,CXType_Double,CXType_LongDouble,CXType_NullPtr,CXType_Overload,CXType_Dependent,CXType_ObjCId,CXType_ObjCClass,CXType_ObjCSel,CXType_FirstBuiltin,CXType_LastBuiltin,CXType_Complex,CXType_Pointer,CXType_BlockPointer,CXType_LValueReference,CXType_RValueReference,CXType_Record,CXType_Enum,CXType_Typedef,CXType_ObjCInterface,CXType_ObjCObjectPointer,CXType_FunctionNoProto,CXType_FunctionProto,CXType_ConstantArray]
 
 -- typedef struct {
 --   enum CXTypeKind kind;
@@ -1025,8 +1567,8 @@ getTypeKind (Type k _ _) = k
 
 -- CXType clang_getCursorType(CXCursor C);
 %fun clang_getCursorType :: Cursor -> IO Type
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getCursorType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
@@ -1078,12 +1620,12 @@ getTypeKind (Type k _ _) = k
 %call (type k p1 p2)
 %code CXType a = {k, {p1, p2}};
 %     CXCursor r = clang_getTypeDeclaration(a);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXString clang_getDeclObjCTypeEncoding(CXCursor C);
 %fun clang_getDeclObjCTypeEncoding :: Cursor -> IO CXString
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString *r = mkStrObj();*r = clang_getDeclObjCTypeEncoding(a);
 %result (cxString (ptr r))
 
@@ -1102,8 +1644,8 @@ getTypeKind (Type k _ _) = k
 
 -- CXType clang_getCursorResultType(CXCursor C);
 %fun clang_getCursorResultType :: Cursor -> IO Type
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getCursorResultType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
@@ -1116,8 +1658,8 @@ getTypeKind (Type k _ _) = k
 
 -- unsigned clang_isVirtualBase(CXCursor);
 %fun clang_isVirtualBase :: Cursor -> IO Bool
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_isVirtualBase(a);
 %result (bool r)
     
@@ -1131,30 +1673,30 @@ getTypeKind (Type k _ _) = k
 
 -- enum CX_CXXAccessSpecifier clang_getCXXAccessSpecifier(CXCursor);
 %fun clang_getCXXAccessSpecifier :: Cursor -> IO CXXAccessSpecifier
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_getCXXAccessSpecifier(a);
 %result (cXXAccessSpecifier r)
 
 -- unsigned clang_getNumOverloadedDecls(CXCursor cursor);
 %fun clang_getNumOverloadedDecls :: Cursor -> IO Int
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_getNumOverloadedDecls(a);
 %result (int r)
 
 -- CXCursor clang_getOverloadedDecl(CXCursor cursor, 
 --                                                 unsigned index);
 %fun clang_getOverloadedDecl :: Cursor -> Int -> IO Cursor
-%call (cursor k p1 p2 p3) (int i)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3) (int i)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getOverloadedDecl(a, i);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXType clang_getIBOutletCollectionType(CXCursor);
 %fun clang_getIBOutletCollectionType :: Cursor -> IO Type
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getIBOutletCollectionType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
@@ -1168,18 +1710,18 @@ getTypeKind (Type k _ _) = k
 -- typedef enum CXChildVisitResult (*CXCursorVisitor)(CXCursor cursor,
 --                                                    CXCursor parent,
 --                                                    CXClientData client_data);
-type ChildVisitorRaw = Int -> Ptr () -> Ptr () -> Ptr () -> 
-                       Int -> Ptr () -> Ptr () -> Ptr () -> Ptr () -> IO Int
+type ChildVisitorRaw = Int -> Int -> Ptr () -> Ptr () -> Ptr () -> 
+                       Int -> Int -> Ptr () -> Ptr () -> Ptr () -> Ptr () -> IO Int
 type ChildVisitor a = Cursor -- ^ Current cursor
                     -> Cursor -- ^ Parent cursor
                     -> Maybe a -- ^ User data
                     -> IO (Maybe a, ChildVisitResult) -- ^ (user data to pass on, Visitor result code)
 foreign import ccall "wrapper" wrapChildVisitorRaw :: ChildVisitorRaw -> IO (FunPtr ChildVisitorRaw)
 wrapChildVisitor :: (Storable a) => ChildVisitor a -> ChildVisitorRaw
-wrapChildVisitor f = \ck cp1 cp2 cp3
-                      pk pp1 pp2 pp3 pd -> do
-                        let child = Cursor (unmarshall_CursorKind ck) cp1 cp2 cp3
-                            parent = Cursor (unmarshall_CursorKind pk) pp1 pp2 pp3
+wrapChildVisitor f = \ck cxdata cp1 cp2 cp3
+                      pk pxdata pp1 pp2 pp3 pd -> do
+                        let child = Cursor (unmarshall_CursorKind ck) cxdata cp1 cp2 cp3
+                            parent = Cursor (unmarshall_CursorKind pk) pxdata pp1 pp2 pp3
                             dataPtr = castPtr pd
                         (rData, vRes) <- if dataPtr == nullPtr
                                          then f child parent Nothing
@@ -1191,10 +1733,11 @@ wrapChildVisitor f = \ck cp1 cp2 cp3
 --                                             CXCursorVisitor visitor,
 --                                             CXClientData client_data);
 visitChildren :: (Storable a, Alloc a) => Cursor -> ChildVisitor a -> Maybe a -> IO (Maybe a, Bool)
-visitChildren (Cursor k p1 p2 p3) f d = do
+visitChildren (Cursor k xdata p1 p2 p3) f d = do
   fp <- wrapChildVisitorRaw (wrapChildVisitor f)
   pd <- maybe (return nullPtr) allocSet d
-  retVal <- fromIntegral <$> prim_visitChildren_ (marshall_CursorKind k) p1 p2 p3 (castPtr pd) fp
+  x <- prim_visitChildren_ (marshall_CursorKind k) xdata p1 p2 p3 (castPtr pd) fp
+  retVal <- return $ fromIntegral x
   rData <- if pd == nullPtr
            then return Nothing
            else peek pd >>= \d -> dealloc pd >> return (Just d)
@@ -1202,8 +1745,8 @@ visitChildren (Cursor k p1 p2 p3) f d = do
   return (rData, retVal == 0)
 
 %C typedef enum CXChildVisitResult (*HSCursorVisitor)
-%     (HsInt ck,HsPtr cp1, HsPtr cp2,HsPtr cp3,
-%      HsInt pk,HsPtr pp1, HsPtr pp2,HsPtr pp3, CXClientData data);
+%     (HsInt ck,HsInt cxdata, HsPtr cp1, HsPtr cp2,HsPtr cp3,
+%      HsInt pk,HsInt pxdata, HsPtr pp1, HsPtr pp2,HsPtr pp3, CXClientData data);
 %  typedef struct {
 %    HSCursorVisitor visitor;
 %    CXClientData data;
@@ -1212,18 +1755,18 @@ visitChildren (Cursor k p1 p2 p3) f d = do
 %  enum CXChildVisitResult primChildVisitor(CXCursor c, CXCursor p, CXClientData d)
 %  {
 %    HSChildVisitorData *hsdata = (HSChildVisitorData *)d;
-%    return hsdata->visitor(c.kind,c.data[0],c.data[1],c.data[2], 
-%                           p.kind,p.data[0],p.data[1],p.data[2], hsdata->data);
+%    return hsdata->visitor(c.kind,c.xdata, c.data[0],c.data[1],c.data[2], 
+%                           p.kind,c.xdata, p.data[0],p.data[1],p.data[2], hsdata->data);
 %  }
 %
-%  unsigned prim_visitChildren_(HsInt ck,HsPtr p1,HsPtr p2,HsPtr p3,HsPtr pd,HsPtr fp)
+%  unsigned prim_visitChildren_(HsInt ck,HsInt cxdata, HsPtr p1,HsPtr p2,HsPtr p3,HsPtr pd,HsPtr fp)
 %  {
-%    CXCursor p = {ck, {p1,p2,p3}};
+%    CXCursor p = {ck, cxdata, {p1,p2,p3}};
 %    HSChildVisitorData hsdata = {(HSCursorVisitor)fp,pd};
 %    return clang_visitChildren(p, primChildVisitor, (CXClientData)&hsdata);
 %  }
 
-foreign import ccall safe "FFI_stub_ffi.h prim_visitChildren_" prim_visitChildren_ :: Int -> Ptr () -> Ptr () -> Ptr () -> Ptr () -> FunPtr ChildVisitorRaw -> IO CUInt
+foreign import ccall safe "FFI_stub_ffi.h prim_visitChildren_" prim_visitChildren_ :: Int -> Int -> Ptr () -> Ptr () -> Ptr () -> Ptr () -> FunPtr ChildVisitorRaw -> IO CUInt
 
 -- #ifdef __has_feature
 -- #  if __has_feature(blocks)
@@ -1237,8 +1780,8 @@ foreign import ccall safe "FFI_stub_ffi.h prim_visitChildren_" prim_visitChildre
 
 -- CXString clang_getCursorUSR(CXCursor);
 %fun clang_getCursorUSR :: Cursor -> IO CXString
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString *r = mkStrObj();*r = clang_getCursorUSR(a);
 %result (cxString (ptr r))
 
@@ -1287,66 +1830,66 @@ foreign import ccall safe "FFI_stub_ffi.h prim_visitChildren_" prim_visitChildre
 
 -- CXString clang_getCursorSpelling(CXCursor);
 %fun clang_getCursorSpelling :: Cursor -> IO CXString
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString *r = mkStrObj();*r = clang_getCursorSpelling(a);
 %result (cxString (ptr r))
 
 -- CXString clang_getCursorDisplayName(CXCursor);
 %fun clang_getCursorDisplayName :: Cursor -> IO CXString
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString *r = mkStrObj();*r = clang_getCursorDisplayName(a);
 %result (cxString (ptr r))
   
 -- CXCursor clang_getCursorReferenced(CXCursor);
 %fun clang_getCursorReferenced :: Cursor -> IO Cursor
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCursorReferenced(a);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXCursor clang_getCursorDefinition(CXCursor);
 %fun clang_getCursorDefinition :: Cursor -> IO Cursor
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCursorDefinition(a);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- unsigned clang_isCursorDefinition(CXCursor);
 %fun clang_isCursorDefinition :: Cursor -> IO Bool
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_isCursorDefinition(a);
 %result (bool r)
 
 -- CXCursor clang_getCanonicalCursor(CXCursor);
 %fun clang_getCanonicalCursor :: Cursor -> IO Cursor
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCanonicalCursor(a);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- unsigned clang_CXXMethod_isStatic(CXCursor C);
 %fun clang_CXXMethod_isStatic :: Cursor -> IO Bool
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_CXXMethod_isStatic(a);
 %result (bool r)
 
 -- enum CXCursorKind clang_getTemplateCursorKind(CXCursor C);
 %fun clang_getTemplateCursorKind :: Cursor -> IO CursorKind
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_getTemplateCursorKind(a);
 %result (cursorKind r)
 
 -- CXCursor clang_getSpecializedCursorTemplate(CXCursor C);
 %fun clang_getSpecializedCursorTemplate :: Cursor -> IO Cursor
-%call (cursor k p1 p2 p3)
-%code CXCursor a = {k, {p1, p2, p3}};
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getSpecializedCursorTemplate(a);
-%result (cursor {r.kind} {r.data[0]} {r.data[1]} {r.data[2]})
+%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- typedef enum CXTokenKind {
 --   CXToken_Punctuation,
@@ -1453,10 +1996,11 @@ unmarshall_cursorListExt numO os = do
     where nO = fromIntegral (numO-1)
           getCursor_ i = do
             kind <- unmarshall_CursorKind <$> (cursorListGetKind_ os i)
+	    xdata <- fromIntegral <$> (cursorListGetXData_ os i)
             p1 <- cursorListGetPtr_ os i 0
             p2 <- cursorListGetPtr_ os i 1
             p3 <- cursorListGetPtr_ os i 2
-            return $ Cursor kind p1 p2 p3
+            return $ Cursor kind xdata p1 p2 p3
 
 -- TODO: test me
 -- void clang_annotateTokens(CXTranslationUnit TU,
