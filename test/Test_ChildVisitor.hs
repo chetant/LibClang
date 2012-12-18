@@ -6,14 +6,15 @@ import qualified Clang.Type as Type
 import qualified Clang.Cursor as Cursor
 import Clang.Alloc.Storable
 
+whitespace l = concat (replicate l " ")
 visitor :: String -> ChildVisitor Int
 visitor prefix c p d = do
   let nameString = "Name :" ++ show (Cursor.getDisplayName c)
   let typeString = "Kind :" ++ show (Cursor.getCursorKindSpelling . Cursor.getKind $ c)
   putStrLn $ prefix ++ nameString ++ " " ++ typeString 
   case  (Cursor.getKind c) of
-    Cursor.Cursor_ClassDecl -> visitChildren c (visitor " - ") Nothing 
-    Cursor.Cursor_CXXMethod -> visitChildren c (visitor " - ") Nothing                            
+    Cursor.Cursor_ClassDecl -> visitChildren c (visitor $ (whitespace (length prefix + 2)) ++ "-") Nothing 
+    Cursor.Cursor_CXXMethod -> visitChildren c (visitor $ (whitespace (length prefix + 2)) ++ "-") Nothing                            
     _ -> return (d, False)
   return (d, ChildVisit_Continue)
 
