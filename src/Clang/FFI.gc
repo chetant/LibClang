@@ -257,7 +257,7 @@ marshall_cxString (CXString a) = return a
 -- const char *clang_getCString(CXString string);
 %fun clang_getCString :: CXString -> IO String
 %call (cxString (fptr (ptr d)))
-%code r = clang_getCString(*(CXString*)d);printf("GOTCHA:%s\n", r);
+%code r = clang_getCString(*(CXString*)d);
 %result (string r)
 
 -- typedef void *CXFile;
