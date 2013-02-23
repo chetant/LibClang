@@ -1,4 +1,6 @@
 import System.Environment(getArgs)
+import Text.Printf
+
 import Control.Applicative((<$>))
 import Clang.TranslationUnit(withCreateIndex, withParse, TranslationUnitFlags(..), getCursor)
 import Clang.Traversal(ChildVisitor, visitChildren, ChildVisitResult(..))
@@ -8,15 +10,16 @@ import Clang.Alloc.Storable
 
 whitespace l = concat (replicate l " ")
 visitor :: String -> ChildVisitor Int
-visitor prefix c p d = do
-  let nameString = "Name :" ++ show (Cursor.getDisplayName c)
-  let typeString = "Kind :" ++ show (Cursor.getCursorKindSpelling . Cursor.getKind $ c)
-  putStrLn $ prefix ++ nameString ++ " " ++ typeString 
-  case  (Cursor.getKind c) of
-    Cursor.Cursor_ClassDecl -> visitChildren c (visitor $ (whitespace (length prefix + 2)) ++ "-") Nothing 
-    Cursor.Cursor_CXXMethod -> visitChildren c (visitor $ (whitespace (length prefix + 2)) ++ "-") Nothing                            
-    _ -> return (d, False)
-  return (d, ChildVisit_Continue)
+visitor prefix cursor parent usrData = do
+  let cKind = Cursor.getKind cursor
+  let nameString = show (Cursor.getDisplayName cursor)
+  let kindString = show (Cursor.getCursorKindSpelling cKind)
+  printf "Name:%s, Kind:%s\n" nameString kindString
+  -- case cKind of
+  --   Cursor.Cursor_ClassDecl -> visitChildren cursor (visitor $ (whitespace (length prefix + 2)) ++ "-") Nothing 
+  --   Cursor.Cursor_CXXMethod -> visitChildren cursor (visitor $ (whitespace (length prefix + 2)) ++ "-") Nothing
+  --   _ -> return (usrData, False)
+  return (usrData, ChildVisit_Continue)
 
 test tu = visitChildren (getCursor tu) (visitor " ")  Nothing
 

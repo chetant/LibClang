@@ -6,9 +6,9 @@ all: Test_Diagnostics_c Test_Diagnostics_hs Test_InclusionVisitor_c Test_Inclusi
 
 test: all
 	@echo "########### TESTING ##############"
-	@./runTest.sh Test_Diagnostics $(CFLAGS) Test_Diagnostics.c
-	@./runTest.sh Test_InclusionVisitor $(CFLAGS) Test_InclusionVisitor.c
-	@./runTest.sh Test_ChildVisitor $(CFLAGS) Test_ChildVisitor.c
+	@./runTest.sh Test_Diagnostics Test_Diagnostics.c
+	@./runTest.sh Test_InclusionVisitor Test_InclusionVisitor.c
+	@./runTest.sh Test_ChildVisitor Test_ChildVisitor.c
 
 %_c : %.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
