@@ -21,6 +21,7 @@ module Clang.FFI
 ,SourceRange
 ,getNullRange
 ,getRange
+,getExpansionLocation
 ,getInstantiationLocation
 ,getSpellingLocation
 ,getRangeStart
@@ -361,6 +362,17 @@ data SourceRange = SourceRange (Ptr ()) (Ptr ()) Int Int
 %     CXSourceLocation m = {{p12, p22}, d2};
 %     CXSourceRange r = clang_getRange(l, m);
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
+
+-- void clang_getExpansionLocation(CXSourceLocation location,
+--                                                CXFile *file,
+--                                                unsigned *line,
+--                                                unsigned *column,
+--                                                unsigned *offset);
+%fun clang_getExpansionLocation :: SourceLocation -> IO (Maybe File, Int, Int, Int)
+%call (sourceLocation p1 p2 d)
+%code CXSourceLocation l = {{p1, p2}, d};
+%     CXFile f;unsigned ln,c,o;clang_getExpansionLocation(l,&f,&ln,&c,&o);
+%result (<from_Maybe_File/to_Maybe_File> (file f), (int ln), (int c), (int o))
 
 -- void clang_getInstantiationLocation(CXSourceLocation location,
 --                                                    CXFile *file,
