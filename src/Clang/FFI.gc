@@ -9,7 +9,7 @@ module Clang.FFI
 ,AvailabilityKind(..)
 ,CXString
 ,getCString
-,File
+,File(..)
 ,getFileName
 ,getFileTime
 ,getFile
@@ -21,6 +21,7 @@ module Clang.FFI
 ,SourceRange
 ,getNullRange
 ,getRange
+,getExpansionLocation
 ,getInstantiationLocation
 ,getSpellingLocation
 ,getRangeStart
@@ -254,11 +255,22 @@ unmarshall_cxString p = CXString <$> (newForeignPtr freeStrObj p)
 marshall_cxString :: CXString -> IO (ForeignPtr StringObj)
 marshall_cxString (CXString a) = return a
 
+getCString :: CXString -> IO String
+getCString (CXString fp) = withForeignPtr fp getCString_Ptr
+
 -- const char *clang_getCString(CXString string);
-%fun clang_getCString :: CXString -> IO String
-%call (cxString (fptr (ptr d)))
-%code r = clang_getCString(*(CXString*)d);
+%fun clang_getCString_Ptr :: Ptr StringObj -> IO String
+%call (ptr d)
+%code r = (char*) clang_getCString(*(CXString*)d);
 %result (string r)
+
+from_Maybe_File :: Maybe File -> File
+from_Maybe_File (Just f) = f
+from_Maybe_File Nothing  = File nullPtr
+
+to_Maybe_File :: File -> Maybe File
+to_Maybe_File (File p) | p == nullPtr = Nothing
+to_Maybe_File f                       = Just f
 
 -- typedef void *CXFile;
 newtype File = File (Ptr ())
@@ -354,27 +366,38 @@ data SourceRange = SourceRange (Ptr ()) (Ptr ()) Int Int
 %     CXSourceRange r = clang_getRange(l, m);
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
 
+-- void clang_getExpansionLocation(CXSourceLocation location,
+--                                                CXFile *file,
+--                                                unsigned *line,
+--                                                unsigned *column,
+--                                                unsigned *offset);
+%fun clang_getExpansionLocation :: SourceLocation -> IO (Maybe File, Int, Int, Int)
+%call (sourceLocation p1 p2 d)
+%code CXSourceLocation l = {{p1, p2}, d};
+%     CXFile f;unsigned ln,c,o;clang_getExpansionLocation(l,&f,&ln,&c,&o);
+%result (<from_Maybe_File/to_Maybe_File> (file f), (int ln), (int c), (int o))
+
 -- void clang_getInstantiationLocation(CXSourceLocation location,
 --                                                    CXFile *file,
 --                                                    unsigned *line,
 --                                                    unsigned *column,
 --                                                    unsigned *offset);
-%fun clang_getInstantiationLocation :: SourceLocation -> IO (File, Int, Int, Int)
+%fun clang_getInstantiationLocation :: SourceLocation -> IO (Maybe File, Int, Int, Int)
 %call (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXFile f;unsigned ln,c,o;clang_getInstantiationLocation(l,&f,&ln,&c,&o);
-%result ((file f), (int ln), (int c), (int o))
+%result (<from_Maybe_File/to_Maybe_File> (file f), (int ln), (int c), (int o))
 
 -- void clang_getSpellingLocation(CXSourceLocation location,
 --                                               CXFile *file,
 --                                               unsigned *line,
 --                                               unsigned *column,
 --                                               unsigned *offset);
-%fun clang_getSpellingLocation :: SourceLocation -> IO (File, Int, Int, Int)
+%fun clang_getSpellingLocation :: SourceLocation -> IO (Maybe File, Int, Int, Int)
 %call (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXFile f;unsigned ln,c,o;clang_getSpellingLocation(l,&f,&ln,&c,&o);
-%result ((file f), (int ln), (int c), (int o))
+%result (<from_Maybe_File/to_Maybe_File> (file f), (int ln), (int c), (int o))
 
 -- CXSourceLocation clang_getRangeStart(CXSourceRange range);
 %fun clang_getRangeStart :: SourceRange -> IO SourceLocation
@@ -1808,25 +1831,37 @@ foreign import ccall safe "FFI_stub_ffi.h prim_visitChildren_" prim_visitChildre
 %code CXString *r = mkStrObj();*r = clang_constructUSR_ObjCProtocol(s);
 %result (cxString (ptr r))
 
+constructUSR_ObjCIvar :: String -> CXString -> IO CXString
+constructUSR_ObjCIvar s (CXString fp) =
+  withForeignPtr fp (constructUSR_ObjCIvar_Ptr s)
+
 -- CXString clang_constructUSR_ObjCIvar(const char *name,
 --                                                     CXString classUSR);
-%fun clang_constructUSR_ObjCIvar :: String -> CXString -> IO CXString
-%call (string s) (cxString (fptr (ptr x)))
+%fun clang_constructUSR_ObjCIvar_Ptr :: String -> Ptr StringObj -> IO CXString
+%call (string s) (ptr x)
 %code CXString *r = mkStrObj();*r = clang_constructUSR_ObjCIvar(s, *(CXString *)x);
 %result (cxString (ptr r))
+
+constructUSR_ObjCMethod :: String -> Bool -> CXString -> IO CXString
+constructUSR_ObjCMethod s b (CXString fp) =
+  withForeignPtr fp (constructUSR_ObjCMethod_Ptr s b)
 
 -- CXString clang_constructUSR_ObjCMethod(const char *name,
 --                                                       unsigned isInstanceMethod,
 --                                                       CXString classUSR);
-%fun clang_constructUSR_ObjCMethod :: String -> Bool -> CXString -> IO CXString
-%call (string s) (bool b) (cxString (fptr (ptr x)))
+%fun clang_constructUSR_ObjCMethod_Ptr :: String -> Bool -> Ptr StringObj -> IO CXString
+%call (string s) (bool b) (ptr x)
 %code CXString *r = mkStrObj();*r = clang_constructUSR_ObjCMethod(s, b, *(CXString *)x);
 %result (cxString (ptr r))
 
+constructUSR_ObjCProperty :: String -> CXString -> IO CXString
+constructUSR_ObjCProperty s (CXString fp) =
+  withForeignPtr fp (constructUSR_ObjCProperty_Ptr s)
+
 -- CXString clang_constructUSR_ObjCProperty(const char *property,
 --                                                         CXString classUSR);
-%fun clang_constructUSR_ObjCProperty :: String -> CXString -> IO CXString
-%call (string s) (cxString (fptr (ptr x)))
+%fun clang_constructUSR_ObjCProperty_Ptr :: String -> Ptr StringObj -> IO CXString
+%call (string s) (ptr x)
 %code CXString *r = mkStrObj();*r = clang_constructUSR_ObjCProperty(s, *(CXString *)x);
 %result (cxString (ptr r))
 
