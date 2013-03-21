@@ -10,6 +10,7 @@ module Clang.Source
 ,FFI.SourceRange
 ,nullRange
 ,getRange
+,getExpansionLocation
 ,getInstantiationLocation
 ,getSpellingLocation
 ,getStart
@@ -37,6 +38,7 @@ getLocationForOffset tu f off = unsafePerformIO (FFI.getLocationForOffset tu f o
 -- Range functions
 nullRange = unsafePerformIO FFI.getNullRange
 getRange from to = unsafePerformIO (FFI.getRange from to)
+getExpansionLocation = unsafePerformIO . FFI.getExpansionLocation
 getInstantiationLocation = unsafePerformIO . FFI.getInstantiationLocation
 getSpellingLocation = unsafePerformIO . FFI.getSpellingLocation
 getStart = unsafePerformIO . FFI.getRangeStart
