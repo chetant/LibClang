@@ -2222,24 +2222,19 @@ HsInt prim_childVisit_Recurse()
 }
  typedef enum CXChildVisitResult (*HSCursorVisitor)
      (HsInt ck,HsInt cxdata, HsPtr cp1, HsPtr cp2,HsPtr cp3,
-      HsInt pk,HsInt pxdata, HsPtr pp1, HsPtr pp2,HsPtr pp3, CXClientData data);
-  typedef struct {
-    HSCursorVisitor visitor;
-    CXClientData data;
-  } HSChildVisitorData;
+      HsInt pk,HsInt pxdata, HsPtr pp1, HsPtr pp2,HsPtr pp3);
 
-  enum CXChildVisitResult primChildVisitor(CXCursor c, CXCursor p, CXClientData d)
+  enum CXChildVisitResult primChildVisitor(CXCursor c, CXCursor p, CXClientData visitorp)
   {
-    HSChildVisitorData *hsdata = (HSChildVisitorData *)d;
-    return hsdata->visitor(c.kind,c.xdata, c.data[0],c.data[1],c.data[2], 
-                           p.kind,c.xdata, p.data[0],p.data[1],p.data[2], hsdata->data);
+    HSCursorVisitor visitor = (HSCursorVisitor) visitorp;
+    return visitor(c.kind, c.xdata, c.data[0], c.data[1], c.data[2], 
+                   p.kind, c.xdata, p.data[0], p.data[1], p.data[2]);
   }
 
-  unsigned prim_visitChildren_(HsInt ck,HsInt cxdata, HsPtr p1,HsPtr p2,HsPtr p3,HsPtr pd,HsPtr fp)
+  unsigned prim_visitChildren_(HsInt ck, HsInt cxdata, HsPtr p1, HsPtr p2, HsPtr p3, HsPtr fp)
   {
     CXCursor p = {ck, cxdata, {p1,p2,p3}};
-    HSChildVisitorData hsdata = {(HSCursorVisitor)fp,pd};
-    return clang_visitChildren(p, primChildVisitor, (CXClientData)&hsdata);
+    return clang_visitChildren(p, primChildVisitor, (CXClientData) fp);
   }
 HsPtr prim_getCursorUSR(HsInt k,HsInt xdata,HsPtr p1,HsPtr p2,HsPtr p3)
 { HsPtr r;
@@ -2692,4 +2687,4 @@ HsPtr prim_getClangVersion()
       
       return((HsPtr)(r));} while(0);
 }
- void prim_getInclusions_(HsPtr t,HsPtr f,HsPtr p){ do { clang_getInclusions(t, f, p);} while(0);}
+ void prim_getInclusions_(HsPtr t, HsPtr f) { clang_getInclusions(t, f, NULL); }

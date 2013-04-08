@@ -1736,62 +1736,48 @@ getTypeKind (Type k _ _) = k
 --                                                    CXCursor parent,
 --                                                    CXClientData client_data);
 type ChildVisitorRaw = Int -> Int -> Ptr () -> Ptr () -> Ptr () -> 
-                       Int -> Int -> Ptr () -> Ptr () -> Ptr () -> Ptr () -> IO Int
-type ChildVisitor a = Cursor -- ^ Current cursor
-                    -> Cursor -- ^ Parent cursor
-                    -> Maybe a -- ^ User data
-                    -> IO (Maybe a, ChildVisitResult) -- ^ (user data to pass on, Visitor result code)
+                       Int -> Int -> Ptr () -> Ptr () -> Ptr () -> IO Int
+type ChildVisitor = Cursor -- ^ Current cursor
+                 -> Cursor -- ^ Parent cursor
+                 -> IO ChildVisitResult -- ^ Visitor result code
 foreign import ccall "wrapper" wrapChildVisitorRaw :: ChildVisitorRaw -> IO (FunPtr ChildVisitorRaw)
-wrapChildVisitor :: (Storable a) => ChildVisitor a -> ChildVisitorRaw
+wrapChildVisitor :: ChildVisitor -> ChildVisitorRaw
 wrapChildVisitor f = \ck cxdata cp1 cp2 cp3
-                      pk pxdata pp1 pp2 pp3 pd -> do
+                      pk pxdata pp1 pp2 pp3 -> do
                         let child = Cursor (unmarshall_CursorKind ck) cxdata cp1 cp2 cp3
                             parent = Cursor (unmarshall_CursorKind pk) pxdata pp1 pp2 pp3
-                            dataPtr = castPtr pd
-                        (rData, vRes) <- if dataPtr == nullPtr
-                                         then f child parent Nothing
-                                         else peek dataPtr >>= \d -> f child parent (Just d)
-                        maybe (return ()) (poke dataPtr) rData
+                        vRes <- f child parent
                         return (marshall_ChildVisitResult vRes)
 
 -- unsigned clang_visitChildren(CXCursor parent,
 --                                             CXCursorVisitor visitor,
 --                                             CXClientData client_data);
-visitChildren :: (Storable a, Alloc a) => Cursor -> ChildVisitor a -> Maybe a -> IO (Maybe a, Bool)
-visitChildren (Cursor k xdata p1 p2 p3) f d = do
+visitChildren :: Cursor -> ChildVisitor -> IO Bool
+visitChildren (Cursor k xdata p1 p2 p3) f = do
   fp <- wrapChildVisitorRaw (wrapChildVisitor f)
-  pd <- maybe (return nullPtr) allocSet d
-  x <- prim_visitChildren_ (marshall_CursorKind k) xdata p1 p2 p3 (castPtr pd) fp
+  x <- prim_visitChildren_ (marshall_CursorKind k) xdata p1 p2 p3 fp
   retVal <- return $ fromIntegral x
-  rData <- if pd == nullPtr
-           then return Nothing
-           else peek pd >>= \d -> dealloc pd >> return (Just d)
   freeHaskellFunPtr fp
-  return (rData, retVal == 0)
+  return (retVal == 0)
 
 %C typedef enum CXChildVisitResult (*HSCursorVisitor)
 %     (HsInt ck,HsInt cxdata, HsPtr cp1, HsPtr cp2,HsPtr cp3,
-%      HsInt pk,HsInt pxdata, HsPtr pp1, HsPtr pp2,HsPtr pp3, CXClientData data);
-%  typedef struct {
-%    HSCursorVisitor visitor;
-%    CXClientData data;
-%  } HSChildVisitorData;
+%      HsInt pk,HsInt pxdata, HsPtr pp1, HsPtr pp2,HsPtr pp3);
 %
-%  enum CXChildVisitResult primChildVisitor(CXCursor c, CXCursor p, CXClientData d)
+%  enum CXChildVisitResult primChildVisitor(CXCursor c, CXCursor p, CXClientData visitorp)
 %  {
-%    HSChildVisitorData *hsdata = (HSChildVisitorData *)d;
-%    return hsdata->visitor(c.kind,c.xdata, c.data[0],c.data[1],c.data[2], 
-%                           p.kind,c.xdata, p.data[0],p.data[1],p.data[2], hsdata->data);
+%    HSCursorVisitor visitor = (HSCursorVisitor) visitorp;
+%    return visitor(c.kind, c.xdata, c.data[0], c.data[1], c.data[2], 
+%                   p.kind, c.xdata, p.data[0], p.data[1], p.data[2]);
 %  }
 %
-%  unsigned prim_visitChildren_(HsInt ck,HsInt cxdata, HsPtr p1,HsPtr p2,HsPtr p3,HsPtr pd,HsPtr fp)
+%  unsigned prim_visitChildren_(HsInt ck, HsInt cxdata, HsPtr p1, HsPtr p2, HsPtr p3, HsPtr fp)
 %  {
 %    CXCursor p = {ck, cxdata, {p1,p2,p3}};
-%    HSChildVisitorData hsdata = {(HSCursorVisitor)fp,pd};
-%    return clang_visitChildren(p, primChildVisitor, (CXClientData)&hsdata);
+%    return clang_visitChildren(p, primChildVisitor, (CXClientData) fp);
 %  }
 
-foreign import ccall safe "FFI_stub_ffi.h prim_visitChildren_" prim_visitChildren_ :: Int -> Int -> Ptr () -> Ptr () -> Ptr () -> Ptr () -> FunPtr ChildVisitorRaw -> IO CUInt
+foreign import ccall safe "FFI_stub_ffi.h prim_visitChildren_" prim_visitChildren_ :: Int -> Int -> Ptr () -> Ptr () -> Ptr () -> FunPtr ChildVisitorRaw -> IO CUInt
 
 -- #ifdef __has_feature
 -- #  if __has_feature(blocks)
@@ -2212,33 +2198,23 @@ unmarshall_codeCompleteResults = newForeignPtr clang_disposeCodeCompleteResults
 --                                         CXClientData client_data);
 
 type InclusionVisitorRaw = File -> Ptr () -> CUInt -> Ptr () -> IO ()
-type InclusionVisitor a = File -> [SourceLocation] -> Maybe a -> IO (Maybe a)
+type InclusionVisitor = File -> [SourceLocation] -> IO ()
 
--- %fun clang_getInclusions :: TranslationUnit -> InclusionVisitor -> Ptr () -> IO ()
--- %call (ptr t) (inclusionVisitor (ptr f)) (ptr p)
--- %code clang_getInclusions(t, f, p);
-
-getInclusions :: (Storable a, Alloc a) => TranslationUnit -> InclusionVisitor a -> Maybe a -> IO ()
-getInclusions t iv d = do
+getInclusions :: TranslationUnit -> InclusionVisitor -> IO ()
+getInclusions t iv = do
   f <- marshall_inclusionVisitor iv
-  p <- maybe (return nullPtr) allocSet d
-  prim_getInclusions_ t f (castPtr p)
-  when (p /= nullPtr) $ dealloc p
+  prim_getInclusions_ t f
   freeHaskellFunPtr f
 
-%C void prim_getInclusions_(HsPtr t,HsPtr f,HsPtr p){ do { clang_getInclusions(t, f, p);} while(0);}
-foreign import  ccall safe "FFI_stub_ffi.h prim_getInclusions_" prim_getInclusions_ :: Ptr a1 -> FunPtr InclusionVisitorRaw -> Ptr a3 -> IO ()
+%C void prim_getInclusions_(HsPtr t, HsPtr f) { clang_getInclusions(t, f, NULL); }
+foreign import  ccall safe "FFI_stub_ffi.h prim_getInclusions_" prim_getInclusions_ :: Ptr a1 -> FunPtr InclusionVisitorRaw -> IO ()
 
 foreign import ccall "wrapper" wrapInclusionVisitorRaw :: InclusionVisitorRaw -> IO (FunPtr InclusionVisitorRaw)
 
-wrapInclusionVisitor :: (Storable a) => InclusionVisitor a -> InclusionVisitorRaw
-wrapInclusionVisitor f = \file pSrcLoc nSrcLoc pData -> do
+wrapInclusionVisitor :: InclusionVisitor -> InclusionVisitorRaw
+wrapInclusionVisitor f = \file pSrcLoc nSrcLoc _ -> do
                            srcLocs <- unmarshall_SrcLocList pSrcLoc nSrcLoc
-                           let dataPtr = castPtr pData
-                           rdat <- if dataPtr == nullPtr
-                                   then f file srcLocs Nothing
-                                   else peek dataPtr >>= \dat -> f file srcLocs (Just dat)
-                           maybe (return ()) (poke dataPtr) rdat
+                           f file srcLocs
 
-marshall_inclusionVisitor :: (Storable a) => InclusionVisitor a -> IO (FunPtr InclusionVisitorRaw)
+marshall_inclusionVisitor :: InclusionVisitor -> IO (FunPtr InclusionVisitorRaw)
 marshall_inclusionVisitor f = wrapInclusionVisitorRaw (wrapInclusionVisitor f)

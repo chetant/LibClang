@@ -3,6 +3,7 @@
 module Clang.Internal.ClangApp
 ( ClangApp
 , runClangApp
+, mkClangAppRunner
 , getIndex
 , getTranslationUnit
 ) where
@@ -26,6 +27,11 @@ runClangApp :: ClangApp a -> FFI.IndexPtr -> FFI.TranslationUnitPtr -> IO a
 runClangApp (ClangApp st) iPtr tuPtr =  withForeignPtr iPtr $ \i -> 
                                           withForeignPtr tuPtr $ \tu ->
                                             evalStateT st (ClangEnv i tu)
+
+mkClangAppRunner :: ClangApp (ClangApp a -> IO a)
+mkClangAppRunner = do
+  env <- get
+  return $ \(ClangApp st) -> evalStateT st env
 
 getIndex :: ClangApp FFI.Index
 getIndex = get >>= return . index
