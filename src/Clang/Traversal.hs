@@ -1,14 +1,13 @@
 module Clang.Traversal
-(
- annotateTokens
-,FFI.ChildVisitor
-,FFI.ChildVisitResult(..)
-,FFI.visitChildren
-,FFI.InclusionVisitor
-,FFI.getInclusions
+( annotateTokens
+, FFI.ChildVisitor
+, FFI.ChildVisitResult(..)
+, FFI.visitChildren
+, FFI.InclusionVisitor
+, FFI.getInclusions
 ) where
 
-import qualified Clang.FFI as FFI
+import qualified Clang.Internal.FFI as FFI
 
 annotateTokens :: FFI.TranslationUnit -- ^ The translation unit related to the tokens
                -> [FFI.Token] -- ^ Token list that you want cursors for

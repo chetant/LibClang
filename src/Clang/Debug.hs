@@ -1,13 +1,15 @@
 module Clang.Debug
-(
- enableStackTraces
-,getVersion
--- ,toggleCrashRecovery
+( enableStackTraces
+, getVersion
+-- , toggleCrashRecovery
 ) where
 
-import System.IO.Unsafe(unsafePerformIO)
-import qualified Clang.FFI as FFI
+import qualified Clang.Internal.FFI as FFI
 
+enableStackTraces :: IO ()
 enableStackTraces = FFI.enableStackTraces
-getVersion = unsafePerformIO (FFI.getCString =<< FFI.getClangVersion)
+
+getVersion :: IO String
+getVersion = FFI.getCString =<< FFI.getClangVersion
+
 -- toggleCrashRecovery = FFI.toggleCrashRecovery

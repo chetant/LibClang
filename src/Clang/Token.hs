@@ -1,22 +1,29 @@
 module Clang.Token
-(
- FFI.Token
-,Clang.Token.getKind
-,getSpelling
-,Clang.Token.getLocation
-,getExtent
-,tokenize
+( FFI.Token
+, FFI.TokenKind
+, getKind
+, getSpelling
+, getLocation
+, getExtent
+, tokenize
 ) where
 
-import System.IO.Unsafe(unsafePerformIO)
+import Control.Monad.IO.Class
 
-import Clang.Type
-import Clang.Source
-import qualified Clang.FFI as FFI
+import qualified Clang.Internal.FFI as FFI
+import Clang.Monad
 
-getKind = unsafePerformIO . FFI.getTokenKind
-getSpelling t tk = unsafePerformIO (FFI.getTokenSpelling t tk)
-getLocation t tk = unsafePerformIO (FFI.getTokenLocation t tk)
-getExtent t tk = unsafePerformIO (FFI.getTokenExtent t tk)
-tokenize :: FFI.TranslationUnit -> FFI.SourceRange -> [FFI.Token]
-tokenize t sr = unsafePerformIO (FFI.tokenize t sr)
+getKind :: FFI.Token -> ClangApp FFI.TokenKind
+getKind t = liftIO $ FFI.getTokenKind t
+
+getSpelling :: FFI.TranslationUnit -> FFI.Token -> ClangApp FFI.CXString
+getSpelling tu tk = liftIO $ FFI.getTokenSpelling tu tk
+
+getLocation :: FFI.TranslationUnit -> FFI.Token -> ClangApp FFI.SourceLocation
+getLocation tu tk = liftIO $ FFI.getTokenLocation tu tk
+
+getExtent :: FFI.TranslationUnit -> FFI.Token -> ClangApp FFI.SourceRange
+getExtent tu tk = liftIO $ FFI.getTokenExtent tu tk
+
+tokenize :: FFI.TranslationUnit -> FFI.SourceRange -> ClangApp [FFI.Token]
+tokenize tu sr = liftIO $ FFI.tokenize tu sr

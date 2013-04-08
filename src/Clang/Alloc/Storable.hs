@@ -1,4 +1,6 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE FlexibleInstances, UndecidableInstances #-}
+
 module Clang.Alloc.Storable where
 
 import Foreign.Storable

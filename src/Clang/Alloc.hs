@@ -1,6 +1,6 @@
 module Clang.Alloc where
 
-import Foreign.Ptr(Ptr(..))
+import Foreign.Ptr (Ptr)
 
 class Alloc a where
     alloc :: IO (Ptr a)

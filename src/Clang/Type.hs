@@ -1,45 +1,58 @@
 module Clang.Type
-(
- FFI.Type
-,FFI.CXString
-,FFI.TypeKind(..)
-,FFI.CXXAccessSpecifier(..)
+( FFI.Type
+, FFI.TypeKind(..)
+, FFI.CXXAccessSpecifier(..)
 
-,getKind
-,getCanonicalType
-,getPointeeType
-,getResultType
+, isSameType
+, getKind
+, getCanonicalType
+, getPointeeType
+, getResultType
 
-,isConstQualifiedType
-,isVolatileQualifiedType
-,isRestrictQualifiedType
-,isPODType
-,isVirtualBase
-,getTypeKindSpelling
-)
-where
+, isConstQualifiedType
+, isVolatileQualifiedType
+, isRestrictQualifiedType
+, isPODType
+, isVirtualBase
+, getTypeKindSpelling
+) where
 
-import System.IO.Unsafe(unsafePerformIO)
-import qualified Clang.FFI as FFI
+import Control.Monad.IO.Class
 
-instance Show FFI.CXString where
-    show = unsafePerformIO . FFI.getCString
+import qualified Clang.Internal.FFI as FFI
+import Clang.Monad
 
-instance Eq FFI.Type where
-    a == b = unsafePerformIO (FFI.equalTypes a b)
+isSameType :: FFI.Type -> FFI.Type -> ClangApp Bool
+isSameType a b = liftIO $ FFI.equalTypes a b
 
-getKind = FFI.getTypeKind
+getKind :: FFI.Type -> ClangApp FFI.TypeKind
+getKind = return . FFI.getTypeKind
 
-getCanonicalType = unsafePerformIO . FFI.getCanonicalType
-getPointeeType = unsafePerformIO . FFI.getPointeeType
-getResultType = unsafePerformIO . FFI.getResultType
+getCanonicalType :: FFI.Type -> ClangApp FFI.Type
+getCanonicalType t = liftIO $ FFI.getCanonicalType t
 
-isConstQualifiedType = unsafePerformIO . FFI.isConstQualifiedType
-isVolatileQualifiedType = unsafePerformIO . FFI.isVolatileQualifiedType
-isRestrictQualifiedType = unsafePerformIO . FFI.isRestrictQualifiedType
-isPODType = unsafePerformIO . FFI.isPODType
-isVirtualBase = unsafePerformIO . FFI.isVirtualBase
+getPointeeType :: FFI.Type -> ClangApp FFI.Type
+getPointeeType t = liftIO $ FFI.getPointeeType t
+
+getResultType :: FFI.Type -> ClangApp FFI.Type
+getResultType t = liftIO $ FFI.getResultType t
+
+isConstQualifiedType :: FFI.Type -> ClangApp Bool
+isConstQualifiedType t = liftIO $ FFI.isConstQualifiedType t
+
+isVolatileQualifiedType :: FFI.Type -> ClangApp Bool
+isVolatileQualifiedType t = liftIO $ FFI.isVolatileQualifiedType t
+
+isRestrictQualifiedType :: FFI.Type -> ClangApp Bool
+isRestrictQualifiedType t = liftIO $ FFI.isRestrictQualifiedType t
+
+isPODType :: FFI.Type -> ClangApp Bool
+isPODType t = liftIO $ FFI.isPODType t
+
+isVirtualBase :: FFI.Cursor -> ClangApp Bool
+isVirtualBase c = liftIO $ FFI.isVirtualBase c
 
 
 -- Typekind functions
-getTypeKindSpelling  = unsafePerformIO . FFI.getTypeKindSpelling
+getTypeKindSpelling :: FFI.TypeKind -> ClangApp FFI.CXString
+getTypeKindSpelling k = liftIO $ FFI.getTypeKindSpelling k

@@ -1,40 +1,55 @@
 module Clang.Completion
-(
- FFI.CompletionString
-,FFI.CompletionResult
-,FFI.CompletionChunkKind
-,FFI.CodeCompleteFlags(..)
-,FFI.CodeCompleteResults
-,getChunkKind
-,getChunkText
-,getChunkCompletionString
-,getNumChunks
-,getPriority
-,getAvailability
-,defaultCodeCompleteOptions
-,codeCompleteAt
+( FFI.CompletionString
+, FFI.CompletionResult
+, FFI.CompletionChunkKind
+, FFI.CodeCompleteFlags(..)
+, FFI.CodeCompleteResults
+, FFI.AvailabilityKind
+, getChunkKind
+, getChunkText
+, getChunkCompletionString
+, getNumChunks
+, getPriority
+, getAvailability
+, defaultCodeCompleteOptions
+, codeCompleteAt
+, getDiagnostics
+, sortResults
 ) where
 
-import System.IO.Unsafe(unsafePerformIO)
+import Control.Monad(mzero)
+import Control.Monad.IO.Class
 import Data.Bits((.&.))
 import Data.Maybe(catMaybes)
-import Control.Monad(mzero)
 
-import Clang.Type
-import Clang.Source
-import qualified Clang.FFI as FFI
+import qualified Clang.Internal.FFI as FFI
+import Clang.Monad
 
-getChunkKind cs i = unsafePerformIO (FFI.getCompletionChunkKind cs i)
-getChunkText cs i = unsafePerformIO (FFI.getCompletionChunkText cs i)
-getChunkCompletionString cs i = unsafePerformIO (FFI.getCompletionChunkCompletionString cs i)
-getNumChunks = unsafePerformIO . FFI.getNumCompletionChunks
-getPriority = unsafePerformIO . FFI.getCompletionPriority
-getAvailability = unsafePerformIO . FFI.getCompletionAvailability
+getChunkKind :: FFI.CompletionString -> Int -> ClangApp FFI.CompletionChunkKind
+getChunkKind cs i = liftIO $ FFI.getCompletionChunkKind cs i
 
-defaultCodeCompleteOptions = catMaybes [val1 defVal, val2 defVal]
-    where defVal = unsafePerformIO FFI.defaultCodeCompleteOptions
-          val1 v = if (v .&. 0x01) == 0x01 then return FFI.CodeComplete_IncludeMacros else mzero
-          val2 v = if (v .&. 0x02) == 0x02 then return FFI.CodeComplete_IncludeCodePatterns else mzero
+getChunkText :: FFI.CompletionString -> Int -> ClangApp FFI.CXString
+getChunkText cs i = liftIO $ FFI.getCompletionChunkText cs i
+
+getChunkCompletionString :: FFI.CompletionString -> Int -> ClangApp FFI.CompletionString
+getChunkCompletionString cs i = liftIO $ FFI.getCompletionChunkCompletionString cs i
+
+getNumChunks :: FFI.CompletionString -> ClangApp Int
+getNumChunks cs = liftIO $ FFI.getNumCompletionChunks cs
+
+getPriority :: FFI.CompletionString -> ClangApp Int
+getPriority cs = liftIO $ FFI.getCompletionPriority cs
+
+getAvailability :: FFI.CompletionString -> ClangApp FFI.AvailabilityKind
+getAvailability cs = liftIO $ FFI.getCompletionAvailability cs
+
+defaultCodeCompleteOptions :: ClangApp [FFI.CodeCompleteFlags]
+defaultCodeCompleteOptions = do
+  defVal <- liftIO $ FFI.defaultCodeCompleteOptions
+  let val1 = if (defVal .&. 0x01) == 0x01 then return FFI.CodeComplete_IncludeMacros else mzero
+  let val2 = if (defVal .&. 0x02) == 0x02 then return FFI.CodeComplete_IncludeCodePatterns else mzero
+  return $ catMaybes [val1, val2]
+  
 
 codeCompleteAt :: FFI.TranslationUnit
                -> FilePath -- ^ Filename of the source file
@@ -42,9 +57,13 @@ codeCompleteAt :: FFI.TranslationUnit
                -> Int -- ^ Column on the line
                -> [FFI.UnsavedFile] -- ^ Unsaved files so far
                -> [FFI.CodeCompleteFlags]
-               -> IO FFI.CodeCompleteResults
-codeCompleteAt t fname l c ufs opts = FFI.codeCompleteAt t fname l c ufs (FFI.getCodeCompleteFlagsSum opts)
-sortResults = FFI.sortCodeCompletionResults
-getDiagnostics c = unsafePerformIO $ do
+               -> ClangApp FFI.CodeCompleteResults
+codeCompleteAt t fname l c ufs opts = liftIO $ FFI.codeCompleteAt t fname l c ufs (FFI.getCodeCompleteFlagsSum opts)
+
+sortResults :: FFI.CodeCompleteResults -> Int -> ClangApp ()
+sortResults c i = liftIO $ FFI.sortCodeCompletionResults c i
+
+getDiagnostics :: FFI.CodeCompleteResults -> ClangApp [FFI.Diagnostic]
+getDiagnostics c = liftIO $ do
                      numD <- FFI.codeCompleteGetNumDiagnostics c
                      mapM (FFI.codeCompleteGetDiagnostic c) [0..(numD-1)]

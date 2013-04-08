@@ -1,20 +1,28 @@
 module Clang.File
-(
- FFI.UnsavedFile
-,FFI.File
-,getName
-,getTime
-,getFile
+( FFI.UnsavedFile
+, FFI.File
+, getName
+, getPOSIXTime
+, getUTCTime
+, getFile
 ) where
 
-import Control.Monad((>=>))
-import Control.Applicative((<$>))
-import Data.Time.Clock.POSIX(POSIXTime, posixSecondsToUTCTime)
-import System.IO.Unsafe(unsafePerformIO)
-import qualified Clang.FFI as FFI
+import Control.Monad.IO.Class
+import Control.Applicative ((<$>))
+import Data.Time.Clock.POSIX (POSIXTime, posixSecondsToUTCTime)
+import Data.Time.Clock (UTCTime)
 
-getName :: FFI.File -> FilePath
-getName = unsafePerformIO . (FFI.getFileName >=> FFI.getCString)
-getTime f = unsafePerformIO $ posixSecondsToUTCTime . realToFrac <$> FFI.getFileTime f
-getFile :: FFI.TranslationUnit -> FilePath -> FFI.File
-getFile t f = unsafePerformIO $ FFI.getFile t f
+import qualified Clang.Internal.FFI as FFI
+import Clang.Monad
+
+getName :: FFI.File -> ClangApp FFI.CXString
+getName f = liftIO $ FFI.getFileName f
+
+getPOSIXTime :: FFI.File -> ClangApp POSIXTime
+getPOSIXTime f = liftIO $ realToFrac <$> FFI.getFileTime f
+
+getUTCTime :: FFI.File -> ClangApp UTCTime
+getUTCTime f = liftIO $ posixSecondsToUTCTime . realToFrac <$> FFI.getFileTime f
+
+getFile :: FFI.TranslationUnit -> FilePath -> ClangApp FFI.File
+getFile t f = liftIO $ FFI.getFile t f

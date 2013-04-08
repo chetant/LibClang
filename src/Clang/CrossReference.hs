@@ -1,25 +1,35 @@
 module Clang.CrossReference
-(
- getUSR
-,constructUSR_ObjCClass
-,constructUSR_ObjCCategory
-,constructUSR_ObjCProtocol
-,constructUSR_ObjCIvar
-,constructUSR_ObjCMethod
-,constructUSR_ObjCProperty
+( getUSR
+, constructUSR_ObjCClass
+, constructUSR_ObjCCategory
+, constructUSR_ObjCProtocol
+, constructUSR_ObjCIvar
+, constructUSR_ObjCMethod
+, constructUSR_ObjCProperty
 ) where
 
-import System.IO.Unsafe(unsafePerformIO)
+import Control.Monad.IO.Class
 
-import qualified Clang.FFI as FFI
-import Clang.Type
-import Clang.Cursor
+import qualified Clang.Internal.FFI as FFI
+import Clang.Monad
 
--- constructUSR_ObjCCategory
-getUSR = unsafePerformIO . FFI.getCursorUSR
-constructUSR_ObjCClass = FFI.constructUSR_ObjCClass
-constructUSR_ObjCCategory = FFI.constructUSR_ObjCCategory
-constructUSR_ObjCProtocol = FFI.constructUSR_ObjCProtocol
-constructUSR_ObjCIvar = FFI.constructUSR_ObjCIvar
-constructUSR_ObjCMethod = FFI.constructUSR_ObjCMethod
-constructUSR_ObjCProperty = FFI.constructUSR_ObjCProperty
+getUSR :: FFI.Cursor -> ClangApp FFI.CXString
+getUSR c = liftIO $ FFI.getCursorUSR c
+
+constructUSR_ObjCClass :: String -> ClangApp FFI.CXString
+constructUSR_ObjCClass cls = liftIO $ FFI.constructUSR_ObjCClass cls
+
+constructUSR_ObjCCategory :: String -> String -> ClangApp FFI.CXString
+constructUSR_ObjCCategory cls cat = liftIO $ FFI.constructUSR_ObjCCategory cls cat
+
+constructUSR_ObjCProtocol :: String -> ClangApp FFI.CXString
+constructUSR_ObjCProtocol prt = liftIO $ FFI.constructUSR_ObjCProtocol prt
+
+constructUSR_ObjCIvar :: String -> FFI.CXString -> ClangApp FFI.CXString
+constructUSR_ObjCIvar v cls = liftIO $ FFI.constructUSR_ObjCIvar v cls
+
+constructUSR_ObjCMethod :: String -> Bool -> FFI.CXString -> ClangApp FFI.CXString
+constructUSR_ObjCMethod m isInstance cls = liftIO $ FFI.constructUSR_ObjCMethod m isInstance cls
+
+constructUSR_ObjCProperty :: String -> FFI.CXString -> ClangApp FFI.CXString
+constructUSR_ObjCProperty p cls = liftIO $ FFI.constructUSR_ObjCProperty p cls

@@ -3,122 +3,200 @@
   This is the primary way of traversing and querying code
 -}
 module Clang.Cursor
-(
- FFI.CursorKind(..)
-,FFI.LinkageKind(..)
-,FFI.LanguageKind(..)
-,FFI.Cursor
-,FFI.CursorSet
+( FFI.CursorKind(..)
+, FFI.LinkageKind(..)
+, FFI.LanguageKind(..)
+, FFI.Cursor
+, FFI.CursorSet
 
-,nullCursor
-,getHash
-,Clang.Cursor.getKind
-,getLinkage
-,getAvailability
-,getLanguage
-,getSemanticParent
-,getLexicalParent
-,getOverriddenCursors
-,getIncludedFile
-,Clang.Cursor.getLocation
-,getExtent
-,getType
-,Clang.Cursor.getResultType
-,getDeclObjCTypeEncoding
-,getSpelling
-,getDisplayName
-,getReferenced
-,getDefinition
-,getCanonicalCursor
-,getTemplateKind
-,getSpecializedTemplate
-,getTypeDeclaration
+, isSameCursor
+, nullCursor
+, getHash
+, Clang.Cursor.getKind
+, getLinkage
+, getAvailability
+, getLanguage
+, getSemanticParent
+, getLexicalParent
+, getOverriddenCursors
+, getIncludedFile
+, Clang.Cursor.getLocation
+, getExtent
+, getType
+, Clang.Cursor.getResultType
+, getDeclObjCTypeEncoding
+, getSpelling
+, getDisplayName
+, getReferenced
+, getDefinition
+, getCanonicalCursor
+, getTemplateKind
+, getSpecializedTemplate
+, getTypeDeclaration
 
 -- attribute function
-,getIBOutletCollectionType
+, getIBOutletCollectionType
 
-,isDefinition
-,isDeclaration
-,isReference
-,isExpression
-,isStatement
-,isInvalid
-,isTranslationUnit
-,isPreprocessing
-,isUnexposed
-,Clang.Cursor.isVirtualBase
-,isStaticCppMethod
+, isDefinition
+, isDeclaration
+, isReference
+, isExpression
+, isStatement
+, isInvalid
+, isTranslationUnit
+, isPreprocessing
+, isUnexposed
+, Clang.Cursor.isVirtualBase
+, isStaticCppMethod
+, getCXXAccessSpecifier
+, getOverloadedDecls
 
 -- CursorSet functions
-,createSet
-,setContains
-,setInsert
-
-,getCXXAccessSpecifier
-,getOverloadedDecls
+, createSet
+, setContains
+, setInsert
 
 --CursorKind functions
-,getCursorKindSpelling
+, getCursorKindSpelling
 ) where
 
-import System.IO.Unsafe(unsafePerformIO)
+import Control.Monad.IO.Class
+import GHC.Word
 
-import Clang.Type
-import Clang.Source
-import qualified Clang.FFI as FFI
+import qualified Clang.Internal.FFI as FFI
+import Clang.Monad
 
-instance Eq FFI.Cursor where
-    a == b = unsafePerformIO (FFI.equalCursors a b)
+isSameCursor :: FFI.Cursor -> FFI.Cursor -> ClangApp Bool
+isSameCursor a b = liftIO $ FFI.equalCursors a b
 
-nullCursor = unsafePerformIO FFI.getNullCursor
-getHash = unsafePerformIO . FFI.hashCursor
-getKind = unsafePerformIO . FFI.getCursorKind
-getLinkage = unsafePerformIO . FFI.getCursorLinkage
-getAvailability = unsafePerformIO . FFI.getCursorAvailability
-getLanguage = unsafePerformIO . FFI.getCursorLanguage
-getSemanticParent = unsafePerformIO . FFI.getCursorSemanticParent
-getLexicalParent = unsafePerformIO . FFI.getCursorLexicalParent
-getOverriddenCursors :: FFI.Cursor -> [FFI.Cursor]
-getOverriddenCursors = unsafePerformIO . FFI.getOverriddenCursors
-getIncludedFile = unsafePerformIO . FFI.getIncludedFile
-getLocation = unsafePerformIO . FFI.getCursorLocation
-getExtent = unsafePerformIO . FFI.getCursorExtent
-getType = unsafePerformIO . FFI.getCursorType
-getResultType = unsafePerformIO . FFI.getCursorResultType
-getDeclObjCTypeEncoding = unsafePerformIO . FFI.getDeclObjCTypeEncoding
-getSpelling = unsafePerformIO . FFI.getCursorSpelling
-getDisplayName = unsafePerformIO . FFI.getCursorDisplayName
-getReferenced = unsafePerformIO . FFI.getCursorReferenced
-getDefinition = unsafePerformIO . FFI.getCursorDefinition
-getCanonicalCursor = unsafePerformIO . FFI.getCanonicalCursor
-getTemplateKind = unsafePerformIO . FFI.getTemplateCursorKind
-getSpecializedTemplate = unsafePerformIO . FFI.getSpecializedCursorTemplate
-getTypeDeclaration = unsafePerformIO . FFI.getTypeDeclaration
+nullCursor :: ClangApp FFI.Cursor
+nullCursor = liftIO FFI.getNullCursor
+
+getHash :: FFI.Cursor -> ClangApp GHC.Word.Word32
+getHash c = liftIO $ FFI.hashCursor c
+
+getKind :: FFI.Cursor -> ClangApp FFI.CursorKind
+getKind c = liftIO $ FFI.getCursorKind c
+
+getLinkage :: FFI.Cursor -> ClangApp FFI.LinkageKind
+getLinkage c = liftIO $ FFI.getCursorLinkage c
+
+getAvailability  :: FFI.Cursor -> ClangApp FFI.AvailabilityKind
+getAvailability c = liftIO $ FFI.getCursorAvailability c
+
+getLanguage :: FFI.Cursor -> ClangApp FFI.LanguageKind
+getLanguage c = liftIO $ FFI.getCursorLanguage c
+
+getSemanticParent :: FFI.Cursor -> ClangApp FFI.Cursor
+getSemanticParent c = liftIO $ FFI.getCursorSemanticParent c
+
+getLexicalParent :: FFI.Cursor -> ClangApp FFI.Cursor
+getLexicalParent c = liftIO $ FFI.getCursorLexicalParent c
+
+getOverriddenCursors :: FFI.Cursor -> ClangApp [FFI.Cursor]
+getOverriddenCursors c = liftIO $ FFI.getOverriddenCursors c
+
+getIncludedFile :: FFI.Cursor -> ClangApp FFI.File
+getIncludedFile c = liftIO $ FFI.getIncludedFile c
+
+getLocation :: FFI.Cursor -> ClangApp FFI.SourceLocation
+getLocation c = liftIO $ FFI.getCursorLocation c
+
+getExtent :: FFI.Cursor -> ClangApp FFI.SourceRange
+getExtent c = liftIO $ FFI.getCursorExtent c
+
+getType :: FFI.Cursor -> ClangApp FFI.Type
+getType c = liftIO $ FFI.getCursorType c
+
+getResultType :: FFI.Cursor -> ClangApp FFI.Type
+getResultType c = liftIO $ FFI.getCursorResultType c
+
+getDeclObjCTypeEncoding :: FFI.Cursor -> ClangApp FFI.CXString
+getDeclObjCTypeEncoding c = liftIO $ FFI.getDeclObjCTypeEncoding c
+
+getSpelling :: FFI.Cursor -> ClangApp FFI.CXString
+getSpelling c = liftIO $ FFI.getCursorSpelling c
+
+getDisplayName :: FFI.Cursor -> ClangApp FFI.CXString
+getDisplayName c = liftIO $ FFI.getCursorDisplayName c
+
+getReferenced :: FFI.Cursor -> ClangApp FFI.Cursor
+getReferenced c = liftIO $ FFI.getCursorReferenced c
+
+getDefinition :: FFI.Cursor -> ClangApp FFI.Cursor
+getDefinition c = liftIO $ FFI.getCursorDefinition c
+
+getCanonicalCursor :: FFI.Cursor -> ClangApp FFI.Cursor
+getCanonicalCursor c = liftIO $ FFI.getCanonicalCursor c
+
+getTemplateKind :: FFI.Cursor -> ClangApp FFI.CursorKind
+getTemplateKind c = liftIO $ FFI.getTemplateCursorKind c
+
+getSpecializedTemplate :: FFI.Cursor -> ClangApp FFI.Cursor
+getSpecializedTemplate c = liftIO $ FFI.getSpecializedCursorTemplate c
+
+getTypeDeclaration :: FFI.Type -> ClangApp FFI.Cursor
+getTypeDeclaration t = liftIO $ FFI.getTypeDeclaration t
 
 -- attribute function
-getIBOutletCollectionType = unsafePerformIO . FFI.getIBOutletCollectionType
 
-isDefinition = unsafePerformIO . FFI.isCursorDefinition
-isDeclaration = unsafePerformIO . FFI.isDeclaration
-isReference = unsafePerformIO . FFI.isReference
-isExpression = unsafePerformIO . FFI.isExpression
-isStatement = unsafePerformIO . FFI.isStatement
-isInvalid = unsafePerformIO . FFI.isInvalid
-isTranslationUnit = unsafePerformIO . FFI.isTranslationUnit
-isPreprocessing = unsafePerformIO . FFI.isPreprocessing
-isUnexposed = unsafePerformIO . FFI.isUnexposed
-isVirtualBase = unsafePerformIO . FFI.isVirtualBase
-isStaticCppMethod = unsafePerformIO . FFI.cXXMethod_isStatic
+getIBOutletCollectionType :: FFI.Cursor -> ClangApp FFI.Type
+getIBOutletCollectionType c = liftIO $ FFI.getIBOutletCollectionType c
 
--- CursorSet functions
-createSet = FFI.createCXCursorSet
-setContains = FFI.cXCursorSet_contains
-setInsert = FFI.cXCursorSet_insert
+isDefinition :: FFI.Cursor -> ClangApp Bool
+isDefinition c = liftIO $ FFI.isCursorDefinition c
 
-getCXXAccessSpecifier = unsafePerformIO . FFI.getCXXAccessSpecifier
-getOverloadedDecls c = unsafePerformIO $ do
+isDeclaration :: FFI.CursorKind -> ClangApp Bool
+isDeclaration k = liftIO $ FFI.isDeclaration k
+
+isReference :: FFI.CursorKind -> ClangApp Bool
+isReference k = liftIO $ FFI.isReference k
+
+isExpression :: FFI.CursorKind -> ClangApp Bool
+isExpression k = liftIO $ FFI.isExpression k
+
+isStatement :: FFI.CursorKind -> ClangApp Bool
+isStatement k = liftIO $ FFI.isStatement k
+
+isInvalid :: FFI.CursorKind -> ClangApp Bool
+isInvalid k = liftIO $ FFI.isInvalid k
+
+isTranslationUnit :: FFI.CursorKind -> ClangApp Bool
+isTranslationUnit k = liftIO $ FFI.isTranslationUnit k
+
+isPreprocessing :: FFI.CursorKind -> ClangApp Bool
+isPreprocessing k = liftIO $ FFI.isPreprocessing k
+
+isUnexposed :: FFI.CursorKind -> ClangApp Bool
+isUnexposed k = liftIO $ FFI.isUnexposed k
+
+isVirtualBase :: FFI.Cursor -> ClangApp Bool
+isVirtualBase c = liftIO $ FFI.isVirtualBase c
+
+isStaticCppMethod :: FFI.Cursor -> ClangApp Bool
+isStaticCppMethod c = liftIO $ FFI.cXXMethod_isStatic c
+
+getCXXAccessSpecifier :: FFI.Cursor -> ClangApp FFI.CXXAccessSpecifier
+getCXXAccessSpecifier c = liftIO $ FFI.getCXXAccessSpecifier c
+
+getOverloadedDecls :: FFI.Cursor -> ClangApp [FFI.Cursor]
+getOverloadedDecls c = liftIO $ do
                          numDecls <- FFI.getNumOverloadedDecls c
                          mapM (FFI.getOverloadedDecl c) [0..(numDecls-1)]
 
+-- CursorSet functions
+
+createSet :: ClangApp FFI.CursorSet
+createSet = liftIO $ FFI.createCXCursorSet
+
+setContains :: FFI.CursorSet -> FFI.Cursor -> ClangApp Bool
+setContains s c = liftIO $ FFI.cXCursorSet_contains s c
+
+setInsert :: FFI.CursorSet -> FFI.Cursor -> ClangApp Bool
+setInsert s c = liftIO $ FFI.cXCursorSet_insert s c
+
+
 --CursorKind functions
-getCursorKindSpelling = unsafePerformIO . FFI.getCursorKindSpelling
+
+getCursorKindSpelling :: FFI.CursorKind -> ClangApp FFI.CXString
+getCursorKindSpelling k = liftIO $ FFI.getCursorKindSpelling k

@@ -32,8 +32,29 @@ Source-Repository head
   location: git://github.com/chetant/LibClang.git
 
 Library
-  build-depends: base < 5, time, greencard
-  hs-source-dirs: src
-  c-sources: src/Clang/FFI_stub_ffi.c
-  exposed-modules:
-    Clang,Clang.FFI,Clang.Type,Clang.Cursor,Clang.CrossReference,Clang.Source,Clang.Diagnostic,Clang.TranslationUnit,Clang.Token,Clang.Debug,Clang.Completion,Clang.File,Clang.Traversal,Clang.Alloc,Clang.Alloc.Storable
+  ghc-options:     -Wall -Werror -O
+  build-depends:   base < 5,
+                   greencard,
+                   mtl,
+                   time,
+                   transformers
+  hs-source-dirs:  src
+  c-sources:       src/Clang/Internal/FFI_stub_ffi.c
+  exposed-modules: Clang,
+                   Clang.Alloc,
+                   Clang.Alloc.Storable,
+                   Clang.Completion,
+                   Clang.CrossReference,
+                   Clang.Cursor,
+                   Clang.Debug,
+                   Clang.Diagnostic,
+                   Clang.File,
+                   Clang.Monad,
+                   Clang.Source,
+                   Clang.String,
+                   Clang.Token,
+                   Clang.TranslationUnit,
+                   Clang.Traversal,
+                   Clang.Type
+  other-modules: Clang.Internal.ClangApp,
+                 Clang.Internal.FFI
