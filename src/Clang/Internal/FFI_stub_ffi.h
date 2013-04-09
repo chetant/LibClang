@@ -285,6 +285,7 @@ extern HsPtr access_prim_getTranslationUnitCursor_gc_res4(HsPtr);
 extern HsPtr access_prim_getTranslationUnitCursor_gc_res5(HsPtr);
 extern HsPtr access_prim_getTranslationUnitCursor_gc_res6(HsPtr);
 extern HsInt prim_equalCursors(HsInt k,HsInt xdata,HsPtr p1,HsPtr p2,HsPtr p3,HsInt k2,HsInt xdata2,HsPtr p12,HsPtr p22,HsPtr p32);
+extern HsInt prim_cursor_isNull(HsInt k,HsInt xdata,HsPtr p1,HsPtr p2,HsPtr p3);
 extern HsWord32 prim_hashCursor(HsInt k,HsInt xdata,HsPtr p1,HsPtr p2,HsPtr p3);
 extern HsInt prim_getCursorKind(HsInt k,HsInt xdata,HsPtr p1,HsPtr p2,HsPtr p3);
 extern HsInt prim_isDeclaration(HsInt arg1);

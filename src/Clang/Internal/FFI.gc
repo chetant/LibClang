@@ -69,6 +69,7 @@ module Clang.Internal.FFI
 , getNullCursor
 , getTranslationUnitCursor
 , equalCursors
+, cursor_isNull
 , hashCursor
 , getCursorKind
 , isDeclaration
@@ -1355,6 +1356,13 @@ instance Storable Cursor where
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor b = {k2, xdata2, {p12, p22, p32}};
 %     unsigned r = clang_equalCursors(a, b);
+%result (bool r)
+
+-- int clang_Cursor_isNull(CXCursor);
+%fun clang_cursor_isNull :: Cursor -> IO Bool
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     int r = clang_Cursor_isNull(a);
 %result (bool r)
 
 -- unsigned clang_hashCursor(CXCursor);

@@ -4,6 +4,7 @@ module Clang.Source
 , isSameLocation
 , getLocation
 , getLocationForOffset
+, getCursor
 , FFI.SourceRange
 , nullRange
 , getRange
@@ -32,6 +33,8 @@ getLocation tu f line col = liftIO $ FFI.getLocation tu f line col
 getLocationForOffset :: FFI.TranslationUnit -> FFI.File -> Int -> ClangApp FFI.SourceLocation
 getLocationForOffset tu f off = liftIO $ FFI.getLocationForOffset tu f off
 
+getCursor :: FFI.TranslationUnit -> FFI.SourceLocation -> ClangApp FFI.Cursor
+getCursor tu sl = liftIO $ FFI.getCursor tu sl
 
 -- Range functions
 nullRange :: ClangApp FFI.SourceRange

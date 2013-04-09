@@ -1473,6 +1473,13 @@ HsInt prim_equalCursors(HsInt k,HsInt xdata,HsPtr p1,HsPtr p2,HsPtr p3,HsInt k2,
       
       return((HsInt)(r));} while(0);
 }
+HsInt prim_cursor_isNull(HsInt k,HsInt xdata,HsPtr p1,HsPtr p2,HsPtr p3)
+{ HsInt r;
+  do { CXCursor a = {k, xdata, {p1, p2, p3}};
+     int r = clang_Cursor_isNull(a);
+      
+      return((HsInt)(r));} while(0);
+}
 HsWord32 prim_hashCursor(HsInt k,HsInt xdata,HsPtr p1,HsPtr p2,HsPtr p3)
 { HsWord32 r;
   do { CXCursor a = {k, xdata, {p1, p2, p3}};

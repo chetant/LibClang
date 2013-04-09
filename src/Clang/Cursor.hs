@@ -10,6 +10,7 @@ module Clang.Cursor
 , FFI.CursorSet
 
 , isSameCursor
+, isNullCursor
 , nullCursor
 , getHash
 , Clang.Cursor.getKind
@@ -68,6 +69,9 @@ import Clang.Monad
 
 isSameCursor :: FFI.Cursor -> FFI.Cursor -> ClangApp Bool
 isSameCursor a b = liftIO $ FFI.equalCursors a b
+
+isNullCursor :: FFI.Cursor -> ClangApp Bool
+isNullCursor c = liftIO $ FFI.cursor_isNull c
 
 nullCursor :: ClangApp FFI.Cursor
 nullCursor = liftIO FFI.getNullCursor
