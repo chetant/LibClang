@@ -14,6 +14,7 @@ module Clang.Type
 , isRestrictQualifiedType
 , isPODType
 , isVirtualBase
+
 , getTypeKindSpelling
 ) where
 
@@ -24,6 +25,12 @@ import Clang.Monad
 
 isSameType :: FFI.Type -> FFI.Type -> ClangApp Bool
 isSameType a b = liftIO $ FFI.equalTypes a b
+
+{-
+-- LLVM 3.3
+getTypeSpelling :: FFI.Type -> ClangApp FFI.CXString
+getTypeSpelling t = liftIO $ FFI.getTypeSpelling t
+-}
 
 getKind :: FFI.Type -> ClangApp FFI.TypeKind
 getKind = return . FFI.getTypeKind

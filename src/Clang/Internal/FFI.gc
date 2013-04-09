@@ -100,6 +100,7 @@ module Clang.Internal.FFI
 , Type
 , getTypeKind
 , getCursorType
+-- , getTypeSpelling
 , equalTypes
 , getCanonicalType
 , isConstQualifiedType
@@ -1604,6 +1605,16 @@ getTypeKind (Type k _ _) = k
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getCursorType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
+
+{-
+-- CXString clang_getTypeSpelling(CXType CT);
+%fun clang_getTypeSpelling :: Type -> IO CXString
+%call (type k p1 p2)
+%code CXType t = {k, {p1, p2}};
+%     CXString *r = mkStrObj();
+%     *r = clang_getTypeSpelling(t);
+%result (cxString (ptr r))
+-}
 
 -- unsigned clang_equalTypes(CXType A, CXType B);
 %fun clang_equalTypes :: Type -> Type -> IO Bool
