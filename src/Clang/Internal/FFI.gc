@@ -259,7 +259,7 @@ registerCXString action = do
 %    CXString str;
 %    str.data = data;
 %    str.private_flags = flags;
-%    printf("Called freeCXString for string [%s]\n", clang_getCString(str));
+%    //printf("Called freeCXString for string [%s]\n", clang_getCString(str));
 %    clang_disposeString(str);
 %  }
 -- foreign import ccall unsafe "FFI_stub_ffi.h mkStrObj" mkStrObj :: IO (Ptr StringObj)
