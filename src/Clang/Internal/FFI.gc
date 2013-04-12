@@ -12,6 +12,7 @@ module Clang.Internal.FFI
 , AvailabilityKind(..)
 , CXString
 , getCString
+, getCXStringHash
 , File(..)
 , getFileName
 , getFileTime
@@ -265,6 +266,16 @@ getCString (CXString fp) = withForeignPtr fp getCString_Ptr
 %call (ptr d)
 %code r = (char*) clang_getCString(*(CXString*)d);
 %result (string r)
+
+%dis word64 x    = %%Word64 ({HsWord64} x)
+
+getCXStringHash :: CXString -> IO Word64
+getCXStringHash (CXString fp) = withForeignPtr fp getCXStringHash_Ptr
+
+%fun clang_getCXStringHash_Ptr :: Ptr StringObj -> IO Word64
+%call (ptr d)
+%code r = (uint64_t) ((CXString*) d)->data;
+%result (word64 r)
 
 from_Maybe_File :: Maybe File -> File
 from_Maybe_File (Just f) = f
