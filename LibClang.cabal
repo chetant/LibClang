@@ -34,8 +34,10 @@ Source-Repository head
 Library
   ghc-options:     -Wall -Werror -O
   build-depends:   base < 5,
+                   bytestring,
                    greencard,
                    mtl,
+                   resourcet,
                    time,
                    transformers
   hs-source-dirs:  src
