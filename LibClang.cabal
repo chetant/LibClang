@@ -60,4 +60,5 @@ Library
                    Clang.Traversal,
                    Clang.Type
   other-modules: Clang.Internal.ClangApp,
+                 Clang.Internal.BaseFFI
                  Clang.Internal.FFI
