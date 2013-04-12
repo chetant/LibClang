@@ -116,13 +116,13 @@ getResultType :: FFI.Cursor -> ClangApp FFI.Type
 getResultType c = liftIO $ FFI.getCursorResultType c
 
 getDeclObjCTypeEncoding :: FFI.Cursor -> ClangApp FFI.CXString
-getDeclObjCTypeEncoding c = liftIO $ FFI.getDeclObjCTypeEncoding c
+getDeclObjCTypeEncoding c = FFI.registerCXString $ FFI.getDeclObjCTypeEncoding c
 
 getSpelling :: FFI.Cursor -> ClangApp FFI.CXString
-getSpelling c = liftIO $ FFI.getCursorSpelling c
+getSpelling c = FFI.registerCXString $ FFI.getCursorSpelling c
 
 getDisplayName :: FFI.Cursor -> ClangApp FFI.CXString
-getDisplayName c = liftIO $ FFI.getCursorDisplayName c
+getDisplayName c = FFI.registerCXString $ FFI.getCursorDisplayName c
 
 getReferenced :: FFI.Cursor -> ClangApp FFI.Cursor
 getReferenced c = liftIO $ FFI.getCursorReferenced c
@@ -203,4 +203,4 @@ setInsert s c = liftIO $ FFI.cXCursorSet_insert s c
 --CursorKind functions
 
 getCursorKindSpelling :: FFI.CursorKind -> ClangApp FFI.CXString
-getCursorKindSpelling k = liftIO $ FFI.getCursorKindSpelling k
+getCursorKindSpelling k = FFI.registerCXString $ FFI.getCursorKindSpelling k

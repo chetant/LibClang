@@ -17,7 +17,7 @@ getKind :: FFI.Token -> ClangApp FFI.TokenKind
 getKind t = liftIO $ FFI.getTokenKind t
 
 getSpelling :: FFI.TranslationUnit -> FFI.Token -> ClangApp FFI.CXString
-getSpelling tu tk = liftIO $ FFI.getTokenSpelling tu tk
+getSpelling tu tk = FFI.registerCXString $ FFI.getTokenSpelling tu tk
 
 getLocation :: FFI.TranslationUnit -> FFI.Token -> ClangApp FFI.SourceLocation
 getLocation tu tk = liftIO $ FFI.getTokenLocation tu tk

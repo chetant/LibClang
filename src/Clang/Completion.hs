@@ -29,7 +29,7 @@ getChunkKind :: FFI.CompletionString -> Int -> ClangApp FFI.CompletionChunkKind
 getChunkKind cs i = liftIO $ FFI.getCompletionChunkKind cs i
 
 getChunkText :: FFI.CompletionString -> Int -> ClangApp FFI.CXString
-getChunkText cs i = liftIO $ FFI.getCompletionChunkText cs i
+getChunkText cs i = FFI.registerCXString $ FFI.getCompletionChunkText cs i
 
 getChunkCompletionString :: FFI.CompletionString -> Int -> ClangApp FFI.CompletionString
 getChunkCompletionString cs i = liftIO $ FFI.getCompletionChunkCompletionString cs i

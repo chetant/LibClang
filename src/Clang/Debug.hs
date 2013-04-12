@@ -4,12 +4,15 @@ module Clang.Debug
 -- , toggleCrashRecovery
 ) where
 
+import Control.Monad.IO.Class
+
 import qualified Clang.Internal.FFI as FFI
+import Clang.Monad
 
-enableStackTraces :: IO ()
-enableStackTraces = FFI.enableStackTraces
+enableStackTraces :: ClangApp ()
+enableStackTraces = liftIO $ FFI.enableStackTraces
 
-getVersion :: IO String
-getVersion = FFI.getCString =<< FFI.getClangVersion
+getVersion :: ClangApp FFI.CXString
+getVersion = FFI.registerCXString $ FFI.getClangVersion
 
 -- toggleCrashRecovery = FFI.toggleCrashRecovery

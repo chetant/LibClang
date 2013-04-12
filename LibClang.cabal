@@ -38,6 +38,7 @@ Library
                    greencard,
                    mtl,
                    resourcet,
+                   text,
                    time,
                    transformers
   hs-source-dirs:  src

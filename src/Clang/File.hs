@@ -16,7 +16,7 @@ import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 
 getName :: FFI.File -> ClangApp FFI.CXString
-getName f = liftIO $ FFI.getFileName f
+getName f = FFI.registerCXString $ FFI.getFileName f
 
 getPOSIXTime :: FFI.File -> ClangApp POSIXTime
 getPOSIXTime f = liftIO $ realToFrac <$> FFI.getFileTime f

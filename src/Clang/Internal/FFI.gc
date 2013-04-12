@@ -11,6 +11,9 @@ module Clang.Internal.FFI
 , UnsavedFile
 , AvailabilityKind(..)
 , CXString
+, UnsafeCXString
+, registerCXString
+, getString
 , getByteString
 , unsafeGetByteString
 , getStringHash
@@ -243,12 +246,19 @@ data UnsavedFile = UnsavedFile { unsavedFilename :: FilePath, unsavedContents ::
 -- } CXString;
 data CXString = CXString (Ptr ()) Word32
 
-%C CXString * mkStrObj() { return malloc(sizeof(CXString)); }
-%  void freeStrObj(CXString * str) { clang_disposeString(*str);free(str); }
-%  void freeCXString(void* data, unsigned flags) {
+-- We deliberately don't export the constructor. The only way to unwrap this is registerCXString.
+newtype UnsafeCXString = UnsafeCXString CXString
+
+registerCXString :: IO UnsafeCXString -> ClangApp CXString
+registerCXString action = do
+  (_, str) <- appAllocate (action >>= \(UnsafeCXString s) -> return s)
+                          (\(CXString d f) -> freeCXString d f)
+  return str
+
+%C void freeCXString(void* data, unsigned flags) {
 %    CXString str;
 %    str.data = data;
-%    str.flags = flags;
+%    str.private_flags = flags;
 %    printf("Called freeCXString for string [%s]\n", clang_getCString(str));
 %    clang_disposeString(str);
 %  }
@@ -256,20 +266,21 @@ data CXString = CXString (Ptr ()) Word32
 -- foreign import ccall unsafe "FFI_stub_ffi.h &freeStrObj" freeStrObj :: FunPtr (Ptr StringObj -> IO ())
 foreign import ccall unsafe "FFI_stub_ffi.h freeCXString" freeCXString :: Ptr () -> Word32 -> IO ()
 
-unmarshall_cxString :: Ptr () -> Word32 -> IO CXString
-unmarshall_cxString d f = do
-  (_, str) <- appAllocate (return $ CXString d f)
-                          (\(CXString d f) -> freeCXString d f)
-  return str
+-- This returns UnsafeCXString to force anyone who receives one to wrap it in registerCXString.
+unmarshall_cxString :: Ptr () -> Word32 -> IO UnsafeCXString
+unmarshall_cxString d f = return $ UnsafeCXString (CXString d f)
 
 -- FIXME: We can do this; needs alloca. But do we need it? Only a few users.
 -- marshall_cxString :: CXString -> IO (ForeignPtr StringObj)
 -- marshall_cxString (CXString a) = return a
 
-getByteString :: CXString -> ClangApp ByteString
+getString :: CXString -> IO String
+getString (CXString d f) = getCStringPtr d f >>= peekCString
+
+getByteString :: CXString -> IO ByteString
 getByteString (CXString d f) = getCStringPtr d f >>= packCString
 
-unsafeGetByteString :: CXString -> ClangApp ByteString
+unsafeGetByteString :: CXString -> IO ByteString
 unsafeGetByteString (CXString d f) = getCStringPtr d f >>= unsafePackCString
 
 -- const char *clang_getCString(CXString string);
@@ -277,7 +288,7 @@ unsafeGetByteString (CXString d f) = getCStringPtr d f >>= unsafePackCString
 %call (ptr d) (word32 f)
 %code CXString str;
 %     str.data = d;
-%     str.flags = f;
+%     str.private_flags = f;
 %     r = (char*) clang_getCString(str);
 %result (ptr r)
 
@@ -305,11 +316,11 @@ newtype File = File (Ptr ())
 %dis file x = File (ptr x)
 
 -- CXString clang_getFileName(CXFile SFile);
-%fun clang_getFileName :: File -> IO CXString
+%fun clang_getFileName :: File -> IO UnsafeCXString
 %call (file x)
 %code CXString out = clang_getFileName(x);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
 -- time_t clang_getFileTime(CXFile SFile);
@@ -497,11 +508,11 @@ getDiagnosticDispOptSum = sum . (map toVal_)
           toVal_ Diagnostic_DisplayCategoryName = 0x20
 
 -- CXString clang_formatDiagnostic(CXDiagnostic Diagnostic, unsigned Options);
-%fun clang_formatDiagnostic :: Diagnostic -> Int -> IO CXString
+%fun clang_formatDiagnostic :: Diagnostic -> Int -> IO UnsafeCXString
 %call (fptr (ptr d)) (int i)
 %code CXString out = clang_formatDiagnostic(d, i);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
 -- unsigned clang_defaultDiagnosticDisplayOptions(void);
@@ -518,34 +529,34 @@ getDiagnosticDispOptSum = sum . (map toVal_)
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
 
 -- CXString clang_getDiagnosticSpelling(CXDiagnostic);
-%fun clang_getDiagnosticSpelling :: Diagnostic -> IO CXString
+%fun clang_getDiagnosticSpelling :: Diagnostic -> IO UnsafeCXString
 %call (fptr (ptr d))
 %code CXString out = clang_getDiagnosticSpelling(d);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
 -- CXString clang_getDiagnosticOption(CXDiagnostic Diag,
 --                                                   CXString *Disable);
-%fun clang_getDiagnosticOption :: Diagnostic -> IO (CXString, CXString)
+%fun clang_getDiagnosticOption :: Diagnostic -> IO (UnsafeCXString, UnsafeCXString)
 %call (fptr (ptr d))
 %code CXString a;
-%     CXString out = clang_getDiagnosticOption(d, a);
+%     CXString out = clang_getDiagnosticOption(d, &a);
 %     void* aData = a.data;
-%     unsigned aFlags = a.flags;
+%     unsigned aFlags = a.private_flags;
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result ((cxString (ptr outData) (word32 outFlags)), (cxString (ptr aData) (word32 aFlags)))
 
 -- unsigned clang_getDiagnosticCategory(CXDiagnostic);
 %fun clang_getDiagnosticCategory :: Diagnostic -> IO Int
 
 -- CXString clang_getDiagnosticCategoryText(CXDiagnostic);
-%fun clang_getDiagnosticCategoryText :: Diagnostic -> IO CXString
+%fun clang_getDiagnosticCategoryText :: Diagnostic -> IO UnsafeCXString
 %call (fptr (ptr d))
 %code CXString out = clang_getDiagnosticCategoryText(d);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
 -- unsigned clang_getDiagnosticNumRanges(CXDiagnostic);
@@ -564,21 +575,21 @@ getDiagnosticDispOptSum = sum . (map toVal_)
 -- CXString clang_getDiagnosticFixIt(CXDiagnostic Diagnostic,
 --                                                  unsigned FixIt,
 --                                                CXSourceRange *ReplacementRange);
-%fun clang_getDiagnosticFixIt :: Diagnostic -> Int -> IO (SourceRange, CXString)
+%fun clang_getDiagnosticFixIt :: Diagnostic -> Int -> IO (SourceRange, UnsafeCXString)
 %call (fptr (ptr d)) (int i)
 %code CXSourceRange a;
 %     CXString out = clang_getDiagnosticFixIt(d, i, &a);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result ((sourceRange {a.ptr_data[0]} {a.ptr_data[1]} {a.begin_int_data} {a.end_int_data}), (cxString (ptr outData) (word32 outFlags)))
 
 -- CXString
 -- clang_getTranslationUnitSpelling(CXTranslationUnit CTUnit);
-%fun clang_getTranslationUnitSpelling :: TranslationUnit -> IO CXString
+%fun clang_getTranslationUnitSpelling :: TranslationUnit -> IO UnsafeCXString
 %call (ptr t)
 %code CXString out = clang_getTranslationUnitSpelling(t);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
 -- CXTranslationUnit clang_createTranslationUnitFromSourceFile(
@@ -1652,12 +1663,12 @@ getTypeKind (Type k _ _) = k
 
 {-
 -- CXString clang_getTypeSpelling(CXType CT);
-%fun clang_getTypeSpelling :: Type -> IO CXString
+%fun clang_getTypeSpelling :: Type -> IO UnsafeCXString
 %call (type k p1 p2)
 %code CXType t = {k, {p1, p2}};
 %     CXString out = clang_getTypeSpelling(t);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 -}
 
@@ -1712,20 +1723,20 @@ getTypeKind (Type k _ _) = k
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXString clang_getDeclObjCTypeEncoding(CXCursor C);
-%fun clang_getDeclObjCTypeEncoding :: Cursor -> IO CXString
+%fun clang_getDeclObjCTypeEncoding :: Cursor -> IO UnsafeCXString
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString out = clang_getDeclObjCTypeEncoding(a);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
 -- CXString clang_getTypeKindSpelling(enum CXTypeKind K);
-%fun clang_getTypeKindSpelling :: TypeKind -> IO CXString
+%fun clang_getTypeKindSpelling :: TypeKind -> IO UnsafeCXString
 %call (typeKind tk)
 %code CXString out = clang_getTypeKindSpelling(tk);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
 -- CXType clang_getResultType(CXType T);
@@ -1858,103 +1869,103 @@ foreign import ccall safe "FFI_stub_ffi.h prim_visitChildren_" prim_visitChildre
 
 
 -- CXString clang_getCursorUSR(CXCursor);
-%fun clang_getCursorUSR :: Cursor -> IO CXString
+%fun clang_getCursorUSR :: Cursor -> IO UnsafeCXString
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString out = clang_getCursorUSR(a);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
 -- CXString clang_constructUSR_ObjCClass(const char *class_name);
-%fun clang_constructUSR_ObjCClass :: String -> IO CXString
+%fun clang_constructUSR_ObjCClass :: String -> IO UnsafeCXString
 %call (string s)
 %code CXString out = clang_constructUSR_ObjCClass(s);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
 -- CXString
 --   clang_constructUSR_ObjCCategory(const char *class_name,
 --                                  const char *category_name);
-%fun clang_constructUSR_ObjCCategory :: String -> String -> IO CXString
+%fun clang_constructUSR_ObjCCategory :: String -> String -> IO UnsafeCXString
 %call (string s) (string p)
 %code CXString out = clang_constructUSR_ObjCCategory(s, p);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
 -- CXString
 --   clang_constructUSR_ObjCProtocol(const char *protocol_name);
-%fun clang_constructUSR_ObjCProtocol :: String -> IO CXString
+%fun clang_constructUSR_ObjCProtocol :: String -> IO UnsafeCXString
 %call (string s)
 %code CXString out = clang_constructUSR_ObjCProtocol(s);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-constructUSR_ObjCIvar :: String -> CXString -> ClangApp CXString
+constructUSR_ObjCIvar :: String -> CXString -> IO UnsafeCXString
 constructUSR_ObjCIvar s (CXString d f) = constructUSR_ObjCIvarRaw s d f
 
 -- CXString clang_constructUSR_ObjCIvar(const char *name,
 --                                                     CXString classUSR);
-%fun clang_constructUSR_ObjCIvarRaw :: String -> Ptr () -> Word32 -> IO CXString
+%fun clang_constructUSR_ObjCIvarRaw :: String -> Ptr () -> Word32 -> IO UnsafeCXString
 %call (string s) (ptr d) (word32 f)
 %code CXString str;
 %     str.data = d;
-%     str.flags = f;
+%     str.private_flags = f;
 %     CXString out = clang_constructUSR_ObjCIvar(s, str);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-constructUSR_ObjCMethod :: String -> Bool -> CXString -> ClangApp CXString
+constructUSR_ObjCMethod :: String -> Bool -> CXString -> IO UnsafeCXString
 constructUSR_ObjCMethod s b (CXString d f) = constructUSR_ObjCMethodRaw s b d f
 
 -- CXString clang_constructUSR_ObjCMethod(const char *name,
 --                                                       unsigned isInstanceMethod,
 --                                                       CXString classUSR);
-%fun clang_constructUSR_ObjCMethodRaw :: String -> Bool -> Ptr () -> Word32 -> IO CXString
+%fun clang_constructUSR_ObjCMethodRaw :: String -> Bool -> Ptr () -> Word32 -> IO UnsafeCXString
 %call (string s) (bool b) (ptr d) (word32 f)
 %code CXString str;
 %     str.data = d;
-%     str.flags = f;
+%     str.private_flags = f;
 %     CXString out = clang_constructUSR_ObjCMethod(s, b, str);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-constructUSR_ObjCProperty :: String -> CXString -> ClangApp CXString
+constructUSR_ObjCProperty :: String -> CXString -> IO UnsafeCXString
 constructUSR_ObjCProperty s (CXString d f) = constructUSR_ObjCPropertyRaw s d f
 
 -- CXString clang_constructUSR_ObjCProperty(const char *property,
 --                                                         CXString classUSR);
-%fun clang_constructUSR_ObjCPropertyRaw :: String -> Ptr () -> Word32 -> IO CXString
-%call (string s) (ptr d) (ptr f)
+%fun clang_constructUSR_ObjCPropertyRaw :: String -> Ptr () -> Word32 -> IO UnsafeCXString
+%call (string s) (ptr d) (word32 f)
 %code CXString str;
 %     str.data = d;
-%     str.flags = f;
+%     str.private_flags = f;
 %     CXString out = clang_constructUSR_ObjCProperty(s, str);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
 -- CXString clang_getCursorSpelling(CXCursor);
-%fun clang_getCursorSpelling :: Cursor -> IO CXString
+%fun clang_getCursorSpelling :: Cursor -> IO UnsafeCXString
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString out = clang_getCursorSpelling(a);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
 -- CXString clang_getCursorDisplayName(CXCursor);
-%fun clang_getCursorDisplayName :: Cursor -> IO CXString
+%fun clang_getCursorDisplayName :: Cursor -> IO UnsafeCXString
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString out = clang_getCursorDisplayName(a);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
   
 -- CXCursor clang_getCursorReferenced(CXCursor);
@@ -2030,12 +2041,12 @@ data Token = Token Int Int Int Int (Ptr ())
 %result (tokenKind r)
 
 -- CXString clang_getTokenSpelling(CXTranslationUnit, CXToken);
-%fun clang_getTokenSpelling :: TranslationUnit -> Token -> IO CXString
+%fun clang_getTokenSpelling :: TranslationUnit -> Token -> IO UnsafeCXString
 %call (ptr t) (token w x y z p)
 %code CXToken a = {{w, x, y, z}, p};
 %     CXString out = clang_getTokenSpelling(t, a);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
 -- CXSourceLocation clang_getTokenLocation(CXTranslationUnit,
@@ -2130,11 +2141,11 @@ unmarshall_cursorListExt numO os = do
 %result (cursorListExt nts (ptr cs))
 
 -- CXString clang_getCursorKindSpelling(enum CXCursorKind Kind);
-%fun clang_getCursorKindSpelling :: CursorKind -> IO CXString
+%fun clang_getCursorKindSpelling :: CursorKind -> IO UnsafeCXString
 %call (cursorKind k)
 %code CXString out = clang_getCursorKindSpelling(k);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
 -- TODO: implement me
@@ -2197,11 +2208,11 @@ data CompletionResult = CompletionResult CursorKind CompletionString
 -- CXString
 -- clang_getCompletionChunkText(CXCompletionString completion_string,
 --                              unsigned chunk_number);
-%fun clang_getCompletionChunkText :: CompletionString -> Int -> IO CXString
+%fun clang_getCompletionChunkText :: CompletionString -> Int -> IO UnsafeCXString
 %call (completionString s) (int i)
 %code CXString out = clang_getCompletionChunkText(s, i);
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
 -- CXCompletionString
@@ -2280,10 +2291,10 @@ unmarshall_codeCompleteResults = newForeignPtr clang_disposeCodeCompleteResults
 %result (diag (ptr r))
 
 -- CXString clang_getClangVersion();
-%fun clang_getClangVersion :: IO CXString
+%fun clang_getClangVersion :: IO UnsafeCXString
 %code CXString out = clang_getClangVersion();
 %     void* outData = out.data;
-%     unsigned outFlags = out.flags;
+%     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
   
 -- -- void clang_toggleCrashRecovery(unsigned isEnabled);

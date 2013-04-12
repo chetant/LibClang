@@ -28,7 +28,7 @@ newtype Index = Index FFI.IndexPtr
   deriving (Eq, Show)
 
 getSpelling :: FFI.TranslationUnit -> ClangApp FFI.CXString
-getSpelling tu = liftIO $ FFI.getTranslationUnitSpelling tu
+getSpelling tu = FFI.registerCXString $ FFI.getTranslationUnitSpelling tu
 
 withCreate :: Index -> String -> ClangApp a -> IO a
 withCreate (Index i) s f = runClangApp f i =<< withForeignPtr i create

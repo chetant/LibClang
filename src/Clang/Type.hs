@@ -62,4 +62,4 @@ isVirtualBase c = liftIO $ FFI.isVirtualBase c
 
 -- Typekind functions
 getTypeKindSpelling :: FFI.TypeKind -> ClangApp FFI.CXString
-getTypeKindSpelling k = liftIO $ FFI.getTypeKindSpelling k
+getTypeKindSpelling k = FFI.registerCXString $ FFI.getTypeKindSpelling k
