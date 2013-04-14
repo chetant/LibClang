@@ -3,7 +3,6 @@
 
 module Clang.Internal.FFI
 ( Index
-, Index
 , UnsafeIndex
 , registerIndex
 , createIndex
@@ -192,7 +191,6 @@ import Foreign.GreenCard
 
 import Clang.Alloc
 import Clang.Internal.ClangApp
-import Clang.Internal.BaseFFI
 
 %#include <inttypes.h>
 %#include <stdlib.h>
@@ -206,6 +204,9 @@ import Clang.Internal.BaseFFI
 -- FIXME
 marshall_fptr :: ForeignPtr a -> IO (Ptr a)
 marshall_fptr  = return . Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr
+
+-- typedef void *CXIndex;
+data Index = Index (Ptr ())
 
 -- CXIndex clang_createIndex(int excludeDeclarationsFromPCH, int displayDiagnostics);
 %fun clang_createIndex :: Bool -> Bool -> IO UnsafeIndex
@@ -234,6 +235,9 @@ toIndex :: Ptr () -> UnsafeIndex
 toIndex p = UnsafeIndex (Index p)
 
 %dis index i = <fromIndex/toIndex> (ptr i)
+
+-- typedef struct CXTranslationUnitImpl *CXTranslationUnit;
+data TranslationUnit = TranslationUnit (Ptr ())
 
 -- void clang_disposeTranslationUnit(CXTranslationUnit);
 %fun clang_disposeTranslationUnit :: TranslationUnit -> IO ()
