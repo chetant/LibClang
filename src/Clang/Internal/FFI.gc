@@ -185,8 +185,7 @@ import Data.ByteString.Unsafe (unsafePackCString)
 import Data.Word
 import Foreign.C
 import Foreign.ForeignPtr.Unsafe (unsafeForeignPtrToPtr)
-import Foreign.GreenCard hiding (unsafePerformIO)
-import System.IO.Unsafe
+import Foreign.GreenCard
 
 import Clang.Alloc
 import Clang.Internal.ClangApp
