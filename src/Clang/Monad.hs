@@ -1,7 +1,5 @@
 module Clang.Monad
-( C.ClangApp
-, C.getIndex
-, C.getTranslationUnit
+( ClangApp
 ) where
 
-import qualified Clang.Internal.ClangApp as C
+import Clang.Internal.ClangApp (ClangApp)

@@ -4,52 +4,28 @@ module Clang.Internal.ClangApp
 ( ClangApp
 , runClangApp
 , mkClangAppRunner
-, getIndex
-, getTranslationUnit
 , appAllocate
 ) where
 
 import Control.Applicative
-import qualified Control.Monad.Reader.Class as R
 import Control.Monad.Trans
-import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Resource
-import Foreign.ForeignPtr
 
-import qualified Clang.Internal.BaseFFI as FFI
+-- The functions in this module can be used in an unsafe manner if the lifetime
+-- of a ClangApp is not bounded by the lifetime of an outer ClangApp, in which
+-- it was created, since we don't transfer ownership of resources. Callers must
+-- ensure that the lifetime is controlled appropriately. (The plan is to
+-- eventually fix this using ST-style phantom types.)
 
-data ClangEnv = ClangEnv {
-    index :: FFI.Index,
-    translationUnit  :: FFI.TranslationUnit
-  } deriving (Eq, Show)
+newtype ClangApp a = ClangApp
+  { unClangApp :: (ResourceT IO a)
+  } deriving (Applicative, Functor, Monad, MonadIO, MonadResource, MonadThrow, MonadUnsafeIO)
 
-newtype ClangApp a = ClangApp {
-    unClangApp :: (ResourceT (ReaderT ClangEnv IO) a)
-  } deriving (Applicative, Functor, Monad, R.MonadReader ClangEnv, MonadIO, MonadResource, MonadThrow, MonadUnsafeIO)
-
-runClangApp :: ClangApp a -> FFI.IndexPtr -> FFI.TranslationUnitPtr -> IO a
-runClangApp app iPtr tuPtr =
-  withForeignPtr iPtr $ \i -> 
-    withForeignPtr tuPtr $ \tu ->
-      flip runReaderT (ClangEnv i tu) .
-      runResourceT .
-      unClangApp $ app
-
-askClangEnv :: ClangApp ClangEnv
-askClangEnv = ClangApp . lift $ ask
+runClangApp :: ClangApp a -> IO a
+runClangApp app = runResourceT .  unClangApp $ app
 
 mkClangAppRunner :: ClangApp (ClangApp a -> IO a)
-mkClangAppRunner = do
-  env <- askClangEnv
-  return $ \app -> flip runReaderT env .
-                   runResourceT .
-                   unClangApp $ app
-
-getIndex :: ClangApp FFI.Index
-getIndex = askClangEnv >>= return . index
-
-getTranslationUnit :: ClangApp FFI.TranslationUnit
-getTranslationUnit = askClangEnv >>= return . translationUnit
+mkClangAppRunner = return $ \app -> runResourceT . unClangApp $ app
 
 appAllocate :: IO a -> (a -> IO ()) -> ClangApp (ReleaseKey, a)
 appAllocate = allocate

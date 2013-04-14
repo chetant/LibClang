@@ -1,5 +1,5 @@
 module Clang.TranslationUnit
-( Index
+( FFI.Index
 , FFI.Cursor
 , FFI.ReparseFlags
 , FFI.SaveTranslationUnitFlags(..)
@@ -19,40 +19,40 @@ module Clang.TranslationUnit
 ) where
 
 import Control.Monad.IO.Class
-import Foreign.ForeignPtr
 
 import Clang.Internal.ClangApp
 import qualified Clang.Internal.FFI as FFI
 
-newtype Index = Index FFI.IndexPtr
-  deriving (Eq, Show)
-
 getSpelling :: FFI.TranslationUnit -> ClangApp FFI.CXString
 getSpelling tu = FFI.registerCXString $ FFI.getTranslationUnitSpelling tu
 
-withCreate :: Index -> String -> ClangApp a -> IO a
-withCreate (Index i) s f = runClangApp f i =<< withForeignPtr i create
-  where create idx = FFI.createTranslationUnit idx s
+withCreate :: FFI.Index -> String -> (FFI.TranslationUnit -> ClangApp a) -> ClangApp a
+withCreate idx s f = liftIO $
+  runClangApp (FFI.registerTranslationUnit (FFI.createTranslationUnit idx s) >>= f)
 
-withCreateFromSourceFile :: Index -- ^ Index for the source
+withCreateFromSourceFile :: FFI.Index -- ^ Index for the source
                      -> FilePath -- ^ Source filename
                      -> [String] -- ^ Command line arguments ( this can include all clang compatible flags)
                      -> [FFI.UnsavedFile] -- ^ Unsaved files
-                     -> ClangApp a -- ^ Function that will process the TranslationUnit
-                     -> IO a
-withCreateFromSourceFile (Index i) fn ss ufs f = runClangApp f i =<< withForeignPtr i create
-  where create idx = FFI.createTranslationUnitFromSourceFile idx fn ss ufs
+                     -> (FFI.TranslationUnit -> ClangApp a) -- ^ Function that will process the TranslationUnit
+                     -> ClangApp a
+withCreateFromSourceFile idx fn ss ufs f = liftIO $
+    runClangApp (FFI.registerTranslationUnit (create idx fn ss ufs) >>= f)
+  where create = FFI.createTranslationUnitFromSourceFile
 
-withParse :: Index -- ^ Index for the source
+withParse :: FFI.Index -- ^ Index for the source
       -> Maybe FilePath -- ^ Source filename
       -> [String] -- ^ Command line arguments ( this can include all clang compatible flags)
       -> [FFI.UnsavedFile] -- ^ Unsaved files
       -> [FFI.TranslationUnitFlags] -- ^ TranslationUnit flags
-      -> (ClangApp a) -- ^ Function that will process the TranslationUnit
-      -> IO a -- ^ Result to be returned if source couldn't be parsed
-      -> IO a
-withParse (Index i) ms ss ufs opts f nr = maybe nr (runClangApp f i) =<< withForeignPtr i parse
-  where parse idx = FFI.parseTranslationUnit idx ms ss ufs (FFI.getTranslationUnitFlagsSum opts)
+      -> (FFI.TranslationUnit -> ClangApp a) -- ^ Function that will process the TranslationUnit
+      -> ClangApp a -- ^ Result to be returned if source couldn't be parsed
+      -> ClangApp a
+withParse idx ms ss ufs opts f nr = do
+    tu <- liftIO $ FFI.parseTranslationUnit idx ms ss ufs flags
+    maybe nr run tu
+  where flags = FFI.getTranslationUnitFlagsSum opts
+        run t = liftIO $ runClangApp (FFI.registerTranslationUnit (return t) >>= f)
 
 -- No other option right now
 defaultSaveOptions :: ClangApp [FFI.SaveTranslationUnitFlags]
@@ -78,5 +78,5 @@ getCursor :: FFI.TranslationUnit -> ClangApp FFI.Cursor
 getCursor tu = liftIO $ FFI.getTranslationUnitCursor tu
 
 -- index functions
-withCreateIndex :: Bool -> Bool -> (Index -> IO a) -> IO a
-withCreateIndex i1 i2 f = f . Index =<< FFI.createIndex i1 i2
+withCreateIndex :: Bool -> Bool -> (FFI.Index -> ClangApp a) -> IO a
+withCreateIndex i1 i2 f = runClangApp (FFI.registerIndex (FFI.createIndex i1 i2) >>= f)
