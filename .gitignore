@@ -10,3 +10,4 @@ config.log
 config.status
 src/Clang/Internal/FFI_stub_ffi.c
 src/Clang/Internal/FFI_stub_ffi.h
+cabal-dev
