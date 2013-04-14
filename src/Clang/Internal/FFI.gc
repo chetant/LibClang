@@ -201,6 +201,7 @@ import Clang.Internal.BaseFFI
 %prefix CX_
 %prefix clang_
 
+-- FIXME
 marshall_fptr :: ForeignPtr a -> IO (Ptr a)
 marshall_fptr  = return . Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr
 
@@ -213,12 +214,14 @@ marshall_fptr  = return . Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr
 -- void clang_disposeIndex(CXIndex index);
 foreign import ccall unsafe "clang-c/Index.h &clang_disposeIndex" clang_disposeIndex :: FunPtr (Ptr IndexObj -> IO ())
 
+-- FIXME
 unmarshall_index :: Ptr IndexObj -> IO (ForeignPtr IndexObj)
 unmarshall_index = newForeignPtr clang_disposeIndex
 
 -- void clang_disposeTranslationUnit(CXTranslationUnit);
 foreign import ccall unsafe "clang-c/Index.h &clang_disposeTranslationUnit" clang_disposeTranslationUnitPtr :: FunPtr (Ptr TranslationUnitObj -> IO ())
 
+-- FIXME
 unmarshall_translationUnit :: Ptr TranslationUnitObj -> IO (ForeignPtr TranslationUnitObj)
 unmarshall_translationUnit = newForeignPtr clang_disposeTranslationUnitPtr
 
@@ -471,6 +474,7 @@ type Diagnostic = ForeignPtr DiagnosticObj
 -- void clang_disposeDiagnostic(CXDiagnostic Diagnostic);
 foreign import ccall unsafe "clang-c/Index.h &clang_disposeDiagnostic" clang_disposeDiagnostic :: FunPtr (Ptr DiagnosticObj -> IO ())
 
+-- FIXME
 unmarshall_diag :: Ptr DiagnosticObj -> IO (ForeignPtr DiagnosticObj)
 unmarshall_diag = newForeignPtr clang_disposeDiagnostic
 
@@ -652,6 +656,7 @@ getTranslationUnitFlagsSum = sum . (map toVal_)
 %code r = clang_parseTranslationUnit(i,s,ss,ns,ufs,nufs,i2);
 %result (maybeT {nullPtr} (translationUnit (ptr r)))
 
+-- FIXME
 marshall_listLenString :: [String] -> IO (ForeignPtr CString, Int)
 marshall_listLenString [] = do
   arr <- newForeignPtr finalizerFree nullPtr
@@ -670,6 +675,7 @@ marshall_listLenString ss = do
 foreign import ccall unsafe "FFI_stub_ffi.h unsavedFileSize" unsavedFileSize :: Word32
 foreign import ccall unsafe "FFI_stub_ffi.h setCXUnsavedFile" setCXUnsavedFile :: CString -> CString -> CULong -> Ptr () -> CInt -> IO ()
 
+-- FIXME
 marshall_listLenUnsavedFile :: [UnsavedFile] -> IO (ForeignPtr (), Int)
 marshall_listLenUnsavedFile [] = do
   arr <- newForeignPtr finalizerFree nullPtr
@@ -1497,6 +1503,7 @@ type CursorSet = ForeignPtr CursorSetObj
 -- void clang_disposeCXCursorSet(CXCursorSet cset);
 foreign import ccall unsafe "clang-c/Index.h &clang_disposeCXCursorSet" clang_disposeCXCursorSet :: FunPtr (Ptr CursorSetObj -> IO ())
 
+-- FIXME
 unmarshall_cursorSet :: Ptr CursorSetObj -> IO (ForeignPtr CursorSetObj)
 unmarshall_cursorSet = newForeignPtr clang_disposeCXCursorSet
 
@@ -2067,6 +2074,7 @@ data Token = Token Int Int Int Int (Ptr ())
 -- data structure we make ti store token lists
 type TokenList = [Token]
 
+-- FIXME
 %C unsigned tokenListGetInt(CXToken *tlist, int i, int pi) {return tlist[i].int_data[pi];}
 %  void * tokenListGetPtr(CXToken *tlist, int i) {return tlist[i].ptr_data;}
 %  void * makeTokens(int n) { return malloc(n * sizeof(CXToken)); }
@@ -2097,6 +2105,7 @@ unmarshall_tokenList t numO os = do
             p <- tokenListGetPtr_ os i
             return $ Token i1 i2 i3 i4 p
 
+-- FIXME
 marshall_tokenList ::  TokenList -> IO (Int, ForeignPtr ())
 marshall_tokenList ts = do
   let numTs = length ts
@@ -2130,6 +2139,7 @@ unmarshall_cursorListExt numO os = do
             p3 <- cursorListGetPtr_ os i 2
             return $ Cursor kind xdata p1 p2 p3
 
+-- FIXME
 -- TODO: test me
 -- void clang_annotateTokens(CXTranslationUnit TU,
 --                                          CXToken *Tokens, unsigned NumTokens,
@@ -2256,6 +2266,7 @@ type CodeCompleteResults = ForeignPtr CodeCompleteResultsObj
 -- void clang_disposeCodeCompleteResults(CXCodeCompleteResults *Results);
 foreign import ccall unsafe "FFI_stub_ffi.h &clang_disposeCodeCompleteResults" clang_disposeCodeCompleteResults :: FunPtr (Ptr CodeCompleteResultsObj -> IO ())
 
+-- FIXME
 unmarshall_codeCompleteResults :: Ptr CodeCompleteResultsObj -> IO (ForeignPtr CodeCompleteResultsObj)
 unmarshall_codeCompleteResults = newForeignPtr clang_disposeCodeCompleteResults
 
