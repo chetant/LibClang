@@ -639,10 +639,14 @@ getDiagnosticDispOptSum = sum . (map toVal_)
 --                                    const char * const *clang_command_line_args,
 --                                          unsigned num_unsaved_files,
 --                                          struct CXUnsavedFile *unsaved_files);
-%fun clang_createTranslationUnitFromSourceFile :: Index -> String -> [String] -> [UnsavedFile] -> IO UnsafeTranslationUnit
-%call (index i) (string s) (listLenString ((fptr (ptr ss)), (int ns))) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs)))
-%code r = clang_createTranslationUnitFromSourceFile(i,s,ns,ss,nufs,ufs);
+%fun clang_createTranslationUnitFromSourceFileRaw :: Index -> String -> Ptr CString -> Int -> [UnsavedFile] -> IO UnsafeTranslationUnit
+%call (index i) (string s) (ptr as) (int nas) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs)))
+%code r = clang_createTranslationUnitFromSourceFile(i,s,as,nas,nufs,ufs);
 %result (translationUnit r)
+
+createTranslationUnitFromSourceFile :: Index -> String -> [String] -> [UnsavedFile] -> IO UnsafeTranslationUnit
+createTranslationUnitFromSourceFile idx sf as ufs = invokeWithStringList as go
+  where go asPtr asLen = createTranslationUnitFromSourceFileRaw idx sf asPtr asLen ufs
 
 -- CXTranslationUnit clang_createTranslationUnit(CXIndex,
 --                                              const char *ast_filename);
@@ -687,13 +691,30 @@ getTranslationUnitFlagsSum = sum . (map toVal_)
 --                                             struct CXUnsavedFile *unsaved_files,
 --                                                      unsigned num_unsaved_files,
 --                                                             unsigned options);
-%fun clang_parseTranslationUnit :: Index -> Maybe String -> [String] -> [UnsavedFile] -> Int -> IO (Maybe UnsafeTranslationUnit)
-%call (index i) (maybeT {nullPtr} (string s)) (listLenString ((fptr (ptr ss)), (int ns))) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs))) (int i2)
-%code r = clang_parseTranslationUnit(i,s,ss,ns,ufs,nufs,i2);
+%fun clang_parseTranslationUnitRaw :: Index -> Maybe String -> Ptr CString -> Int -> [UnsavedFile] -> Int -> IO (Maybe UnsafeTranslationUnit)
+%call (index i) (maybeT {nullPtr} (string s)) (ptr as) (int nas) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs))) (int i2)
+%code r = clang_parseTranslationUnit(i,s,as,nas,ufs,nufs,i2);
 %result (maybeT {nullPtr} (translationUnit r))
 
--- FIXME
-marshall_listLenString :: [String] -> IO (ForeignPtr CString, Int)
+parseTranslationUnit :: Index -> Maybe String -> [String] -> [UnsavedFile] -> Int -> IO (Maybe UnsafeTranslationUnit)
+parseTranslationUnit idx sf as ufs opts = invokeWithStringList as $
+  \asPtr asLen -> parseTranslationUnitRaw idx sf asPtr asLen ufs opts
+
+invokeWithStringList :: [String] -> (Ptr CString -> Int -> IO a) -> IO a
+invokeWithStringList [] f = f nullPtr 0
+invokeWithStringList ss f = do
+    let len = length ss
+    allocaArray len $ \arr -> go f arr len arr ss
+  where
+    go :: (Ptr CString -> Int -> IO a) -> Ptr CString -> Int -> Ptr CString -> [String] -> IO a
+    go f arr len _ [] = f arr len
+    go f arr len ptr (s : ss) = withCString s $ \cs -> do
+      poke ptr cs
+      go f arr len (advancePtr ptr 1) ss
+
+-- FIXME: OMG THIS IS IT THE SOURCE OF THE CRASHES
+{-
+marshall_listLenString :: [String] -> IO (CString, Int)
 marshall_listLenString [] = do
   arr <- newForeignPtr finalizerFree nullPtr
   return (arr, 0)
@@ -704,6 +725,7 @@ marshall_listLenString ss = do
   pokeArray arr_ cstrs
   arr <- newForeignPtr finalizerFree arr_
   return (arr, numStrs)
+-}
 
 %C uint32_t unsavedFileSize() { return sizeof(struct CXUnsavedFile); }
 %  void setCXUnsavedFile(char * filename, char * contents,unsigned long length, struct CXUnsavedFile* uf, int i) {uf[i].Filename=filename;uf[i].Contents=contents;uf[i].Length=length;}
