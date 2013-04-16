@@ -6,6 +6,8 @@ module Clang.Internal.FFI
 , UnsafeIndex
 , registerIndex
 , createIndex
+, GlobalOptFlags
+, cXIndex_setGlobalOptions
 , TranslationUnit
 , UnsafeTranslationUnit
 , registerTranslationUnit
@@ -207,6 +209,20 @@ marshall_fptr  = return . Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr
 
 -- typedef void *CXIndex;
 data Index = Index (Ptr ())
+
+%enum GlobalOptFlags (Eq) Int [CXGlobalOpt_None, CXGlobalOpt_ThreadBackgroundPriorityForIndexing, CXGlobalOpt_ThreadBackgroundPriorityForEditing, CXGlobalOpt_ThreadBackgroundPriorityForAll]
+-- enum CXGlobalOptFlags {
+--   CXGlobalOpt_None,
+--   CXGlobalOpt_ThreadBackgroundPriorityForIndexing,
+--   CXGlobalOpt_ThreadBackgroundPriorityForEditing,
+--   CXGlobalOpt_ThreadBackgroundPriorityForAll
+-- };
+
+
+-- void clang_CXIndex_setGlobalOptions(CXIndex, unsigned options);
+%fun clang_CXIndex_setGlobalOptions :: Index -> GlobalOptFlags -> IO ()
+%call (index i) (globalOptFlags f)
+%code clang_CXIndex_setGlobalOptions(i, f);
 
 -- CXIndex clang_createIndex(int excludeDeclarationsFromPCH, int displayDiagnostics);
 %fun clang_createIndex :: Bool -> Bool -> IO UnsafeIndex

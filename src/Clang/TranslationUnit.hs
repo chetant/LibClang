@@ -6,6 +6,7 @@ module Clang.TranslationUnit
 , FFI.TranslationUnit
 , FFI.TranslationUnitFlags(..)
 , FFI.UnsavedFile
+, FFI.GlobalOptFlags
 , getSpelling
 , withCreateIndex
 , withCreate
@@ -16,6 +17,7 @@ module Clang.TranslationUnit
 , defaultReparseOptions
 , reparse
 , getCursor
+, setGlobalOptions
 ) where
 
 import Control.Monad.IO.Class
@@ -80,3 +82,6 @@ getCursor tu = liftIO $ FFI.getTranslationUnitCursor tu
 -- index functions
 withCreateIndex :: Bool -> Bool -> (FFI.Index -> ClangApp a) -> IO a
 withCreateIndex i1 i2 f = runClangApp (FFI.registerIndex (FFI.createIndex i1 i2) >>= f)
+
+setGlobalOptions :: FFI.Index -> FFI.GlobalOptFlags -> ClangApp ()
+setGlobalOptions i fs = liftIO $ FFI.cXIndex_setGlobalOptions i fs
