@@ -655,14 +655,14 @@ getDiagnosticDispOptSum = sum . (map toVal_)
 --                                    const char * const *clang_command_line_args,
 --                                          unsigned num_unsaved_files,
 --                                          struct CXUnsavedFile *unsaved_files);
-%fun clang_createTranslationUnitFromSourceFileRaw :: Index -> String -> Ptr CString -> Int -> [UnsavedFile] -> IO UnsafeTranslationUnit
-%call (index i) (string s) (ptr as) (int nas) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs)))
-%code r = clang_createTranslationUnitFromSourceFile(i,s,as,nas,nufs,ufs);
+%fun clang_createTranslationUnitFromSourceFileRaw :: Index -> String -> Int -> Ptr CString -> [UnsavedFile] -> IO UnsafeTranslationUnit
+%call (index i) (string s) (int nas) (ptr as) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs)))
+%code r = clang_createTranslationUnitFromSourceFile(i,s,nas,as,nufs,ufs);
 %result (translationUnit r)
 
 createTranslationUnitFromSourceFile :: Index -> String -> [String] -> [UnsavedFile] -> IO UnsafeTranslationUnit
 createTranslationUnitFromSourceFile idx sf as ufs = invokeWithStringList as go
-  where go asPtr asLen = createTranslationUnitFromSourceFileRaw idx sf asPtr asLen ufs
+  where go asPtr asLen = createTranslationUnitFromSourceFileRaw idx sf asLen asPtr ufs
 
 -- CXTranslationUnit clang_createTranslationUnit(CXIndex,
 --                                              const char *ast_filename);
