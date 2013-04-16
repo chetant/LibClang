@@ -6,7 +6,7 @@ module Clang.TranslationUnit
 , FFI.TranslationUnit
 , FFI.TranslationUnitFlags(..)
 , FFI.UnsavedFile
-, FFI.GlobalOptFlags
+, FFI.GlobalOptFlags(..)
 , getSpelling
 , withCreateIndex
 , withCreate

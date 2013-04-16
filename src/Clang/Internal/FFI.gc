@@ -6,7 +6,7 @@ module Clang.Internal.FFI
 , UnsafeIndex
 , registerIndex
 , createIndex
-, GlobalOptFlags
+, GlobalOptFlags(..)
 , cXIndex_setGlobalOptions
 , TranslationUnit
 , UnsafeTranslationUnit
