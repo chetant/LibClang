@@ -728,21 +728,6 @@ invokeWithStringList ss f = do
       poke ptr cs
       go f arr len (advancePtr ptr 1) ss
 
--- FIXME: OMG THIS IS IT THE SOURCE OF THE CRASHES
-{-
-marshall_listLenString :: [String] -> IO (CString, Int)
-marshall_listLenString [] = do
-  arr <- newForeignPtr finalizerFree nullPtr
-  return (arr, 0)
-marshall_listLenString ss = do
-  let numStrs = length ss
-  arr_ <- mallocArray numStrs :: IO (Ptr CString)
-  cstrs <- mapM newCString ss
-  pokeArray arr_ cstrs
-  arr <- newForeignPtr finalizerFree arr_
-  return (arr, numStrs)
--}
-
 %C uint32_t unsavedFileSize() { return sizeof(struct CXUnsavedFile); }
 %  void setCXUnsavedFile(char * filename, char * contents,unsigned long length, struct CXUnsavedFile* uf, int i) {uf[i].Filename=filename;uf[i].Contents=contents;uf[i].Length=length;}
 
