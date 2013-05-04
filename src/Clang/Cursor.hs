@@ -48,7 +48,9 @@ module Clang.Cursor
 , isPreprocessing
 , isUnexposed
 , Clang.Cursor.isVirtualBase
+, isPureVirtualCppMethod
 , isStaticCppMethod
+, isVirtualCppMethod
 , getCXXAccessSpecifier
 , getOverloadedDecls
 
@@ -177,8 +179,14 @@ isUnexposed k = liftIO $ FFI.isUnexposed k
 isVirtualBase :: FFI.Cursor -> ClangApp Bool
 isVirtualBase c = liftIO $ FFI.isVirtualBase c
 
+isPureVirtualCppMethod :: FFI.Cursor -> ClangApp Bool
+isPureVirtualCppMethod c = liftIO $ FFI.cXXMethod_isPureVirtual c
+
 isStaticCppMethod :: FFI.Cursor -> ClangApp Bool
 isStaticCppMethod c = liftIO $ FFI.cXXMethod_isStatic c
+
+isVirtualCppMethod :: FFI.Cursor -> ClangApp Bool
+isVirtualCppMethod c = liftIO $ FFI.cXXMethod_isVirtual c
 
 getCXXAccessSpecifier :: FFI.Cursor -> ClangApp FFI.CXXAccessSpecifier
 getCXXAccessSpecifier c = liftIO $ FFI.getCXXAccessSpecifier c

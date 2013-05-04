@@ -144,7 +144,9 @@ module Clang.Internal.FFI
 , getCursorDefinition
 , isCursorDefinition
 , getCanonicalCursor
+, cXXMethod_isPureVirtual
 , cXXMethod_isStatic
+, cXXMethod_isVirtual
 , getTemplateCursorKind
 , getSpecializedCursorTemplate
 , TokenKind(..)
@@ -2062,11 +2064,25 @@ constructUSR_ObjCProperty s (CXString d f) = constructUSR_ObjCPropertyRaw s d f
 %     CXCursor r = clang_getCanonicalCursor(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
+-- unsigned clang_CXXMethod_isPureVirtual(CXCursor C);
+%fun clang_CXXMethod_isPureVirtual :: Cursor -> IO Bool
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     r = clang_CXXMethod_isPureVirtual(a);
+%result (bool r)
+
 -- unsigned clang_CXXMethod_isStatic(CXCursor C);
 %fun clang_CXXMethod_isStatic :: Cursor -> IO Bool
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_CXXMethod_isStatic(a);
+%result (bool r)
+
+-- unsigned clang_CXXMethod_isVirtual(CXCursor C);
+%fun clang_CXXMethod_isVirtual :: Cursor -> IO Bool
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     r = clang_CXXMethod_isVirtual(a);
 %result (bool r)
 
 -- enum CXCursorKind clang_getTemplateCursorKind(CXCursor C);
