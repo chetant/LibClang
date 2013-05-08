@@ -51,6 +51,7 @@ module Clang.Cursor
 , isPureVirtualCppMethod
 , isStaticCppMethod
 , isVirtualCppMethod
+, isDynamicCall
 , getCXXAccessSpecifier
 , getOverloadedDecls
 
@@ -187,6 +188,9 @@ isStaticCppMethod c = liftIO $ FFI.cXXMethod_isStatic c
 
 isVirtualCppMethod :: FFI.Cursor -> ClangApp Bool
 isVirtualCppMethod c = liftIO $ FFI.cXXMethod_isVirtual c
+
+isDynamicCall :: FFI.Cursor -> ClangApp Bool
+isDynamicCall c = liftIO $ FFI.cursor_isDynamicCall c
 
 getCXXAccessSpecifier :: FFI.Cursor -> ClangApp FFI.CXXAccessSpecifier
 getCXXAccessSpecifier c = liftIO $ FFI.getCXXAccessSpecifier c

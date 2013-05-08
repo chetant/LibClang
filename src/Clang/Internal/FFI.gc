@@ -109,7 +109,7 @@ module Clang.Internal.FFI
 , Type
 , getTypeKind
 , getCursorType
--- , getTypeSpelling
+, getTypeSpelling
 , equalTypes
 , getCanonicalType
 , isConstQualifiedType
@@ -143,6 +143,7 @@ module Clang.Internal.FFI
 , getCursorReferenced
 , getCursorDefinition
 , isCursorDefinition
+, cursor_isDynamicCall
 , getCanonicalCursor
 , cXXMethod_isPureVirtual
 , cXXMethod_isStatic
@@ -1729,7 +1730,6 @@ getTypeKind (Type k _ _) = k
 %     CXType r = clang_getCursorType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
-{-
 -- CXString clang_getTypeSpelling(CXType CT);
 %fun clang_getTypeSpelling :: Type -> IO UnsafeCXString
 %call (type k p1 p2)
@@ -1738,7 +1738,6 @@ getTypeKind (Type k _ _) = k
 %     void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
--}
 
 -- unsigned clang_equalTypes(CXType A, CXType B);
 %fun clang_equalTypes :: Type -> Type -> IO Bool
@@ -2055,6 +2054,13 @@ constructUSR_ObjCProperty s (CXString d f) = constructUSR_ObjCPropertyRaw s d f
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_isCursorDefinition(a);
+%result (bool r)
+
+-- unsigned clang_Cursor_isDynamicCall(CXCursor);
+%fun clang_cursor_isDynamicCall :: Cursor -> IO Bool
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     r = clang_Cursor_isDynamicCall(a);
 %result (bool r)
 
 -- CXCursor clang_getCanonicalCursor(CXCursor);

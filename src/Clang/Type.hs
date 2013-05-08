@@ -4,6 +4,7 @@ module Clang.Type
 , FFI.CXXAccessSpecifier(..)
 
 , isSameType
+, getTypeSpelling
 , getKind
 , getCanonicalType
 , getPointeeType
@@ -26,11 +27,8 @@ import Clang.Monad
 isSameType :: FFI.Type -> FFI.Type -> ClangApp Bool
 isSameType a b = liftIO $ FFI.equalTypes a b
 
-{-
--- LLVM 3.3
 getTypeSpelling :: FFI.Type -> ClangApp FFI.CXString
-getTypeSpelling t = liftIO $ FFI.getTypeSpelling t
--}
+getTypeSpelling t = FFI.registerCXString $ FFI.getTypeSpelling t
 
 getKind :: FFI.Type -> ClangApp FFI.TypeKind
 getKind = return . FFI.getTypeKind
