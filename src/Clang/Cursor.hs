@@ -34,6 +34,7 @@ module Clang.Cursor
 , getTemplateKind
 , getSpecializedTemplate
 , getTypeDeclaration
+, getBaseExpression
 
 -- attribute function
 , getIBOutletCollectionType
@@ -144,6 +145,9 @@ getSpecializedTemplate c = liftIO $ FFI.getSpecializedCursorTemplate c
 
 getTypeDeclaration :: FFI.Type -> ClangApp FFI.Cursor
 getTypeDeclaration t = liftIO $ FFI.getTypeDeclaration t
+
+getBaseExpression :: FFI.Cursor -> ClangApp FFI.Cursor
+getBaseExpression c = liftIO $ FFI.cursor_getBaseExpression c
 
 -- attribute function
 
