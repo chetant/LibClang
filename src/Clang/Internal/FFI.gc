@@ -40,6 +40,8 @@ module Clang.Internal.FFI
 , getRangeEnd
 , DiagnosticSeverity(..)
 , Diagnostic
+, UnsafeDiagnostic
+, registerDiagnostic
 , getNumDiagnostics
 , getDiagnostic
 , DiagnosticDisplayOptions(..)
@@ -522,17 +524,30 @@ data SourceRange = SourceRange (Ptr ()) (Ptr ()) Int Int
 -- };
 %enum DiagnosticSeverity (Eq, Show) Int [CXDiagnostic_Ignored, CXDiagnostic_Note, CXDiagnostic_Warning, CXDiagnostic_Error, CXDiagnostic_Fatal]
 
--- typedef void *CXDiagnostic;
-data DiagnosticObj
-type Diagnostic = ForeignPtr DiagnosticObj
-%dis diagnostic d = (fptr (ptr d))
+-- typedef void* CXDiagnostic;
+data Diagnostic = Diagnostic (Ptr ())
 
--- void clang_disposeDiagnostic(CXDiagnostic Diagnostic);
-foreign import ccall unsafe "clang-c/Index.h &clang_disposeDiagnostic" clang_disposeDiagnostic :: FunPtr (Ptr DiagnosticObj -> IO ())
+-- void clang_disposeDiagnostic(CXDiagnostic);
+%fun clang_disposeDiagnostic :: Diagnostic -> IO ()
+%call (diag d)
+%code clang_disposeDiagnostic(d);
 
--- FIXME
-unmarshall_diag :: Ptr DiagnosticObj -> IO (ForeignPtr DiagnosticObj)
-unmarshall_diag = newForeignPtr clang_disposeDiagnostic
+-- We deliberately don't export the constructor. The only way to unwrap this is registerDiagnostic.
+newtype UnsafeDiagnostic = UnsafeDiagnostic Diagnostic
+
+registerDiagnostic :: IO UnsafeDiagnostic -> ClangApp s Diagnostic
+registerDiagnostic action = do
+  (_, idx) <- appAllocate (action >>= \(UnsafeDiagnostic i) -> return i)
+                          (\i -> disposeDiagnostic i)
+  return idx
+
+fromDiagnostic :: Diagnostic -> Ptr ()
+fromDiagnostic (Diagnostic p) = p
+
+toDiagnostic :: Ptr () -> UnsafeDiagnostic
+toDiagnostic p = UnsafeDiagnostic (Diagnostic p)
+
+%dis diag i = <fromDiagnostic/toDiagnostic> (ptr i)
 
 -- unsigned clang_getNumDiagnostics(CXTranslationUnit Unit);
 %fun clang_getNumDiagnostics :: TranslationUnit -> IO Int
@@ -541,10 +556,10 @@ unmarshall_diag = newForeignPtr clang_disposeDiagnostic
 %result (int r)
 
 -- CXDiagnostic clang_getDiagnostic(CXTranslationUnit Unit, unsigned Index);
-%fun clang_getDiagnostic :: TranslationUnit -> Int -> IO Diagnostic
+%fun clang_getDiagnostic :: TranslationUnit -> Int -> IO UnsafeDiagnostic
 %call (translationUnit t) (int i)
 %code CXDiagnostic r = clang_getDiagnostic((CXTranslationUnit)t, i);
-%result (diag (ptr r))
+%result (diag r)
 
 -- enum CXDiagnosticDisplayOptions {
 --   CXDiagnostic_DisplaySourceLocation = 0x01,
@@ -569,7 +584,7 @@ getDiagnosticDispOptSum = sum . (map toVal_)
 
 -- CXString clang_formatDiagnostic(CXDiagnostic Diagnostic, unsigned Options);
 %fun clang_formatDiagnostic :: Diagnostic -> Int -> IO UnsafeCXString
-%call (fptr (ptr d)) (int i)
+%call (diag d) (int i)
 %code CXString out = clang_formatDiagnostic(d, i);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
@@ -578,19 +593,21 @@ getDiagnosticDispOptSum = sum . (map toVal_)
 -- unsigned clang_defaultDiagnosticDisplayOptions(void);
 %fun clang_defaultDiagnosticDisplayOptions :: IO Int
 
--- enum CXDiagnosticSeverity
 -- clang_getDiagnosticSeverity(CXDiagnostic);
 %fun clang_getDiagnosticSeverity :: Diagnostic -> IO DiagnosticSeverity
+%call (diag d)
+%code enum CXDiagnosticSeverity s = clang_getDiagnosticSeverity(d);
+%result (diagnosticSeverity s)
 
 -- CXSourceLocation clang_getDiagnosticLocation(CXDiagnostic);
 %fun clang_getDiagnosticLocation :: Diagnostic -> IO SourceLocation
-%call (fptr (ptr d))
+%call (diag d)
 %code CXSourceLocation r = clang_getDiagnosticLocation(d);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
 
 -- CXString clang_getDiagnosticSpelling(CXDiagnostic);
 %fun clang_getDiagnosticSpelling :: Diagnostic -> IO UnsafeCXString
-%call (fptr (ptr d))
+%call (diag d)
 %code CXString out = clang_getDiagnosticSpelling(d);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
@@ -599,7 +616,7 @@ getDiagnosticDispOptSum = sum . (map toVal_)
 -- CXString clang_getDiagnosticOption(CXDiagnostic Diag,
 --                                                   CXString *Disable);
 %fun clang_getDiagnosticOption :: Diagnostic -> IO (UnsafeCXString, UnsafeCXString)
-%call (fptr (ptr d))
+%call (diag d)
 %code CXString a;
 %     CXString out = clang_getDiagnosticOption(d, &a);
 %     const void* aData = a.data;
@@ -610,10 +627,13 @@ getDiagnosticDispOptSum = sum . (map toVal_)
 
 -- unsigned clang_getDiagnosticCategory(CXDiagnostic);
 %fun clang_getDiagnosticCategory :: Diagnostic -> IO Int
+%call (diag d)
+%code int c = clang_getDiagnosticCategory(d);
+%result (int c)
 
 -- CXString clang_getDiagnosticCategoryText(CXDiagnostic);
 %fun clang_getDiagnosticCategoryText :: Diagnostic -> IO UnsafeCXString
-%call (fptr (ptr d))
+%call (diag d)
 %code CXString out = clang_getDiagnosticCategoryText(d);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
@@ -621,22 +641,28 @@ getDiagnosticDispOptSum = sum . (map toVal_)
 
 -- unsigned clang_getDiagnosticNumRanges(CXDiagnostic);
 %fun clang_getDiagnosticNumRanges :: Diagnostic -> IO Int
+%call (diag d)
+%code int nr = clang_getDiagnosticNumRanges(d);
+%result (int nr)
 
 -- CXSourceRange clang_getDiagnosticRange(CXDiagnostic Diagnostic,
 --                                                       unsigned Range);
 %fun clang_getDiagnosticRange :: Diagnostic -> Int -> IO SourceRange
-%call (fptr (ptr d)) (int i)
+%call (diag d) (int i)
 %code CXSourceRange r = clang_getDiagnosticRange(d, i);
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
 
 -- unsigned clang_getDiagnosticNumFixIts(CXDiagnostic Diagnostic);
 %fun clang_getDiagnosticNumFixIts :: Diagnostic -> IO Int
+%call (diag d)
+%code int nf = clang_getDiagnosticNumFixIts(d);
+%result (int nf)
 
 -- CXString clang_getDiagnosticFixIt(CXDiagnostic Diagnostic,
 --                                                  unsigned FixIt,
 --                                                CXSourceRange *ReplacementRange);
 %fun clang_getDiagnosticFixIt :: Diagnostic -> Int -> IO (SourceRange, UnsafeCXString)
-%call (fptr (ptr d)) (int i)
+%call (diag d) (int i)
 %code CXSourceRange a;
 %     CXString out = clang_getDiagnosticFixIt(d, i, &a);
 %     const void* outData = out.data;
@@ -2387,10 +2413,10 @@ unmarshall_codeCompleteResults = newForeignPtr clang_disposeCodeCompleteResults
 
 -- CXDiagnostic clang_codeCompleteGetDiagnostic(CXCodeCompleteResults *Results,
 --                                              unsigned Index);
-%fun clang_codeCompleteGetDiagnostic :: CodeCompleteResults -> Int -> IO Diagnostic
+%fun clang_codeCompleteGetDiagnostic :: CodeCompleteResults -> Int -> IO UnsafeDiagnostic
 %call (fptr (ptr c)) (int i)
 %code CXDiagnostic r = clang_codeCompleteGetDiagnostic(c, i);
-%result (diag (ptr r))
+%result (diag r)
 
 -- CXString clang_getClangVersion();
 %fun clang_getClangVersion :: IO UnsafeCXString

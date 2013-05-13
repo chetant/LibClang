@@ -28,9 +28,11 @@ import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 
 getDiagnostics :: FFI.TranslationUnit -> ClangApp s [FFI.Diagnostic]
-getDiagnostics t = liftIO $ do
-                     numDiags <- FFI.getNumDiagnostics t
-                     mapM (FFI.getDiagnostic t) [0..(numDiags-1)]
+getDiagnostics t = do
+    numDiags <- liftIO $ FFI.getNumDiagnostics t
+    mapM getDiag [0..(numDiags-1)]
+  where
+    getDiag n = FFI.registerDiagnostic $ FFI.getDiagnostic t n
 
 formatDiagnostic :: [FFI.DiagnosticDisplayOptions] -> FFI.Diagnostic -> ClangApp s FFI.CXString
 formatDiagnostic [] diag =

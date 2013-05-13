@@ -64,6 +64,9 @@ sortResults :: FFI.CodeCompleteResults -> Int -> ClangApp s ()
 sortResults c i = liftIO $ FFI.sortCodeCompletionResults c i
 
 getDiagnostics :: FFI.CodeCompleteResults -> ClangApp s [FFI.Diagnostic]
-getDiagnostics c = liftIO $ do
-                     numD <- FFI.codeCompleteGetNumDiagnostics c
-                     mapM (FFI.codeCompleteGetDiagnostic c) [0..(numD-1)]
+getDiagnostics c = do
+    numD <- liftIO $ FFI.codeCompleteGetNumDiagnostics c
+    mapM getDiag [0..(numD-1)]
+  where
+    getDiag n = FFI.registerDiagnostic $ FFI.codeCompleteGetDiagnostic c n
+
