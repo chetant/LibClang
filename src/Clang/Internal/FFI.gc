@@ -197,7 +197,6 @@ import Foreign.C
 import Foreign.ForeignPtr.Unsafe (unsafeForeignPtrToPtr)
 import Foreign.GreenCard
 
-import Clang.Alloc
 import Clang.Internal.ClangApp
 
 %#include <inttypes.h>

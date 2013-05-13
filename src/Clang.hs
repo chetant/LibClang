@@ -1,8 +1,7 @@
 -- | This module reexports all of the Clang.* submodules.
 module Clang
-( module Clang.Alloc
--- , module Clang.Completion
-, module Clang.CrossReference
+( -- , module Clang.Completion
+  module Clang.CrossReference
 , module Clang.Cursor
 , module Clang.Debug
 -- , module Clang.Diagnostic
@@ -18,7 +17,6 @@ module Clang
 
 -- FIXME: A _lot_ of conflicting exports right now.
 
-import Clang.Alloc
 -- import Clang.Completion
 import Clang.CrossReference
 import Clang.Cursor

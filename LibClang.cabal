@@ -44,8 +44,6 @@ Library
   hs-source-dirs:  src
   c-sources:       src/Clang/Internal/FFI_stub_ffi.c
   exposed-modules: Clang,
-                   Clang.Alloc,
-                   Clang.Alloc.Storable,
                    Clang.Completion,
                    Clang.CrossReference,
                    Clang.Cursor,
