@@ -242,7 +242,7 @@ data Index = Index (Ptr ())
 -- We deliberately don't export the constructor. The only way to unwrap this is registerIndex.
 newtype UnsafeIndex = UnsafeIndex Index
 
-registerIndex :: IO UnsafeIndex -> ClangApp Index
+registerIndex :: IO UnsafeIndex -> ClangApp s Index
 registerIndex action = do
   (_, idx) <- appAllocate (action >>= \(UnsafeIndex i) -> return i)
                           (\i -> disposeIndex i)
@@ -267,7 +267,7 @@ data TranslationUnit = TranslationUnit (Ptr ())
 -- We deliberately don't export the constructor. The only way to unwrap this is registerTranslationUnit.
 newtype UnsafeTranslationUnit = UnsafeTranslationUnit TranslationUnit
 
-registerTranslationUnit :: IO UnsafeTranslationUnit -> ClangApp TranslationUnit
+registerTranslationUnit :: IO UnsafeTranslationUnit -> ClangApp s TranslationUnit
 registerTranslationUnit action = do
   (_, tu) <- appAllocate (action >>= \(UnsafeTranslationUnit t) -> return t)
                          (\t -> disposeTranslationUnit t)
@@ -308,7 +308,7 @@ data CXString = CXString (Ptr ()) Word32
 -- We deliberately don't export the constructor. The only way to unwrap this is registerCXString.
 newtype UnsafeCXString = UnsafeCXString CXString
 
-registerCXString :: IO UnsafeCXString -> ClangApp CXString
+registerCXString :: IO UnsafeCXString -> ClangApp s CXString
 registerCXString action = do
   (_, str) <- appAllocate (action >>= \(UnsafeCXString s) -> return s)
                           (\(CXString d f) -> freeCXString d f)

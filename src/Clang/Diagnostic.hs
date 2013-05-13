@@ -27,30 +27,30 @@ import Data.Maybe (catMaybes)
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 
-getDiagnostics :: FFI.TranslationUnit -> ClangApp [FFI.Diagnostic]
+getDiagnostics :: FFI.TranslationUnit -> ClangApp s [FFI.Diagnostic]
 getDiagnostics t = liftIO $ do
                      numDiags <- FFI.getNumDiagnostics t
                      mapM (FFI.getDiagnostic t) [0..(numDiags-1)]
 
-formatDiagnostic :: [FFI.DiagnosticDisplayOptions] -> FFI.Diagnostic -> ClangApp FFI.CXString
+formatDiagnostic :: [FFI.DiagnosticDisplayOptions] -> FFI.Diagnostic -> ClangApp s FFI.CXString
 formatDiagnostic [] diag =
   FFI.registerCXString $ FFI.formatDiagnostic diag
                      =<< FFI.defaultDiagnosticDisplayOptions
 formatDiagnostic opts diag =
   FFI.registerCXString $ FFI.formatDiagnostic diag (FFI.getDiagnosticDispOptSum opts)
 
-getSeverity :: FFI.Diagnostic -> ClangApp FFI.DiagnosticSeverity
+getSeverity :: FFI.Diagnostic -> ClangApp s FFI.DiagnosticSeverity
 getSeverity d = liftIO $ FFI.getDiagnosticSeverity d
 
-getSpelling :: FFI.Diagnostic -> ClangApp FFI.CXString
+getSpelling :: FFI.Diagnostic -> ClangApp s FFI.CXString
 getSpelling d = FFI.registerCXString $ FFI.getDiagnosticSpelling d
 
-getOptions :: FFI.Diagnostic -> ClangApp (FFI.CXString, FFI.CXString)
+getOptions :: FFI.Diagnostic -> ClangApp s (FFI.CXString, FFI.CXString)
 getOptions d = do
   (a, b) <- liftIO $ FFI.getDiagnosticOption d
   (,) <$> FFI.registerCXString (pure a) <*> FFI.registerCXString (pure b)
 
-defaultDisplayOptions :: ClangApp [FFI.DiagnosticDisplayOptions]
+defaultDisplayOptions :: ClangApp s [FFI.DiagnosticDisplayOptions]
 defaultDisplayOptions = do
   defVal <- liftIO $ FFI.defaultDiagnosticDisplayOptions
   let val1 = if (defVal .&. 0x1) == 0x1 then return FFI.Diagnostic_DisplaySourceLocation else mzero
@@ -62,15 +62,15 @@ defaultDisplayOptions = do
   return $ catMaybes [val1, val2, val3, val4, val5, val6]
 
 
-getCategory :: FFI.Diagnostic -> ClangApp Int
+getCategory :: FFI.Diagnostic -> ClangApp s Int
 getCategory d = liftIO $ FFI.getDiagnosticCategory d
 
-getRanges :: FFI.Diagnostic -> ClangApp [FFI.SourceRange]
+getRanges :: FFI.Diagnostic -> ClangApp s [FFI.SourceRange]
 getRanges d = liftIO $ do
                 numRanges <- FFI.getDiagnosticNumRanges d
                 mapM (FFI.getDiagnosticRange d) [0..(numRanges-1)]
 
-getFixIts :: FFI.Diagnostic -> ClangApp [(FFI.SourceRange, FFI.CXString)]
+getFixIts :: FFI.Diagnostic -> ClangApp s [(FFI.SourceRange, FFI.CXString)]
 getFixIts d = do
     numFixes <- liftIO $ FFI.getDiagnosticNumFixIts d
     forM [0..(numFixes - 1)] $ \i -> do
@@ -79,5 +79,5 @@ getFixIts d = do
 
 -- Category functions
 
-getCategoryName :: FFI.Diagnostic -> ClangApp FFI.CXString
+getCategoryName :: FFI.Diagnostic -> ClangApp s FFI.CXString
 getCategoryName d = FFI.registerCXString $ FFI.getDiagnosticCategoryText d

@@ -19,29 +19,29 @@ import Clang.Monad
 
 type ClangString = FFI.CXString
 
-unpack :: ClangString -> ClangApp String
+unpack :: ClangString -> ClangApp s String
 unpack s = do
   str <- liftIO $ FFI.getString s
   return $! str
 
-unpackByteString :: ClangString -> ClangApp B.ByteString
+unpackByteString :: ClangString -> ClangApp s B.ByteString
 unpackByteString s = do
   str <- liftIO $ FFI.getByteString s
   return $! str
 
-unsafeUnpackByteString :: ClangString -> ClangApp B.ByteString
+unsafeUnpackByteString :: ClangString -> ClangApp s B.ByteString
 unsafeUnpackByteString s = do
   str <- liftIO $ FFI.unsafeGetByteString s
   return $! str
 
-unpackText :: ClangString -> ClangApp T.Text
+unpackText :: ClangString -> ClangApp s T.Text
 unpackText s = do
   -- Since unsafeGetByteString does not make a copy, this doesn't actually
   -- require the two copies that it appears to employ.
   str <- liftIO $ FFI.unsafeGetByteString s
   return $! (TE.decodeUtf8With TEE.lenientDecode str)
 
-hash :: ClangString -> ClangApp Word64
+hash :: ClangString -> ClangApp s Word64
 hash s = do
   h <- liftIO $ FFI.getStringHash s
   return $! h

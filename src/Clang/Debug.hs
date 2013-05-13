@@ -9,10 +9,10 @@ import Control.Monad.IO.Class
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 
-enableStackTraces :: ClangApp ()
+enableStackTraces :: ClangApp s ()
 enableStackTraces = liftIO $ FFI.enableStackTraces
 
-getVersion :: ClangApp FFI.CXString
+getVersion :: ClangApp s FFI.CXString
 getVersion = FFI.registerCXString $ FFI.getClangVersion
 
 -- toggleCrashRecovery = FFI.toggleCrashRecovery
