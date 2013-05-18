@@ -3370,7 +3370,7 @@ fi
 	-------------------------------------------------------
 	specified llvm shared library ${llvm_shared} not found.
 	if the library is present, ensure it is available
-	on the lib search path (export LID_LIBRARY_PATH=...)
+	on the lib search path (export LD_LIBRARY_PATH=...)
 	-------------------------------------------------------" "$LINENO" 5
 		fi
 	fi
