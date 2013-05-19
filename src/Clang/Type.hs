@@ -10,6 +10,11 @@ module Clang.Type
 , getPointeeType
 , getResultType
 
+, getTypedefDeclUnderlyingType
+, getEnumDeclIntegerType
+, getEnumConstantDeclValue
+, getEnumConstantDeclUnsignedValue
+
 , isConstQualifiedType
 , isVolatileQualifiedType
 , isRestrictQualifiedType
@@ -24,11 +29,26 @@ import Control.Monad.IO.Class
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 
+import Data.Int ( Int64 )
+import Data.Word ( Word64 )
+
 isSameType :: FFI.Type -> FFI.Type -> ClangApp s Bool
 isSameType a b = liftIO $ FFI.equalTypes a b
 
 getTypeSpelling :: FFI.Type -> ClangApp s FFI.CXString
 getTypeSpelling t = FFI.registerCXString $ FFI.getTypeSpelling t
+
+getTypedefDeclUnderlyingType :: FFI.Cursor -> ClangApp s FFI.Type
+getTypedefDeclUnderlyingType c = liftIO $ FFI.getTypedefDeclUnderlyingType c
+
+getEnumDeclIntegerType :: FFI.Cursor -> ClangApp s FFI.Type
+getEnumDeclIntegerType c = liftIO $ FFI.getEnumDeclIntegerType c
+
+getEnumConstantDeclValue :: FFI.Cursor -> ClangApp s Int64
+getEnumConstantDeclValue c = liftIO $ FFI.getEnumConstantDeclValue c
+
+getEnumConstantDeclUnsignedValue :: FFI.Cursor -> ClangApp s Word64
+getEnumConstantDeclUnsignedValue c = liftIO $ FFI.getEnumConstantDeclUnsignedValue c
 
 getKind :: FFI.Type -> ClangApp s FFI.TypeKind
 getKind = return . FFI.getTypeKind
