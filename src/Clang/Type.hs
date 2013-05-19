@@ -9,6 +9,9 @@ module Clang.Type
 , getCanonicalType
 , getPointeeType
 , getResultType
+, getNumArgTypes
+, getArgType
+, isFunctionTypeVariadic
 
 , getTypedefDeclUnderlyingType
 , getEnumDeclIntegerType
@@ -61,6 +64,15 @@ getPointeeType t = liftIO $ FFI.getPointeeType t
 
 getResultType :: FFI.Type -> ClangApp s FFI.Type
 getResultType t = liftIO $ FFI.getResultType t
+
+getNumArgTypes :: FFI.Type -> ClangApp s Int
+getNumArgTypes t = liftIO $ FFI.getNumArgTypes t
+
+getArgType :: FFI.Type -> Int -> ClangApp s FFI.Type
+getArgType t i = liftIO $ FFI.getArgType t i
+
+isFunctionTypeVariadic :: FFI.Type -> ClangApp s Bool
+isFunctionTypeVariadic t = liftIO $ FFI.isFunctionTypeVariadic t
 
 isConstQualifiedType :: FFI.Type -> ClangApp s Bool
 isConstQualifiedType t = liftIO $ FFI.isConstQualifiedType t
