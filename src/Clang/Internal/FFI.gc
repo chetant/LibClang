@@ -112,6 +112,10 @@ module Clang.Internal.FFI
 , getTypeKind
 , getCursorType
 , getTypeSpelling
+, getTypedefDeclUnderlyingType
+, getEnumDeclIntegerType
+, getEnumConstantDeclValue
+, getEnumConstantDeclUnsignedValue
 , cursor_getBaseExpression
 , equalTypes
 , getCanonicalType
@@ -1764,6 +1768,36 @@ getTypeKind (Type k _ _) = k
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
+
+-- CXType clang_getTypedefDeclUnderlyingType(CXCursor C);
+%fun clang_getTypedefDeclUnderlyingType :: Cursor -> IO Type
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     CXType r = clang_getTypedefDeclUnderlyingType(a);
+%result (type {r.kind} {r.data[0]} {r.data[1]})
+
+-- CXType clang_getEnumDeclIntegerType(CXCursor C);
+%fun clang_getEnumDeclIntegerType :: Cursor -> IO Type
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     CXType r = clang_getEnumDeclIntegerType(a);
+%result (type {r.kind} {r.data[0]} {r.data[1]})
+
+%dis int64 x    = %%Int64 ({HsInt64} x)
+
+-- long long clang_getEnumConstantDeclValue(CXCursor);
+%fun clang_getEnumConstantDeclValue :: Cursor -> IO Int64
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     r = clang_getEnumConstantDeclValue(a);
+%result (int64 r)
+
+-- unsigned long long clang_getEnumConstantDeclUnsignedValue(CXCursor);
+%fun clang_getEnumConstantDeclUnsignedValue :: Cursor -> IO Word64
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     r = clang_getEnumConstantDeclUnsignedValue(a);
+%result (word64 r)
 
 {-
 -- CXCursor clang_Cursor_getBaseExpression(CXCursor C);
