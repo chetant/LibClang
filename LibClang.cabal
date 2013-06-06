@@ -25,7 +25,7 @@ Description:
   Also use <https://github.com/chetant/LibClang/issues> to report bugs
 
 Category: Language
-Build-type: Configure
+Build-type: Custom
 Extra-Source-Files: configure, LibClang.buildinfo.in, test/Makefile.in, test/*.hs, test/*.c, test/runTest.sh
 Source-Repository head
   type: git
