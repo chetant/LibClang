@@ -1799,18 +1799,12 @@ getTypeKind (Type k _ _) = k
 %     r = clang_getEnumConstantDeclUnsignedValue(a);
 %result (word64 r)
 
-{-
 -- CXCursor clang_Cursor_getBaseExpression(CXCursor C);
 %fun clang_cursor_getBaseExpression :: Cursor -> IO Cursor
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_Cursor_getBaseExpression(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
--}
-
--- TODO: This isn't available in llvm 3.3.
-cursor_getBaseExpression :: Cursor -> IO Cursor
-cursor_getBaseExpression = undefined
 
 -- unsigned clang_equalTypes(CXType A, CXType B);
 %fun clang_equalTypes :: Type -> Type -> IO Bool
@@ -2145,18 +2139,12 @@ constructUSR_ObjCProperty s (CXString d f) = constructUSR_ObjCPropertyRaw s d f
 %     CXCursor r = clang_getCanonicalCursor(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
-{-
 -- unsigned clang_CXXMethod_isPureVirtual(CXCursor C);
 %fun clang_CXXMethod_isPureVirtual :: Cursor -> IO Bool
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_CXXMethod_isPureVirtual(a);
 %result (bool r)
--}
-
--- TODO: This isn't available in llvm 3.3
-cXXMethod_isPureVirtual :: Cursor -> IO Bool
-cXXMethod_isPureVirtual = undefined
 
 -- unsigned clang_CXXMethod_isStatic(CXCursor C);
 %fun clang_CXXMethod_isStatic :: Cursor -> IO Bool
