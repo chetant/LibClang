@@ -1,3 +1,8 @@
 language: haskell
+
 before_install:
   - git submodule update --init --recursive
+
+branches:
+  only:
+    - llvm3.4
