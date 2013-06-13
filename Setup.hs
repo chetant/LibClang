@@ -62,7 +62,6 @@ libClangConfHook (pkg, pbi) flags = do
         ++ " --disable-jit"
         ++ " --disable-docs"
         ++ " --enable-bindings=none"
-        ++ " --disable-pic"
         ++ " --disable-shared"
         ++ " --prefix=`pwd`/out"
 
