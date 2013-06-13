@@ -1,6 +1,8 @@
 [submodule "llvm"]
 	path = llvm
 	url = git://github.com/sfowler/llvm.git
+        ignore = untracked
 [submodule "clang"]
 	path = clang
 	url = git://github.com/sfowler/clang.git
+        ignore = untracked
