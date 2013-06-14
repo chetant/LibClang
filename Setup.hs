@@ -97,7 +97,7 @@ libClangBuildHook pkg lbi flags ppHandlers = do
 
 libClangCleanHook pkg v hooks flags = do
     putStrLn "Cleaning llvm and clang..."
-    system $ "cd build && rm -rf *"
+    system $ "rm -rf build/*"
     (cleanHook simpleUserHooks) pkg v hooks flags
 
 escape :: FilePath -> String
