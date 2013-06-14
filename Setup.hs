@@ -4,7 +4,6 @@ import Distribution.Simple
 import Distribution.Simple.LocalBuildInfo
 import Distribution.Simple.Install
 import Distribution.Simple.Setup
-import Distribution.Simple.Utils (currentDir)
 import System.Cmd (system)
 import System.Directory
 import System.FilePath
@@ -14,7 +13,6 @@ main = defaultMainWithHooks simpleUserHooks
          { confHook = libClangConfHook
          , cleanHook = libClangCleanHook
          , buildHook = libClangBuildHook
-         , postInst = myPostInst
          }
 
 libclangLibraries :: [String]
@@ -46,11 +44,16 @@ libclangLibraries =
 libClangConfHook (pkg, pbi) flags = do
   lbi <- confHook simpleUserHooks (pkg, pbi) flags
 
+  -- Compute some paths that need to be absolute.
+  curDir <- getCurrentDirectory
+  let clangRepoDir = curDir </> "clang"
+  let llvmPrefixDir = curDir </> "build" </> "out"
+
   putStrLn "Ensuring the build directory exists..."
   system $ "mkdir -p build"
 
   putStrLn "Linking clang repository into llvm repository..."
-  system $ "ln -sf `pwd`/clang llvm/tools/clang"
+  system $ "ln -sf " ++ (escape clangRepoDir) ++ " llvm/tools/clang"
 
   putStrLn "Configuring llvm and clang..."
   system $ "cd build && test -e Makefile || ../llvm/configure"
@@ -63,18 +66,15 @@ libClangConfHook (pkg, pbi) flags = do
         ++ " --disable-docs"
         ++ " --enable-bindings=none"
         ++ " --disable-shared"
-        ++ " --prefix=`pwd`/out"
+        ++ " --prefix=" ++ (escape llvmPrefixDir)
 
   let lpd   = localPkgDescr lbi
   let lib   = fromJust (library lpd)
   let libbi = libBuildInfo lib
 
-  let curDir = "/Users/mfowler/Code/LibClang"
   let libbi' = libbi
-               { extraLibDirs = extraLibDirs libbi ++ [curDir ++ "/build/out/lib"]
-               --, extraLibs    = extraLibs    libbi ++ ["clang", "pthread"]
-               , includeDirs  = includeDirs  libbi ++ [curDir ++ "/build/out/include"]
-               , ccOptions    = ccOptions    libbi ++ ["-I.", "-I" ++ curDir ++ "/build/out/include"]
+               { extraLibDirs = extraLibDirs libbi ++ [llvmPrefixDir </> "lib"]
+               , includeDirs  = includeDirs  libbi ++ [".", llvmPrefixDir </> "include"]
                , ldOptions    = ldOptions    libbi ++ libclangLibraries
                }
 
@@ -100,16 +100,5 @@ libClangCleanHook pkg v hooks flags = do
     --system $ "cd build && rm -rf *"
     (cleanHook simpleUserHooks) pkg v hooks flags
 
-myPostInst :: Args -> InstallFlags -> PackageDescription -> LocalBuildInfo -> IO ()
-myPostInst _ _ pkgdesc lbi = do
-  let dirs = absoluteInstallDirs pkgdesc lbi NoCopyDest
-  libExecHook dirs
-
--- hook to move helper binaries to the libexec directory
-libExecHook :: InstallDirs String -> IO ()
-libExecHook dirs = do
-  let bdir = bindir dirs
-  let ldir = libdir dirs
-  createDirectoryIfMissing True ldir
-  putStrLn $ "lDir=" ++ ldir
-  renameFile "/Users/mfowler/Code/LibClang/build/out/lib/libclang.dylib" (ldir </> "libclang.dylib")
+escape :: FilePath -> String
+escape p = "\"" ++ p ++ "\""
