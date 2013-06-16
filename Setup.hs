@@ -39,6 +39,7 @@ libclangLibraries =
   , "-lLLVMMCParser"
   , "-lLLVMMC"
   , "-lLLVMBitReader"
+  , "-lLLVMCore"
   ]
 
 libClangConfHook (pkg, pbi) flags = do
@@ -76,6 +77,7 @@ libClangConfHook (pkg, pbi) flags = do
                { extraLibDirs = extraLibDirs libbi ++ [llvmPrefixDir </> "lib"]
                , includeDirs  = includeDirs  libbi ++ [".", llvmPrefixDir </> "include"]
                , ldOptions    = ldOptions    libbi ++ libclangLibraries
+                                                   ++ ["-lstdc++"]
                }
 
   let lib' = lib { libBuildInfo = libbi' }
