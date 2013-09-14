@@ -76,7 +76,8 @@ libClangConfHook (pkg, pbi) flags = do
   let libbi' = libbi
                { extraLibDirs = extraLibDirs libbi ++ [llvmPrefixDir </> "lib"]
                , includeDirs  = includeDirs  libbi ++ [".", llvmPrefixDir </> "include"]
-               , ldOptions    = libclangLibraries  ++
+               , ldOptions    = ["-lpthread"]      ++
+                                libclangLibraries  ++
                                 ["-lstdc++"]       ++
                                 ldOptions    libbi ++
                                 libclangLibraries  ++
