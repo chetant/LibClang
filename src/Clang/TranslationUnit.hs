@@ -14,6 +14,7 @@ module Clang.TranslationUnit
 , withCreate
 , withCreateFromSourceFile
 , withParse
+, libclangIncludePath
 , defaultSaveOptions
 , save
 , defaultReparseOptions
@@ -23,9 +24,11 @@ module Clang.TranslationUnit
 ) where
 
 import Control.Monad.IO.Class
+import System.FilePath ((</>))
 
 import Clang.Internal.ClangApp
 import qualified Clang.Internal.FFI as FFI
+import Paths_LibClang (getDataFileName)
 
 getSpelling :: FFI.TranslationUnit -> ClangApp s FFI.CXString
 getSpelling tu = FFI.registerCXString $ FFI.getTranslationUnitSpelling tu
@@ -60,6 +63,10 @@ withParse idx ms ss ufs opts f nr = do
   where flags = FFI.getTranslationUnitFlagsSum opts
         run t = do tu <- FFI.registerTranslationUnit (return t)
                    f tu
+
+libclangIncludePath :: IO FilePath
+libclangIncludePath =
+  getDataFileName $ "build" </> "out" </> "lib" </> "clang" </> "3.4" </> "include"
 
 -- No other option right now
 defaultSaveOptions :: ClangApp s [FFI.SaveTranslationUnitFlags]
