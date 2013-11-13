@@ -4,6 +4,7 @@ import Distribution.Simple
 import Distribution.Simple.LocalBuildInfo
 import Distribution.Simple.Install
 import Distribution.Simple.Setup
+import Distribution.System
 import System.Cmd (system)
 import System.Directory
 import System.FilePath
@@ -73,15 +74,24 @@ libClangConfHook (pkg, pbi) flags = do
   let lib   = fromJust (library lpd)
   let libbi = libBuildInfo lib
 
+  -- On OS X the default compiler is clang and the default C++ standard library
+  -- is libc++. Ironically given that this is a wrapper for libclang, we run
+  -- into trouble with libc++. As a workaround, on that platform we request
+  -- libstdc++ explicitly. This could be handled more cleanly but I think the
+  -- best longterm solution is to debug the issue with libc++.
+  let stdlibArg = case buildOS of
+                    OSX -> ["-stdlib=libstdc++"]
+                    _   -> []
+
   let libbi' = libbi
                { extraLibDirs = extraLibDirs libbi ++ [llvmPrefixDir </> "lib"]
                , includeDirs  = includeDirs  libbi ++ [".", llvmPrefixDir </> "include"]
-               , ldOptions    = ["-stdlib=libstdc++"] ++
-                                ["-lpthread"]         ++
-                                libclangLibraries     ++
-                                ["-lstdc++"]          ++
-                                ldOptions    libbi    ++
-                                libclangLibraries     ++
+               , ldOptions    = stdlibArg          ++
+                                ["-lpthread"]      ++
+                                libclangLibraries  ++
+                                ["-lstdc++"]       ++
+                                ldOptions    libbi ++
+                                libclangLibraries  ++
                                 ["-lstdc++"]
                }
 
