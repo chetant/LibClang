@@ -44,7 +44,8 @@ Library
                    time,
                    transformers
   hs-source-dirs:  src
-  c-sources:       src/Clang/Internal/FFI_stub_ffi.c
+  c-sources:       src/Clang/Internal/FFI_stub_ffi.c,
+                   cbits/visitors.c
   exposed-modules: Clang,
                    Clang.Completion,
                    Clang.CrossReference,
