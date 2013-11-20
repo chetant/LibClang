@@ -19,7 +19,7 @@ enum CXChildVisitResult childListBuilder(CXCursor cursor, CXCursor parent,
   // Expand our capacity if necessary.
   if (childList->count >= childList->capacity) {
     size_t newCapacity = 2 * childList->capacity;
-    childList->children = realloc(childList->children, newCapacity);
+    childList->children = realloc(childList->children, newCapacity * sizeof(CXCursor));
     childList->capacity = newCapacity;
   }
 
@@ -66,7 +66,8 @@ void inclusionListBuilder(CXFile includedFile, CXSourceLocation* inclusionStack,
   // Expand our capacity if necessary.
   if (inclusionList->count >= inclusionList->capacity) {
     size_t newCapacity = 2 * inclusionList->capacity;
-    inclusionList->inclusions = realloc(inclusionList->inclusions, newCapacity);
+    inclusionList->inclusions = realloc(inclusionList->inclusions,
+                                        newCapacity * sizeof(struct Inclusion));
     inclusionList->capacity = newCapacity;
   }
 
