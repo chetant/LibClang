@@ -2,6 +2,7 @@ module Clang.File
 ( FFI.UnsavedFile
 , FFI.File
 , getName
+, hashFile
 , getPOSIXTime
 , getUTCTime
 , getFile
@@ -17,6 +18,9 @@ import Clang.Monad
 
 getName :: FFI.File -> ClangApp s FFI.CXString
 getName f = FFI.registerCXString $ FFI.getFileName f
+
+hashFile :: FFI.File -> ClangApp s Int
+hashFile f = return $! fromIntegral $ FFI.getFileHash f
 
 getPOSIXTime :: FFI.File -> ClangApp s POSIXTime
 getPOSIXTime f = liftIO $ realToFrac <$> FFI.getFileTime f

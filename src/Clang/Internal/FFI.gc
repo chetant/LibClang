@@ -22,6 +22,7 @@ module Clang.Internal.FFI
 , unsafeGetByteString
 , getStringHash
 , File(..)
+, getFileHash
 , getFileName
 , getFileTime
 , getFile
@@ -369,13 +370,8 @@ unsafeGetByteString (CXString d f) = getCStringPtr d f >>= unsafePackCString
 %dis word32 x    = %%Word32 ({HsWord32} x)
 %dis word64 x    = %%Word64 ({HsWord64} x)
 
-getStringHash :: CXString -> IO Word64
-getStringHash (CXString d f) = getCStringHash d f
-
-%fun clang_getCStringHash :: Ptr () -> Word32 -> IO Word64
-%call (ptr d) (word32 f)
-%code r = (uint64_t) ((void*) d);
-%result (word64 r)
+getStringHash :: CXString -> WordPtr
+getStringHash (CXString p _) = ptrToWordPtr p
 
 from_Maybe_File :: Maybe File -> File
 from_Maybe_File (Just f) = f
@@ -387,7 +383,11 @@ to_Maybe_File f                       = Just f
 
 -- typedef void *CXFile;
 newtype File = File (Ptr ())
+               deriving (Eq, Ord)
 %dis file x = File (ptr x)
+
+getFileHash :: File -> WordPtr
+getFileHash (File p) = ptrToWordPtr p
 
 -- CXString clang_getFileName(CXFile SFile);
 %fun clang_getFileName :: File -> IO UnsafeCXString
