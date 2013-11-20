@@ -42,10 +42,12 @@ Library
                    resourcet,
                    text,
                    time,
-                   transformers
+                   transformers,
+                   vector
   hs-source-dirs:  src
   c-sources:       src/Clang/Internal/FFI_stub_ffi.c,
                    cbits/visitors.c
+  include-dirs:    cbits
   exposed-modules: Clang,
                    Clang.Completion,
                    Clang.CrossReference,

@@ -1,6 +1,6 @@
 #include <stdlib.h>
 
-#include "clang-c/Index.h"
+#include "visitors.h"
 
 #define INITIAL_LIST_CAPACITY 1024
 
@@ -47,17 +47,11 @@ void freeChildren(CXCursor* children)
   free(children);
 }
 
-struct InclusionEntry
-{
-  CXFile file;
-  char   isDirect;
-};
-
 struct InclusionList
 {
-  struct InclusionEntry* inclusions;
-  unsigned               count;
-  size_t                 capacity;
+  struct Inclusion* inclusions;
+  unsigned          count;
+  size_t            capacity;
 };
 
 void inclusionListBuilder(CXFile includedFile, CXSourceLocation* inclusionStack,
@@ -76,19 +70,20 @@ void inclusionListBuilder(CXFile includedFile, CXSourceLocation* inclusionStack,
     inclusionList->capacity = newCapacity;
   }
 
-  struct InclusionEntry newEntry = {
+  struct Inclusion newEntry = {
     includedFile,
+    inclusionStack[0],
     stackLen == 1  // It's a direct inclusion if there's only one stack entry.
   };
 
   inclusionList->inclusions[inclusionList->count++] = newEntry;
 }
 
-void getInclusions(CXTranslationUnit tu, struct InclusionEntry** inclusionsOut,
+void getInclusions(CXTranslationUnit tu, struct Inclusion** inclusionsOut,
                    unsigned* countOut)
 {
   struct InclusionList inclusionList = {
-    malloc(INITIAL_LIST_CAPACITY * sizeof(struct InclusionEntry)),
+    malloc(INITIAL_LIST_CAPACITY * sizeof(struct Inclusion)),
     0,
     INITIAL_LIST_CAPACITY
   };
@@ -99,7 +94,7 @@ void getInclusions(CXTranslationUnit tu, struct InclusionEntry** inclusionsOut,
   *countOut = inclusionList.count;
 }
 
-void freeInclusions(struct InclusionEntry* inclusions)
+void freeInclusions(struct Inclusion* inclusions)
 {
   free(inclusions);
 }

@@ -140,6 +140,9 @@ module Clang.Internal.FFI
 , getNumOverloadedDecls
 , getOverloadedDecl
 , getIBOutletCollectionType
+, ChildList
+, registerChildList
+, getChildren
 , ChildVisitResult(..)
 , ChildVisitor
 , visitChildren
@@ -201,6 +204,7 @@ import Control.Monad (when)
 import Control.Monad.Trans
 import Data.ByteString (ByteString, packCString)
 import Data.ByteString.Unsafe (unsafePackCString)
+import qualified Data.Vector.Storable as DVS
 import Data.Word
 import Foreign.C
 import Foreign.ForeignPtr.Unsafe (unsafeForeignPtrToPtr)
@@ -212,6 +216,7 @@ import Clang.Internal.ClangApp
 %#include <stdlib.h>
 %#include <clang-c/Index.h>
 %#include <stdio.h>
+%#include "visitors.h"
 
 %prefix CX
 %prefix CX_
@@ -1977,6 +1982,43 @@ getTypeKind (Type k _ _) = k
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getIBOutletCollectionType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
+
+-- We deliberately don't export the constructor. The only way to unwrap this is registerChildList.
+type ChildList = DVS.Vector Cursor
+data UnsafeChildList = UnsafeChildList (Ptr ()) Int
+
+-- void freeChildren(CXCursor* childList);
+%fun freeChildren :: ChildList -> IO ()
+%call (childList cs n)
+%code freeChildren(cs);
+
+registerChildList :: IO UnsafeChildList -> ClangApp s ChildList
+registerChildList action = do
+    (_, childList) <- appAllocate (action >>= mkSafe) freeChildren
+    return childList
+  where
+    mkSafe (UnsafeChildList cs n) = do
+      fptr <- newForeignPtr_ (castPtr cs)
+      return $ DVS.unsafeFromForeignPtr fptr 0 n
+
+fromChildList :: ChildList -> (Ptr (), Int)
+fromChildList cs = let (p, _, _) = DVS.unsafeToForeignPtr cs in
+                   (castPtr $ Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr p, DVS.length cs)
+
+
+toChildList :: (Ptr (), Int) -> UnsafeChildList
+toChildList (cs, n) = UnsafeChildList cs n
+
+%dis childList cs n = <fromChildList/toChildList> (ptr cs) (int n)
+
+-- A more efficient alternative to clang_visitChildren.
+-- void getChildren(CXCursor parent, CXCursor** childrenOut, unsigned* countOut)
+%fun getChildren :: Cursor -> IO UnsafeChildList
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor c = {k, xdata, {p1, p2, p3}};
+%     CXCursor* children; unsigned count;
+%     getChildren(c, &children, &count);
+%result (childList children count)
 
 -- enum CXChildVisitResult {
 --   CXChildVisit_Break,
