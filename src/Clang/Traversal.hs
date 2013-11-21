@@ -4,12 +4,15 @@ module Clang.Traversal
 , FFI.ChildVisitResult(..)
 , visitChildren
 , getChildren
+, FFI.ChildList
 , InclusionVisitor
 , getInclusions
+, getInclusions'
+, FFI.Inclusion(..)
+, FFI.InclusionList
 ) where
 
 import Control.Monad.IO.Class
-import qualified Data.Vector.Storable as DVS
 
 import qualified Clang.Internal.FFI as FFI
 import Clang.Internal.ClangApp
@@ -26,7 +29,7 @@ visitChildren c cv = do
   run <- mkClangAppRunner
   liftIO $ FFI.visitChildren c (\child parent -> run $ cv child parent)
 
-getChildren :: FFI.Cursor -> ClangApp s (DVS.Vector FFI.Cursor)
+getChildren :: FFI.Cursor -> ClangApp s FFI.ChildList
 getChildren c = FFI.registerChildList $ FFI.getChildren c
 
 type InclusionVisitor s = FFI.File -> [FFI.SourceLocation] -> ClangApp s ()
@@ -35,3 +38,6 @@ getInclusions :: FFI.TranslationUnit -> InclusionVisitor s -> ClangApp s ()
 getInclusions tu iv = do
     run <- mkClangAppRunner
     liftIO $ FFI.getInclusions tu (\f ls -> run $ iv f ls)
+
+getInclusions' :: FFI.TranslationUnit -> ClangApp s FFI.InclusionList
+getInclusions' tu = FFI.registerInclusionList $ FFI.getInclusionsX tu

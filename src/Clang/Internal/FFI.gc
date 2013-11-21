@@ -198,6 +198,10 @@ module Clang.Internal.FFI
 , InclusionVisitor
 , getInclusions
 , wrapInclusionVisitor
+, Inclusion(..)
+, InclusionList
+, registerInclusionList
+, getInclusionsX
 ) where
 
 import Control.Applicative ((<$>))
@@ -2572,3 +2576,79 @@ wrapInclusionVisitor f = \file pSrcLoc nSrcLoc _ -> do
 
 marshall_inclusionVisitor :: InclusionVisitor -> IO (FunPtr InclusionVisitorRaw)
 marshall_inclusionVisitor f = wrapInclusionVisitorRaw (wrapInclusionVisitor f)
+
+data Inclusion = Inclusion !File !SourceLocation !Bool
+
+%C unsigned sizeOfInclusion() {return sizeof(struct Inclusion);}
+%  CXFile getInclusionFile(struct Inclusion* p){return p->inclusion;}
+%  const void* getInclusionSourceLocPtr(struct Inclusion* p, int i){return p->location.ptr_data[i];}
+%  unsigned getInclusionSourceLocInt(struct Inclusion* p){return p->location.int_data;}
+%  unsigned char getInclusionIsDirect(struct Inclusion* p){return p->isDirect;}
+%  void setInclusionFile(struct Inclusion* p, CXFile f){p->inclusion = f;}
+%  void setInclusionSourceLocPtr(struct Inclusion* p, int i, void* v){p->location.ptr_data[i] = v;}
+%  void setInclusionSourceLocInt(struct Inclusion* p, unsigned v){p->location.int_data = v;}
+%  void setInclusionIsDirect(struct Inclusion* p, unsigned char d){p->isDirect = d;}
+foreign import ccall unsafe "FFI_stub_ffi.h sizeOfInclusion" sizeOfInclusion :: CUInt
+foreign import ccall unsafe "FFI_stub_ffi.h getInclusionFile" getInclusionFile :: Ptr () -> IO (Ptr ())
+foreign import ccall unsafe "FFI_stub_ffi.h getInclusionSourceLocPtr" getInclusionSourceLocPtr :: Ptr () -> CInt -> IO (Ptr ())
+foreign import ccall unsafe "FFI_stub_ffi.h getInclusionSourceLocInt" getInclusionSourceLocInt :: Ptr () -> IO CUInt
+foreign import ccall unsafe "FFI_stub_ffi.h getInclusionIsDirect" getInclusionIsDirect :: Ptr () -> IO CUChar
+foreign import ccall unsafe "FFI_stub_ffi.h setInclusionFile" setInclusionFile :: Ptr () -> Ptr () -> IO ()
+foreign import ccall unsafe "FFI_stub_ffi.h setInclusionSourceLocPtr" setInclusionSourceLocPtr :: Ptr () -> CInt -> Ptr () -> IO ()
+foreign import ccall unsafe "FFI_stub_ffi.h setInclusionSourceLocInt" setInclusionSourceLocInt :: Ptr () -> CUInt -> IO ()
+foreign import ccall unsafe "FFI_stub_ffi.h setInclusionIsDirect" setInclusionIsDirect :: Ptr () -> CUChar -> IO ()
+
+instance Storable Inclusion where
+    sizeOf _ = fromIntegral sizeOfInclusion
+    alignment _ = 4
+    peek p = do
+      let ptr = castPtr p
+      f <- getInclusionFile ptr
+      slp1 <- getInclusionSourceLocPtr ptr 0
+      slp2 <- getInclusionSourceLocPtr ptr 1
+      sli <- fromIntegral <$> getInclusionSourceLocInt ptr
+      isDirect <- getInclusionIsDirect ptr
+      return $ Inclusion (File f) (SourceLocation slp1 slp2 sli)
+                         (if isDirect == 0 then False else True)
+    poke p (Inclusion (File f) (SourceLocation slp1 slp2 sli) isDirect) = do
+      let ptr = castPtr p
+      setInclusionFile ptr f
+      setInclusionSourceLocPtr ptr 0 slp1
+      setInclusionSourceLocPtr ptr 1 slp2
+      setInclusionSourceLocInt ptr $ fromIntegral sli
+      setInclusionIsDirect ptr $ if isDirect then 1 else 0
+
+-- We deliberately don't export the constructor. The only way to unwrap this is registerInclusionList.
+type InclusionList = DVS.Vector Inclusion
+data UnsafeInclusionList = UnsafeInclusionList !(Ptr ()) !Int
+
+-- void freeInclusions(struct Inclusion* inclusions);
+%fun freeInclusions :: InclusionList -> IO ()
+%call (inclusionList is n)
+%code freeChildren(is);
+
+registerInclusionList :: IO UnsafeInclusionList -> ClangApp s InclusionList
+registerInclusionList action = do
+    (_, inclusionList) <- appAllocate (action >>= mkSafe) freeInclusions
+    return inclusionList
+  where
+    mkSafe (UnsafeInclusionList is n) = do
+      fptr <- newForeignPtr_ (castPtr is)
+      return $ DVS.unsafeFromForeignPtr fptr 0 n
+
+fromInclusionList :: InclusionList -> (Ptr (), Int)
+fromInclusionList is = let (p, _, _) = DVS.unsafeToForeignPtr is in
+                       (castPtr $ Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr p, DVS.length is)
+
+toInclusionList :: (Ptr (), Int) -> UnsafeInclusionList
+toInclusionList (is, n) = UnsafeInclusionList is n
+
+%dis inclusionList is n = <fromInclusionList/toInclusionList> (ptr is) (int n)
+
+-- A more efficient alternative to clang_getInclusions.
+-- void getInclusions(CXTranslationUnit tu, struct Inclusion** inclusionsOut, unsigned* countOut)
+%fun getInclusionsX :: TranslationUnit -> IO UnsafeInclusionList
+%call (translationUnit t)
+%code struct Inclusion* inclusions; unsigned count;
+%     getInclusions(t, &inclusions, &count);
+%result (inclusionList inclusions count)
