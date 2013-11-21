@@ -144,9 +144,6 @@ module Clang.Internal.FFI
 , ChildList
 , registerChildList
 , getChildren
-, ChildVisitResult(..)
-, ChildVisitor
-, visitChildren
 , getCursorUSR
 , constructUSR_ObjCClass
 , constructUSR_ObjCCategory
@@ -195,13 +192,10 @@ module Clang.Internal.FFI
 , codeCompleteGetDiagnostic
 , getClangVersion
 -- , toggleCrashRecovery
-, InclusionVisitor
-, getInclusions
-, wrapInclusionVisitor
 , Inclusion(..)
 , InclusionList
 , registerInclusionList
-, getInclusionsX
+, getInclusions
 ) where
 
 import Control.Applicative ((<$>))
@@ -2009,7 +2003,6 @@ fromChildList :: ChildList -> (Ptr (), Int)
 fromChildList cs = let (p, _, _) = DVS.unsafeToForeignPtr cs in
                    (castPtr $ Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr p, DVS.length cs)
 
-
 toChildList :: (Ptr (), Int) -> UnsafeChildList
 toChildList (cs, n) = UnsafeChildList cs n
 
@@ -2023,72 +2016,6 @@ toChildList (cs, n) = UnsafeChildList cs n
 %     CXCursor* children; unsigned count;
 %     getChildren(c, &children, &count);
 %result (childList children count)
-
--- enum CXChildVisitResult {
---   CXChildVisit_Break,
---   CXChildVisit_Continue,
---   CXChildVisit_Recurse
--- };
-%enum ChildVisitResult (Enum, Eq, Ord, Read, Show) Int [CXChildVisit_Break, CXChildVisit_Continue, CXChildVisit_Recurse]
-
--- typedef enum CXChildVisitResult (*CXCursorVisitor)(CXCursor cursor,
---                                                    CXCursor parent,
---                                                    CXClientData client_data);
-type ChildVisitorRaw = Int -> Int -> Ptr () -> Ptr () -> Ptr () -> 
-                       Int -> Int -> Ptr () -> Ptr () -> Ptr () -> IO Int
-type ChildVisitor = Cursor -- ^ Current cursor
-                 -> Cursor -- ^ Parent cursor
-                 -> IO ChildVisitResult -- ^ Visitor result code
-foreign import ccall "wrapper" wrapChildVisitorRaw :: ChildVisitorRaw -> IO (FunPtr ChildVisitorRaw)
-wrapChildVisitor :: ChildVisitor -> ChildVisitorRaw
-wrapChildVisitor f = \ck cxdata cp1 cp2 cp3
-                      pk pxdata pp1 pp2 pp3 -> do
-                        let child = Cursor (unmarshall_CursorKind ck) cxdata cp1 cp2 cp3
-                            parent = Cursor (unmarshall_CursorKind pk) pxdata pp1 pp2 pp3
-                        vRes <- f child parent
-                        return (marshall_ChildVisitResult vRes)
-
--- unsigned clang_visitChildren(CXCursor parent,
---                                             CXCursorVisitor visitor,
---                                             CXClientData client_data);
-visitChildren :: Cursor -> ChildVisitor -> IO Bool
-visitChildren (Cursor k xdata p1 p2 p3) f = do
-  fp <- wrapChildVisitorRaw (wrapChildVisitor f)
-  x <- prim_visitChildren_ (marshall_CursorKind k) xdata p1 p2 p3 fp
-  retVal <- return $ fromIntegral x
-  freeHaskellFunPtr fp
-  return (retVal == 0)
-
-%C typedef enum CXChildVisitResult (*HSCursorVisitor)
-%     (HsInt ck,HsInt cxdata, HsPtr cp1, HsPtr cp2,HsPtr cp3,
-%      HsInt pk,HsInt pxdata, HsPtr pp1, HsPtr pp2,HsPtr pp3);
-%
-%  enum CXChildVisitResult primChildVisitor(CXCursor c, CXCursor p, CXClientData visitorp)
-%  {
-%    HSCursorVisitor visitor = (HSCursorVisitor) visitorp;
-%    return visitor(c.kind, c.xdata,
-%                   (void*) c.data[0], (void*) c.data[1], (void*) c.data[2], 
-%                   p.kind, c.xdata,
-%                   (void*) p.data[0], (void*) p.data[1], (void*) p.data[2]);
-%  }
-%
-%  unsigned prim_visitChildren_(HsInt ck, HsInt cxdata, HsPtr p1, HsPtr p2, HsPtr p3, HsPtr fp)
-%  {
-%    CXCursor p = {ck, cxdata, {p1,p2,p3}};
-%    return clang_visitChildren(p, primChildVisitor, (CXClientData) fp);
-%  }
-
-foreign import ccall safe "FFI_stub_ffi.h prim_visitChildren_" prim_visitChildren_ :: Int -> Int -> Ptr () -> Ptr () -> Ptr () -> FunPtr ChildVisitorRaw -> IO CUInt
-
--- #ifdef __has_feature
--- #  if __has_feature(blocks)
--- typedef enum CXChildVisitResult 
---      (^CXCursorVisitorBlock)(CXCursor cursor, CXCursor parent);
--- unsigned clang_visitChildrenWithBlock(CXCursor parent,
---                                       CXCursorVisitorBlock block);
--- #  endif
--- #endif
-
 
 -- CXString clang_getCursorUSR(CXCursor);
 %fun clang_getCursorUSR :: Cursor -> IO UnsafeCXString
@@ -2547,36 +2474,6 @@ unmarshall_codeCompleteResults = newForeignPtr clang_disposeCodeCompleteResults
 -- -- void clang_toggleCrashRecovery(unsigned isEnabled);
 -- %fun clang_toggleCrashRecovery :: Bool -> IO ()
 
--- typedef void (*CXInclusionVisitor)(CXFile included_file,
---                                    CXSourceLocation* inclusion_stack,
---                                    unsigned include_len,
---                                    CXClientData client_data);
--- void clang_getInclusions(CXTranslationUnit tu,
---                                         CXInclusionVisitor visitor,
---                                         CXClientData client_data);
-
-type InclusionVisitorRaw = File -> Ptr () -> CUInt -> Ptr () -> IO ()
-type InclusionVisitor = File -> [SourceLocation] -> IO ()
-
-getInclusions :: TranslationUnit -> InclusionVisitor -> IO ()
-getInclusions t iv = do
-  f <- marshall_inclusionVisitor iv
-  prim_getInclusions_ (fromTranslationUnit t) f
-  freeHaskellFunPtr f
-
-%C void prim_getInclusions_(HsPtr t, HsPtr f) { clang_getInclusions(t, f, NULL); }
-foreign import  ccall safe "FFI_stub_ffi.h prim_getInclusions_" prim_getInclusions_ :: Ptr a1 -> FunPtr InclusionVisitorRaw -> IO ()
-
-foreign import ccall "wrapper" wrapInclusionVisitorRaw :: InclusionVisitorRaw -> IO (FunPtr InclusionVisitorRaw)
-
-wrapInclusionVisitor :: InclusionVisitor -> InclusionVisitorRaw
-wrapInclusionVisitor f = \file pSrcLoc nSrcLoc _ -> do
-                           srcLocs <- unmarshall_SrcLocList pSrcLoc nSrcLoc
-                           f file srcLocs
-
-marshall_inclusionVisitor :: InclusionVisitor -> IO (FunPtr InclusionVisitorRaw)
-marshall_inclusionVisitor f = wrapInclusionVisitorRaw (wrapInclusionVisitor f)
-
 data Inclusion = Inclusion !File !SourceLocation !Bool
 
 %C unsigned sizeOfInclusion() {return sizeof(struct Inclusion);}
@@ -2647,7 +2544,7 @@ toInclusionList (is, n) = UnsafeInclusionList is n
 
 -- A more efficient alternative to clang_getInclusions.
 -- void getInclusions(CXTranslationUnit tu, struct Inclusion** inclusionsOut, unsigned* countOut)
-%fun getInclusionsX :: TranslationUnit -> IO UnsafeInclusionList
+%fun getInclusions :: TranslationUnit -> IO UnsafeInclusionList
 %call (translationUnit t)
 %code struct Inclusion* inclusions; unsigned count;
 %     getInclusions(t, &inclusions, &count);
