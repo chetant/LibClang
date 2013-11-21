@@ -261,6 +261,7 @@ registerIndex action = do
   (_, idx) <- appAllocate (action >>= \(UnsafeIndex i) -> return i)
                           (\i -> disposeIndex i)
   return idx
+{-# INLINEABLE registerIndex #-}
 
 fromIndex :: Index -> Ptr ()
 fromIndex (Index p) = p
@@ -286,6 +287,7 @@ registerTranslationUnit action = do
   (_, tu) <- appAllocate (action >>= \(UnsafeTranslationUnit t) -> return t)
                          (\t -> disposeTranslationUnit t)
   return tu
+{-# INLINEABLE registerTranslationUnit #-}
 
 fromTranslationUnit :: TranslationUnit  -> Ptr ()
 fromTranslationUnit (TranslationUnit p) = p
@@ -327,6 +329,7 @@ registerCXString action = do
   (_, str) <- appAllocate (action >>= \(UnsafeCXString s) -> return s)
                           (\(CXString d f) -> freeCXString d f)
   return str
+{-# INLINEABLE registerCXString #-}
 
 %C void freeCXString(void* data, unsigned flags) {
 %    CXString str;
@@ -551,6 +554,7 @@ registerDiagnostic action = do
   (_, idx) <- appAllocate (action >>= \(UnsafeDiagnostic i) -> return i)
                           (\i -> disposeDiagnostic i)
   return idx
+{-# INLINEABLE registerDiagnostic #-}
 
 fromDiagnostic :: Diagnostic -> Ptr ()
 fromDiagnostic (Diagnostic p) = p
@@ -1484,7 +1488,11 @@ foreign import ccall unsafe "FFI_stub_ffi.h setCXCursorXData" setCXCursorXData :
 
 instance Storable Cursor where
     sizeOf _ = fromIntegral sizeOfCXCursor
+    {-# INLINEABLE sizeOf #-}
+
     alignment _ = 4
+    {-# INLINEABLE alignment #-}
+
     peek p = do
       let ptr = castPtr p
       k <- (unmarshall_CursorKind . fromIntegral) <$> getCXCursorKind ptr
@@ -1493,6 +1501,8 @@ instance Storable Cursor where
       p2 <- getCXCursorData ptr 1
       p3 <- getCXCursorData ptr 2
       return $ Cursor k xdata p1 p2 p3
+    {-# INLINEABLE peek #-}
+
     poke p (Cursor k xdata p1 p2 p3) = do
       let ptr = castPtr p
       setCXCursorKind ptr $ fromIntegral (marshall_CursorKind k)
@@ -1500,6 +1510,7 @@ instance Storable Cursor where
       setCXCursorData ptr 0 p1
       setCXCursorData ptr 1 p2
       setCXCursorData ptr 2 p3
+    {-# INLINEABLE poke #-}
 
 -- CXCursor clang_getNullCursor(void);
 %fun clang_getNullCursor :: IO Cursor
@@ -1998,6 +2009,7 @@ registerChildList action = do
     mkSafe (UnsafeChildList cs n) = do
       fptr <- newForeignPtr_ (castPtr cs)
       return $ DVS.unsafeFromForeignPtr fptr 0 n
+{-# INLINEABLE registerChildList #-}
 
 fromChildList :: ChildList -> (Ptr (), Int)
 fromChildList cs = let (p, _, _) = DVS.unsafeToForeignPtr cs in
@@ -2497,7 +2509,11 @@ foreign import ccall unsafe "FFI_stub_ffi.h setInclusionIsDirect" setInclusionIs
 
 instance Storable Inclusion where
     sizeOf _ = fromIntegral sizeOfInclusion
+    {-# INLINEABLE sizeOf #-}
+
     alignment _ = 4
+    {-# INLINEABLE alignment #-}
+
     peek p = do
       let ptr = castPtr p
       f <- getInclusionFile ptr
@@ -2507,6 +2523,8 @@ instance Storable Inclusion where
       isDirect <- getInclusionIsDirect ptr
       return $ Inclusion (File f) (SourceLocation slp1 slp2 sli)
                          (if isDirect == 0 then False else True)
+    {-# INLINEABLE peek #-}
+
     poke p (Inclusion (File f) (SourceLocation slp1 slp2 sli) isDirect) = do
       let ptr = castPtr p
       setInclusionFile ptr f
@@ -2514,6 +2532,7 @@ instance Storable Inclusion where
       setInclusionSourceLocPtr ptr 1 slp2
       setInclusionSourceLocInt ptr $ fromIntegral sli
       setInclusionIsDirect ptr $ if isDirect then 1 else 0
+    {-# INLINEABLE poke #-}
 
 -- We deliberately don't export the constructor. The only way to unwrap this is registerInclusionList.
 type InclusionList = DVS.Vector Inclusion
@@ -2532,6 +2551,7 @@ registerInclusionList action = do
     mkSafe (UnsafeInclusionList is n) = do
       fptr <- newForeignPtr_ (castPtr is)
       return $ DVS.unsafeFromForeignPtr fptr 0 n
+{-# INLINEABLE registerInclusionList #-}
 
 fromInclusionList :: InclusionList -> (Ptr (), Int)
 fromInclusionList is = let (p, _, _) = DVS.unsafeToForeignPtr is in
