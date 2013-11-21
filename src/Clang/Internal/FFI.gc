@@ -228,7 +228,7 @@ marshall_fptr :: ForeignPtr a -> IO (Ptr a)
 marshall_fptr  = return . Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr
 
 -- typedef void *CXIndex;
-data Index = Index (Ptr ())
+data Index = Index !(Ptr ())
 
 %enum GlobalOptFlags (Enum, Eq, Ord, Read, Show) Int [CXGlobalOpt_None, CXGlobalOpt_ThreadBackgroundPriorityForIndexing, CXGlobalOpt_ThreadBackgroundPriorityForEditing, CXGlobalOpt_ThreadBackgroundPriorityForAll]
 -- enum CXGlobalOptFlags {
@@ -273,7 +273,7 @@ toIndex p = UnsafeIndex (Index p)
 %dis index i = <fromIndex/toIndex> (ptr i)
 
 -- typedef struct CXTranslationUnitImpl *CXTranslationUnit;
-data TranslationUnit = TranslationUnit (Ptr ())
+data TranslationUnit = TranslationUnit !(Ptr ())
 
 -- void clang_disposeTranslationUnit(CXTranslationUnit);
 %fun clang_disposeTranslationUnit :: TranslationUnit -> IO ()
@@ -306,7 +306,7 @@ type ClientData = ForeignPtr ClientDataObj
 --   const char* Contents;
 --   unsigned long Length;
 -- };
-data UnsavedFile = UnsavedFile { unsavedFilename :: FilePath, unsavedContents :: String }
+data UnsavedFile = UnsavedFile { unsavedFilename :: !FilePath, unsavedContents :: !String }
 
 %enum AvailabilityKind (Enum, Eq, Ord, Read, Show) Int [CXAvailability_Available, CXAvailability_Deprecated, CXAvailability_NotAvailable]
 -- enum CXAvailabilityKind {
@@ -319,7 +319,7 @@ data UnsavedFile = UnsavedFile { unsavedFilename :: FilePath, unsavedContents ::
 --   const void *data;
 --   unsigned private_flags;
 -- } CXString;
-data CXString = CXString (Ptr ()) Word32
+data CXString = CXString !(Ptr ()) !Word32
 
 -- We deliberately don't export the constructor. The only way to unwrap this is registerCXString.
 newtype UnsafeCXString = UnsafeCXString CXString
@@ -412,7 +412,7 @@ foreign import ccall unsafe "clang-c/Index.h clang_getFileTime" clang_getFileTim
 --   void *ptr_data[2];
 --   unsigned int_data;
 -- } CXSourceLocation;
-data SourceLocation = SourceLocation (Ptr ()) (Ptr ()) Int
+data SourceLocation = SourceLocation !(Ptr ()) !(Ptr ()) !Int
 %dis sourceLocation p1 p2 d = SourceLocation (ptr p1) (ptr p2) (int d)
 
 %C const void* srcLocListGetPtr(CXSourceLocation* s, int i, int pi) {return s[i].ptr_data[pi];}
@@ -435,7 +435,7 @@ unmarshall_SrcLocList sls nsl = mapM getSrcList_ [0..(nsl-1)]
 --   unsigned begin_int_data;
 --   unsigned end_int_data;
 -- } CXSourceRange;
-data SourceRange = SourceRange (Ptr ()) (Ptr ()) Int Int
+data SourceRange = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 %dis sourceRange p1 p2 d1 d2 = SourceRange (ptr p1) (ptr p2) (int d1) (int d2)
 
 -- CXSourceLocation clang_getNullLocation();
@@ -538,7 +538,7 @@ data SourceRange = SourceRange (Ptr ()) (Ptr ()) Int Int
 %enum DiagnosticSeverity (Enum, Eq, Ord, Read, Show) Int [CXDiagnostic_Ignored, CXDiagnostic_Note, CXDiagnostic_Warning, CXDiagnostic_Error, CXDiagnostic_Fatal]
 
 -- typedef void* CXDiagnostic;
-data Diagnostic = Diagnostic (Ptr ())
+data Diagnostic = Diagnostic !(Ptr ())
 
 -- void clang_disposeDiagnostic(CXDiagnostic);
 %fun clang_disposeDiagnostic :: Diagnostic -> IO ()
@@ -1466,7 +1466,7 @@ getReparseFlagsSum = sum . (map toVal_)
 --   int xdata;
 --   const void* data[3];
 -- } CXCursor;
-data Cursor = Cursor CursorKind Int (Ptr ()) (Ptr ()) (Ptr ())
+data Cursor = Cursor !CursorKind !Int !(Ptr ()) !(Ptr ()) !(Ptr ())
 %dis cursor k xdata p1 p2 p3 = Cursor (cursorKind k) (int xdata) (ptr p1) (ptr p2) (ptr p3)
 
 %C unsigned sizeOfCXCursor() {return sizeof(CXCursor);}
@@ -1758,7 +1758,7 @@ unmarshall_cursorList numO os = do
 --   enum CXTypeKind kind;
 --   void *data[2];
 -- } CXType;
-data Type = Type TypeKind (Ptr ()) (Ptr ())
+data Type = Type !TypeKind !(Ptr ()) !(Ptr ())
 %dis type k p1 p2 = Type (typeKind k) (ptr p1) (ptr p2)
 
 getTypeKind (Type k _ _) = k
@@ -1985,7 +1985,7 @@ getTypeKind (Type k _ _) = k
 
 -- We deliberately don't export the constructor. The only way to unwrap this is registerChildList.
 type ChildList = DVS.Vector Cursor
-data UnsafeChildList = UnsafeChildList (Ptr ()) Int
+data UnsafeChildList = UnsafeChildList !(Ptr ()) !Int
 
 -- void freeChildren(CXCursor* childList);
 %fun freeChildren :: ChildList -> IO ()
@@ -2269,7 +2269,7 @@ constructUSR_ObjCProperty s (CXString d f) = constructUSR_ObjCPropertyRaw s d f
 --   unsigned int_data[4];
 --   void *ptr_data;
 -- } CXToken;
-data Token = Token Int Int Int Int (Ptr ())
+data Token = Token !Int !Int !Int !Int !(Ptr ())
 %dis token w x y z p = Token (int w) (int x) (int y) (int z) (ptr p)
 
 -- CXTokenKind clang_getTokenKind(CXToken);
@@ -2414,7 +2414,7 @@ newtype CompletionString = CompletionString (Ptr ())
 --   enum CXCursorKind CursorKind;
 --   CXCompletionString CompletionString;
 -- } CXCompletionResult;
-data CompletionResult = CompletionResult CursorKind CompletionString
+data CompletionResult = CompletionResult !CursorKind !CompletionString
 %dis completionResult k s = CompletionResult (cursorKind k) (competionString s)
 
 -- enum CXCompletionChunkKind {

@@ -33,7 +33,7 @@ Source-Repository head
   location: git://github.com/chetant/LibClang.git
 
 Library
-  ghc-options:     -Wall
+  ghc-options:     -Wall -funbox-strict-fields -O
   build-depends:   base < 5,
                    bytestring,
                    filepath,
