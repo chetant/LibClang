@@ -1,5 +1,6 @@
 module Clang.Monad
 ( ClangApp
+, runClangApp
 ) where
 
-import Clang.Internal.ClangApp (ClangApp)
+import Clang.Internal.ClangApp (ClangApp, runClangApp)
