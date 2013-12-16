@@ -1,14 +1,22 @@
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 
 module Clang.Monad
-( ClangApp
+( ClangT
+, Clang
+, ClangBase
 , clangScope
 ) where
 
-import Control.Monad.Trans (liftIO)
+import Control.Monad.Trans (lift)
 
-import Clang.Internal.ClangApp (ClangApp, runClangApp)
+import Clang.Internal.Monad (ClangBase, ClangT, runClangT)
 
-clangScope :: (forall s. ClangApp s a) -> ClangApp s' a
-clangScope app = liftIO $ runClangApp app
+type Clang s a = ClangT s IO a
+
+-- | Runs a monadic computation with libclang and frees all the
+-- resources allocated by that computation immediately.
+clangScope :: ClangBase m => (forall s. ClangT s m a) -> ClangT s' m a
+clangScope = lift . runClangT
 {-# INLINEABLE clangScope #-}

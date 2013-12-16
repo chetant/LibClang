@@ -1,3 +1,6 @@
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+
 module Clang.Completion
 ( FFI.CompletionString
 , FFI.CompletionResult
@@ -25,25 +28,26 @@ import Data.Maybe(catMaybes)
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 
-getChunkKind :: FFI.CompletionString -> Int -> ClangApp s FFI.CompletionChunkKind
+getChunkKind :: ClangBase m => FFI.CompletionString -> Int -> ClangT s m FFI.CompletionChunkKind
 getChunkKind cs i = liftIO $ FFI.getCompletionChunkKind cs i
 
-getChunkText :: FFI.CompletionString -> Int -> ClangApp s FFI.CXString
+getChunkText :: ClangBase m => FFI.CompletionString -> Int -> ClangT s m FFI.CXString
 getChunkText cs i = FFI.registerCXString $ FFI.getCompletionChunkText cs i
 
-getChunkCompletionString :: FFI.CompletionString -> Int -> ClangApp s FFI.CompletionString
+getChunkCompletionString :: ClangBase m => FFI.CompletionString -> Int ->
+                            ClangT s m FFI.CompletionString
 getChunkCompletionString cs i = liftIO $ FFI.getCompletionChunkCompletionString cs i
 
-getNumChunks :: FFI.CompletionString -> ClangApp s Int
+getNumChunks :: ClangBase m => FFI.CompletionString -> ClangT s m Int
 getNumChunks cs = liftIO $ FFI.getNumCompletionChunks cs
 
-getPriority :: FFI.CompletionString -> ClangApp s Int
+getPriority :: ClangBase m => FFI.CompletionString -> ClangT s m Int
 getPriority cs = liftIO $ FFI.getCompletionPriority cs
 
-getAvailability :: FFI.CompletionString -> ClangApp s FFI.AvailabilityKind
+getAvailability :: ClangBase m => FFI.CompletionString -> ClangT s m FFI.AvailabilityKind
 getAvailability cs = liftIO $ FFI.getCompletionAvailability cs
 
-defaultCodeCompleteOptions :: ClangApp s [FFI.CodeCompleteFlags]
+defaultCodeCompleteOptions :: ClangBase m => ClangT s m [FFI.CodeCompleteFlags]
 defaultCodeCompleteOptions = do
   defVal <- liftIO $ FFI.defaultCodeCompleteOptions
   let val1 = if (defVal .&. 0x01) == 0x01 then return FFI.CodeComplete_IncludeMacros else mzero
@@ -51,19 +55,21 @@ defaultCodeCompleteOptions = do
   return $ catMaybes [val1, val2]
   
 
-codeCompleteAt :: FFI.TranslationUnit
-               -> FilePath -- ^ Filename of the source file
-               -> Int -- ^ Line in the source file
-               -> Int -- ^ Column on the line
-               -> [FFI.UnsavedFile] -- ^ Unsaved files so far
-               -> [FFI.CodeCompleteFlags]
-               -> ClangApp s FFI.CodeCompleteResults
+codeCompleteAt ::
+     ClangBase m =>
+     FFI.TranslationUnit
+  -> FilePath -- ^ Filename of the source file
+  -> Int -- ^ Line in the source file
+  -> Int -- ^ Column on the line
+  -> [FFI.UnsavedFile] -- ^ Unsaved files so far
+  -> [FFI.CodeCompleteFlags]
+  -> ClangT s m FFI.CodeCompleteResults
 codeCompleteAt t fname l c ufs opts = liftIO $ FFI.codeCompleteAt t fname l c ufs (FFI.getCodeCompleteFlagsSum opts)
 
-sortResults :: FFI.CodeCompleteResults -> Int -> ClangApp s ()
+sortResults :: ClangBase m => FFI.CodeCompleteResults -> Int -> ClangT s m ()
 sortResults c i = liftIO $ FFI.sortCodeCompletionResults c i
 
-getDiagnostics :: FFI.CodeCompleteResults -> ClangApp s [FFI.Diagnostic]
+getDiagnostics :: ClangBase m => FFI.CodeCompleteResults -> ClangT s m [FFI.Diagnostic]
 getDiagnostics c = do
     numD <- liftIO $ FFI.codeCompleteGetNumDiagnostics c
     mapM getDiag [0..(numD-1)]

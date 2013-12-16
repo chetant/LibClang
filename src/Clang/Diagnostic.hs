@@ -1,3 +1,6 @@
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+
 module Clang.Diagnostic
 ( FFI.DiagnosticSeverity(..)
 , FFI.DiagnosticDisplayOptions(..)
@@ -27,32 +30,33 @@ import Data.Maybe (catMaybes)
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 
-getDiagnostics :: FFI.TranslationUnit -> ClangApp s [FFI.Diagnostic]
+getDiagnostics :: ClangBase m => FFI.TranslationUnit -> ClangT s m [FFI.Diagnostic]
 getDiagnostics t = do
     numDiags <- liftIO $ FFI.getNumDiagnostics t
     mapM getDiag [0..(numDiags-1)]
   where
     getDiag n = FFI.registerDiagnostic $ FFI.getDiagnostic t n
 
-formatDiagnostic :: [FFI.DiagnosticDisplayOptions] -> FFI.Diagnostic -> ClangApp s FFI.CXString
+formatDiagnostic :: ClangBase m => [FFI.DiagnosticDisplayOptions] -> FFI.Diagnostic
+                 -> ClangT s m FFI.CXString
 formatDiagnostic [] diag =
   FFI.registerCXString $ FFI.formatDiagnostic diag
                      =<< FFI.defaultDiagnosticDisplayOptions
 formatDiagnostic opts diag =
   FFI.registerCXString $ FFI.formatDiagnostic diag (FFI.getDiagnosticDispOptSum opts)
 
-getSeverity :: FFI.Diagnostic -> ClangApp s FFI.DiagnosticSeverity
+getSeverity :: ClangBase m => FFI.Diagnostic -> ClangT s m FFI.DiagnosticSeverity
 getSeverity d = liftIO $ FFI.getDiagnosticSeverity d
 
-getSpelling :: FFI.Diagnostic -> ClangApp s FFI.CXString
+getSpelling :: ClangBase m => FFI.Diagnostic -> ClangT s m FFI.CXString
 getSpelling d = FFI.registerCXString $ FFI.getDiagnosticSpelling d
 
-getOptions :: FFI.Diagnostic -> ClangApp s (FFI.CXString, FFI.CXString)
+getOptions :: ClangBase m => FFI.Diagnostic -> ClangT s m (FFI.CXString, FFI.CXString)
 getOptions d = do
   (a, b) <- liftIO $ FFI.getDiagnosticOption d
   (,) <$> FFI.registerCXString (pure a) <*> FFI.registerCXString (pure b)
 
-defaultDisplayOptions :: ClangApp s [FFI.DiagnosticDisplayOptions]
+defaultDisplayOptions :: ClangBase m => ClangT s m [FFI.DiagnosticDisplayOptions]
 defaultDisplayOptions = do
   defVal <- liftIO $ FFI.defaultDiagnosticDisplayOptions
   let val1 = if (defVal .&. 0x1) == 0x1 then return FFI.Diagnostic_DisplaySourceLocation else mzero
@@ -64,15 +68,15 @@ defaultDisplayOptions = do
   return $ catMaybes [val1, val2, val3, val4, val5, val6]
 
 
-getCategory :: FFI.Diagnostic -> ClangApp s Int
+getCategory :: ClangBase m => FFI.Diagnostic -> ClangT s m Int
 getCategory d = liftIO $ FFI.getDiagnosticCategory d
 
-getRanges :: FFI.Diagnostic -> ClangApp s [FFI.SourceRange]
+getRanges :: ClangBase m => FFI.Diagnostic -> ClangT s m [FFI.SourceRange]
 getRanges d = liftIO $ do
                 numRanges <- FFI.getDiagnosticNumRanges d
                 mapM (FFI.getDiagnosticRange d) [0..(numRanges-1)]
 
-getFixIts :: FFI.Diagnostic -> ClangApp s [(FFI.SourceRange, FFI.CXString)]
+getFixIts :: ClangBase m => FFI.Diagnostic -> ClangT s m [(FFI.SourceRange, FFI.CXString)]
 getFixIts d = do
     numFixes <- liftIO $ FFI.getDiagnosticNumFixIts d
     forM [0..(numFixes - 1)] $ \i -> do
@@ -81,5 +85,5 @@ getFixIts d = do
 
 -- Category functions
 
-getCategoryName :: FFI.Diagnostic -> ClangApp s FFI.CXString
+getCategoryName :: ClangBase m => FFI.Diagnostic -> ClangT s m FFI.CXString
 getCategoryName d = FFI.registerCXString $ FFI.getDiagnosticCategoryText d

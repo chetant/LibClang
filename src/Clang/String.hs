@@ -1,3 +1,6 @@
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+
 module Clang.String
 ( ClangString
 , unpack
@@ -18,27 +21,27 @@ import Clang.Monad
 
 type ClangString = FFI.CXString
 
-unpack :: ClangString -> ClangApp s String
+unpack :: ClangBase m => ClangString -> ClangT s m String
 unpack s = do
   str <- liftIO $ FFI.getString s
   return $! str
 
-unpackByteString :: ClangString -> ClangApp s B.ByteString
+unpackByteString :: ClangBase m => ClangString -> ClangT s m B.ByteString
 unpackByteString s = do
   str <- liftIO $ FFI.getByteString s
   return $! str
 
-unsafeUnpackByteString :: ClangString -> ClangApp s B.ByteString
+unsafeUnpackByteString :: ClangBase m => ClangString -> ClangT s m B.ByteString
 unsafeUnpackByteString s = do
   str <- liftIO $ FFI.unsafeGetByteString s
   return $! str
 
-unpackText :: ClangString -> ClangApp s T.Text
+unpackText :: ClangBase m => ClangString -> ClangT s m T.Text
 unpackText s = do
   -- Since unsafeGetByteString does not make a copy, this doesn't actually
   -- require the two copies that it appears to employ.
   str <- liftIO $ FFI.unsafeGetByteString s
-  return $! (TE.decodeUtf8With TEE.lenientDecode str)
+  return $! TE.decodeUtf8With TEE.lenientDecode str
 
-hashString :: ClangString -> ClangApp s Int
+hashString :: ClangBase m => ClangString -> ClangT s m Int
 hashString s = return $! fromIntegral $ FFI.getStringHash s

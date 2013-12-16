@@ -43,6 +43,7 @@ Library
                    text,
                    time,
                    transformers,
+                   transformers-base,
                    vector
   hs-source-dirs:  src
   c-sources:       src/Clang/Internal/FFI_stub_ffi.c,
@@ -62,6 +63,6 @@ Library
                    Clang.TranslationUnit,
                    Clang.Traversal,
                    Clang.Type
-  other-modules: Clang.Internal.ClangApp,
+  other-modules: Clang.Internal.Monad,
                  Clang.Internal.FFI,
                  Paths_LibClang
