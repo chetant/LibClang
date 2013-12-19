@@ -147,6 +147,7 @@ module Clang.Internal.FFI
 , ChildList
 , registerChildList
 , getChildren
+, getDescendants
 , getCursorUSR
 , constructUSR_ObjCClass
 , constructUSR_ObjCCategory
@@ -2030,6 +2031,15 @@ toChildList (cs, n) = UnsafeChildList cs n
 %code CXCursor c = {k, xdata, {p1, p2, p3}};
 %     CXCursor* children; unsigned count;
 %     getChildren(c, &children, &count);
+%result (childList children count)
+
+-- Like getChildren, but gets all transitive descendants.
+-- void getDescendants(CXCursor parent, CXCursor** childrenOut, unsigned* countOut)
+%fun getDescendants :: Cursor -> IO UnsafeChildList
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor c = {k, xdata, {p1, p2, p3}};
+%     CXCursor* children; unsigned count;
+%     getDescendants(c, &children, &count);
 %result (childList children count)
 
 -- CXString clang_getCursorUSR(CXCursor);

@@ -6,6 +6,8 @@
 // Wrappers for clang_visitChildren.
 void getChildren(CXCursor parent, CXCursor** childrenOut, unsigned* countOut);
 
+void getDescendants(CXCursor parent, CXCursor** childrenOut, unsigned* countOut);
+
 void freeChildren(CXCursor* children);
 
 // Wrappers for clang_getInclusions.

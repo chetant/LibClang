@@ -43,6 +43,37 @@ void getChildren(CXCursor parent, CXCursor** childrenOut, unsigned* countOut)
   *countOut = childList.count;
 }
 
+enum CXChildVisitResult descendantListBuilder(CXCursor cursor, CXCursor parent,
+                                              CXClientData clientData)
+{
+  struct ChildList* childList = (struct ChildList*) clientData;
+
+  // Expand our capacity if necessary.
+  if (childList->count >= childList->capacity) {
+    size_t newCapacity = LIST_GROWTH_RATE * childList->capacity;
+    childList->children = realloc(childList->children, newCapacity * sizeof(CXCursor));
+    childList->capacity = newCapacity;
+  }
+
+  childList->children[childList->count++] = cursor;
+  
+  return CXChildVisit_Recurse;
+}
+
+void getDescendants(CXCursor parent, CXCursor** childrenOut, unsigned* countOut)
+{
+  struct ChildList childList = {
+    malloc(INITIAL_LIST_CAPACITY * sizeof(CXCursor)),
+    0,
+    INITIAL_LIST_CAPACITY
+  };
+
+  clang_visitChildren(parent, descendantListBuilder, &childList);
+
+  *childrenOut = childList.children;
+  *countOut = childList.count;
+}
+
 void freeChildren(CXCursor* children)
 {
   free(children);

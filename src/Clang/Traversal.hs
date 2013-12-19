@@ -4,6 +4,7 @@
 module Clang.Traversal
 ( annotateTokens
 , getChildren
+, getDescendants
 , FFI.ChildList
 , getInclusions
 , FFI.Inclusion(..)
@@ -24,6 +25,9 @@ annotateTokens tu ts = liftIO $ FFI.annotateTokens tu ts
 
 getChildren :: ClangBase m => FFI.Cursor -> ClangT s m FFI.ChildList
 getChildren c = FFI.registerChildList $ FFI.getChildren c
+
+getDescendants :: ClangBase m => FFI.Cursor -> ClangT s m FFI.ChildList
+getDescendants c = FFI.registerChildList $ FFI.getDescendants c
 
 getInclusions :: ClangBase m => FFI.TranslationUnit -> ClangT s m FFI.InclusionList
 getInclusions tu = FFI.registerInclusionList $ FFI.getInclusions tu
