@@ -110,6 +110,7 @@ module Clang.Internal.FFI
 , getIncludedFile
 , getCursor
 , getCursorLocation
+, getCursorSpellingLocation
 , getCursorExtent
 , TypeKind(..)
 , Type
@@ -1555,23 +1556,32 @@ instance Storable Cursor where
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     enum CXCursorKind r = clang_getCursorKind(a);
 %result (cursorKind r)
+{-# INLINEABLE getCursorKind #-}
 
 -- unsigned clang_isDeclaration(enum CXCursorKind);
 %fun clang_isDeclaration :: CursorKind -> IO Bool
+{-# INLINEABLE isDeclaration #-}
 -- unsigned clang_isReference(enum CXCursorKind);
 %fun clang_isReference :: CursorKind -> IO Bool
+{-# INLINEABLE isReference #-}
 -- unsigned clang_isExpression(enum CXCursorKind);
 %fun clang_isExpression :: CursorKind -> IO Bool
+{-# INLINEABLE isExpression #-}
 -- unsigned clang_isStatement(enum CXCursorKind);
 %fun clang_isStatement :: CursorKind -> IO Bool
+{-# INLINEABLE isStatement #-}
 -- unsigned clang_isInvalid(enum CXCursorKind);
 %fun clang_isInvalid :: CursorKind -> IO Bool
+{-# INLINEABLE isInvalid #-}
 -- unsigned clang_isTranslationUnit(enum CXCursorKind);
 %fun clang_isTranslationUnit :: CursorKind -> IO Bool
+{-# INLINEABLE isTranslationUnit #-}
 -- unsigned clang_isPreprocessing(enum CXCursorKind);
 %fun clang_isPreprocessing :: CursorKind -> IO Bool
+{-# INLINEABLE isPreprocessing #-}
 -- unsigned clang_isUnexposed(enum CXCursorKind);
 %fun clang_isUnexposed :: CursorKind -> IO Bool
+{-# INLINEABLE isUnexposed #-}
 
 -- enum CXLinkageKind {
 --   CXLinkage_Invalid,
@@ -1709,6 +1719,17 @@ unmarshall_cursorList numO os = do
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXSourceLocation r = clang_getCursorLocation(a);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
+{-# INLINEABLE getCursorLocation #-}
+
+-- Variant of clang_getCursorLocation that fuses a call to clang_getSpellingLocation.
+%fun clang_getCursorSpellingLocation :: Cursor -> IO (Maybe File, Int, Int, Int)
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     CXSourceLocation l = clang_getCursorLocation(a);
+%     CXFile f; unsigned ln, c, o;
+%     clang_getSpellingLocation(l, &f, &ln, &c, &o);
+%result (<from_Maybe_File/to_Maybe_File> (file f), (int ln), (int c), (int o))
+{-# INLINEABLE getCursorSpellingLocation #-}
 
 -- CXSourceRange clang_getCursorExtent(CXCursor);
 %fun clang_getCursorExtent :: Cursor -> IO SourceRange
@@ -1716,6 +1737,7 @@ unmarshall_cursorList numO os = do
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXSourceRange r = clang_getCursorExtent(a);
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
+{-# INLINEABLE getCursorExtent #-}
     
 -- enum CXTypeKind {
 --   CXType_Invalid = 0,

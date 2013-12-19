@@ -25,6 +25,7 @@ module Clang.Cursor
 , getOverriddenCursors
 , getIncludedFile
 , Clang.Cursor.getLocation
+, Clang.Cursor.getSpellingLocation
 , getExtent
 , getType
 , Clang.Cursor.getResultType
@@ -114,6 +115,9 @@ getIncludedFile c = liftIO $ FFI.getIncludedFile c
 
 getLocation :: ClangBase m => FFI.Cursor -> ClangT s m FFI.SourceLocation
 getLocation c = liftIO $ FFI.getCursorLocation c
+
+getSpellingLocation:: ClangBase m => FFI.Cursor -> ClangT s m (Maybe FFI.File, Int, Int, Int)
+getSpellingLocation l = liftIO $ FFI.getCursorSpellingLocation l
 
 getExtent :: ClangBase m => FFI.Cursor -> ClangT s m FFI.SourceRange
 getExtent c = liftIO $ FFI.getCursorExtent c
