@@ -2,7 +2,8 @@
 
 #include "visitors.h"
 
-#define INITIAL_LIST_CAPACITY 1024
+#define INITIAL_LIST_CAPACITY 16
+#define LIST_GROWTH_RATE 4
 
 struct ChildList
 {
@@ -18,7 +19,7 @@ enum CXChildVisitResult childListBuilder(CXCursor cursor, CXCursor parent,
 
   // Expand our capacity if necessary.
   if (childList->count >= childList->capacity) {
-    size_t newCapacity = 2 * childList->capacity;
+    size_t newCapacity = LIST_GROWTH_RATE * childList->capacity;
     childList->children = realloc(childList->children, newCapacity * sizeof(CXCursor));
     childList->capacity = newCapacity;
   }
@@ -65,7 +66,7 @@ void inclusionListBuilder(CXFile includedFile, CXSourceLocation* inclusionStack,
 
   // Expand our capacity if necessary.
   if (inclusionList->count >= inclusionList->capacity) {
-    size_t newCapacity = 2 * inclusionList->capacity;
+    size_t newCapacity = LIST_GROWTH_RATE * inclusionList->capacity;
     inclusionList->inclusions = realloc(inclusionList->inclusions,
                                         newCapacity * sizeof(struct Inclusion));
     inclusionList->capacity = newCapacity;
