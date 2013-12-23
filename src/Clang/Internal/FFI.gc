@@ -149,6 +149,10 @@ module Clang.Internal.FFI
 , registerChildList
 , getChildren
 , getDescendants
+, ParentedCursor(..)
+, ParentedCursorList
+, registerParentedCursorList
+, getParentedDescendants
 , getCursorUSR
 , constructUSR_ObjCClass
 , constructUSR_ObjCCategory
@@ -218,6 +222,7 @@ import Clang.Internal.Monad
 
 %#include <inttypes.h>
 %#include <stdlib.h>
+%#include <stddef.h>
 %#include <clang-c/Index.h>
 %#include <stdio.h>
 %#include "visitors.h"
@@ -2063,6 +2068,76 @@ toChildList (cs, n) = UnsafeChildList cs n
 %     CXCursor* children; unsigned count;
 %     getDescendants(c, &children, &count);
 %result (childList children count)
+
+data ParentedCursor = ParentedCursor
+  { parentCursor  :: !Cursor
+  , childCursor :: !Cursor
+  }
+
+%C unsigned sizeOfParentedCursor() {return sizeof(struct ParentedCursor);}
+%  unsigned offsetOfParentedCursorChild() {return offsetof(struct ParentedCursor, cursor);}
+foreign import ccall unsafe "FFI_stub_ffi.h sizeOfParentedCursor" sizeOfParentedCursor :: CUInt
+foreign import ccall unsafe "FFI_stub_ffi.h offsetOfParentedCursorChild" offsetOfParentedCursorChild :: CUInt
+
+instance Storable ParentedCursor where
+    sizeOf _ = fromIntegral sizeOfParentedCursor
+    {-# INLINEABLE sizeOf #-}
+
+    alignment _ = 4
+    {-# INLINEABLE alignment #-}
+
+    peek p = do
+      let ptr = castPtr p
+      parent <- peek ptr
+      child <- peek (ptr `plusPtr` fromIntegral offsetOfParentedCursorChild)
+      return $ ParentedCursor parent child
+    {-# INLINEABLE peek #-}
+
+    poke p (ParentedCursor parent child) = do
+      let ptr = castPtr p
+      poke ptr parent
+      poke (ptr `plusPtr` fromIntegral offsetOfParentedCursorChild) child
+    {-# INLINEABLE poke #-}
+
+-- We deliberately don't export the constructor. The only way to unwrap this is registerParentedCursorList.
+type ParentedCursorList = DVS.Vector ParentedCursor
+data UnsafeParentedCursorList = UnsafeParentedCursorList !(Ptr ()) !Int
+
+-- void freeParentedDescendants(struct ParentedCursor* descendants);
+%fun freeParentedDescendants :: ParentedCursorList -> IO ()
+%call (parentedCursorList cs n)
+%code freeParentedDescendants(cs);
+
+registerParentedCursorList :: ClangBase m => IO UnsafeParentedCursorList
+                           -> ClangT s m ParentedCursorList
+registerParentedCursorList action = do
+    (_, pcList) <- clangAllocate (action >>= mkSafe) freeParentedDescendants
+    return pcList
+  where
+    mkSafe (UnsafeParentedCursorList cs n) = do
+      fptr <- newForeignPtr_ (castPtr cs)
+      return $ DVS.unsafeFromForeignPtr fptr 0 n
+{-# INLINEABLE registerParentedCursorList #-}
+
+fromParentedCursorList :: ParentedCursorList -> (Ptr (), Int)
+fromParentedCursorList cs =
+  let (p, _, _) = DVS.unsafeToForeignPtr cs in
+  (castPtr $ Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr p, DVS.length cs)
+
+toParentedCursorList :: (Ptr (), Int) -> UnsafeParentedCursorList
+toParentedCursorList (cs, n) = UnsafeParentedCursorList cs n
+
+%dis parentedCursorList cs n = <fromParentedCursorList/toParentedCursorList> (ptr cs) (int n)
+
+-- Like getParentedDescendants, but pairs each descendant with its parent.
+-- void getParentedDescendants(CXCursor parent, struct ParentedCursor** descendantsOut,
+--                             unsigned* countOut)
+%fun getParentedDescendants :: Cursor -> IO UnsafeParentedCursorList
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor c = {k, xdata, {p1, p2, p3}};
+%     struct ParentedCursor* descendants; unsigned count;
+%     getParentedDescendants(c, &descendants, &count);
+%result (parentedCursorList descendants count)
 
 -- CXString clang_getCursorUSR(CXCursor);
 %fun clang_getCursorUSR :: Cursor -> IO UnsafeCXString

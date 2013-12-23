@@ -74,9 +74,59 @@ void getDescendants(CXCursor parent, CXCursor** childrenOut, unsigned* countOut)
   *countOut = childList.count;
 }
 
+struct ParentedCursorList
+{
+  struct ParentedCursor* descendants;
+  unsigned               count;
+  size_t                 capacity;
+};
+
+enum CXChildVisitResult parentedDescendantListBuilder(CXCursor cursor, CXCursor parent,
+                                                      CXClientData clientData)
+{
+  struct ParentedCursorList* descendantList = (struct ParentedCursorList*) clientData;
+
+  // Expand our capacity if necessary.
+  if (descendantList->count >= descendantList->capacity) {
+    size_t newCapacity = LIST_GROWTH_RATE * descendantList->capacity;
+    descendantList->descendants =
+      realloc(descendantList->descendants, newCapacity * sizeof(struct ParentedCursor));
+    descendantList->capacity = newCapacity;
+  }
+
+  struct ParentedCursor newEntry = {
+    parent,
+    cursor
+  };
+
+  descendantList->descendants[descendantList->count++] = newEntry;
+  
+  return CXChildVisit_Recurse;
+}
+
+void getParentedDescendants(CXCursor parent, struct ParentedCursor** descendantsOut,
+                            unsigned* countOut)
+{
+  struct ParentedCursorList descendantList = {
+    malloc(INITIAL_LIST_CAPACITY * sizeof(struct ParentedCursor)),
+    0,
+    INITIAL_LIST_CAPACITY
+  };
+
+  clang_visitChildren(parent, parentedDescendantListBuilder, &descendantList);
+
+  *descendantsOut = descendantList.descendants;
+  *countOut = descendantList.count;
+}
+
 void freeChildren(CXCursor* children)
 {
   free(children);
+}
+
+void freeParentedDescendants(struct ParentedCursor* descendants)
+{
+  free(descendants);
 }
 
 struct InclusionList

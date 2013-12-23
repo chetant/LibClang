@@ -4,11 +4,21 @@
 #include "clang-c/Index.h"
 
 // Wrappers for clang_visitChildren.
+struct ParentedCursor
+{
+  CXCursor parent;
+  CXCursor cursor;
+};
+
 void getChildren(CXCursor parent, CXCursor** childrenOut, unsigned* countOut);
 
 void getDescendants(CXCursor parent, CXCursor** childrenOut, unsigned* countOut);
 
+void getParentedDescendants(CXCursor parent, struct ParentedCursor** descendantsOut,
+                            unsigned* countOut);
+
 void freeChildren(CXCursor* children);
+void freeParentedDescendants(struct ParentedCursor* descendants);
 
 // Wrappers for clang_getInclusions.
 struct Inclusion

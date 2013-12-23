@@ -11,6 +11,7 @@ module Clang.Cursor
 , FFI.LanguageKind(..)
 , FFI.Cursor
 , FFI.CursorSet
+, FFI.ParentedCursor(..)
 
 , isSameCursor
 , isNullCursor
