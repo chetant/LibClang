@@ -431,23 +431,23 @@ instance Storable SourceLocation where
     sizeOf _ = sizeOfCXSourceLocation
     {-# INLINE sizeOf #-}
 
-    alignment _ = alignOfCXSourceLocation
+    alignment _ = 4
     {-# INLINE alignment #-}
 
     peek p = do
       let fromCUInt = fromIntegral :: Num b => CUInt -> b
-      p1 <- peek (castPtr p `plusPtr` offsetCXSourceLocationP1)
-      p2 <- peek (castPtr p `plusPtr` offsetCXSourceLocationP2)
-      d <- fromCUInt <$> peek (castPtr p `plusPtr` offsetCXSourceLocationData)
-      return $ SourceLocation p1 p2 d
-    {-# INLINEABLE peek #-}
+      p1 <- peekByteOff p offsetCXSourceLocationP1
+      p2 <- peekByteOff p offsetCXSourceLocationP2
+      d <- fromCUInt <$> peekByteOff p offsetCXSourceLocationData
+      return $! SourceLocation p1 p2 d
+    {-# INLINE peek #-}
 
     poke p (SourceLocation p1 p2 d) = do
       let toCUInt = fromIntegral :: Integral a => a -> CUInt
-      poke (castPtr p `plusPtr` offsetCXSourceLocationP1) p1
-      poke (castPtr p `plusPtr` offsetCXSourceLocationP2) p2
-      poke (castPtr p `plusPtr` offsetCXSourceLocationData) $ toCUInt d
-    {-# INLINEABLE poke #-}
+      pokeByteOff p offsetCXSourceLocationP1 p1
+      pokeByteOff p offsetCXSourceLocationP2 p2
+      pokeByteOff p offsetCXSourceLocationData $ toCUInt d
+    {-# INLINE poke #-}
 
 %C const void* srcLocListGetPtr(CXSourceLocation* s, int i, int pi) {return s[i].ptr_data[pi];}
 %  unsigned srcLocListGetData(CXSourceLocation* s, int i) {return s[i].int_data;}
@@ -1516,28 +1516,27 @@ instance Storable Cursor where
     sizeOf _ = sizeOfCXCursor
     {-# INLINE sizeOf #-}
 
-    alignment _ = alignOfCXCursor
+    alignment _ = 4
     {-# INLINE alignment #-}
 
     peek p = do
       let fromCInt = fromIntegral :: Num b => CInt -> b
-      k <- (unmarshall_CursorKind . fromCInt) <$>
-           peek (castPtr p `plusPtr` offsetCXCursorKind)
-      xdata <- fromCInt <$> peek (castPtr p `plusPtr` offsetCXCursorXData)
-      p1 <- peek (castPtr p `plusPtr` offsetCXCursorP1)
-      p2 <- peek (castPtr p `plusPtr` offsetCXCursorP2)
-      p3 <- peek (castPtr p `plusPtr` offsetCXCursorP3)
-      return $ Cursor k xdata p1 p2 p3
-    {-# INLINEABLE peek #-}
+      k <- (unmarshall_CursorKind . fromCInt) <$> peekByteOff p offsetCXCursorKind
+      xdata <- fromCInt <$> peekByteOff p offsetCXCursorXData
+      p1 <- peekByteOff p offsetCXCursorP1
+      p2 <- peekByteOff p offsetCXCursorP2
+      p3 <- peekByteOff p offsetCXCursorP3
+      return $! Cursor k xdata p1 p2 p3
+    {-# INLINE peek #-}
 
     poke p (Cursor k xdata p1 p2 p3) = do
       let toCInt = fromIntegral :: Integral a => a -> CInt
-      poke (castPtr p `plusPtr` offsetCXCursorKind) $ (toCInt . marshall_CursorKind) k
-      poke (castPtr p `plusPtr` offsetCXCursorXData) $ toCInt xdata
-      poke (castPtr p `plusPtr` offsetCXCursorP1) p1
-      poke (castPtr p `plusPtr` offsetCXCursorP2) p2
-      poke (castPtr p `plusPtr` offsetCXCursorP3) p3
-    {-# INLINEABLE poke #-}
+      pokeByteOff p offsetCXCursorKind $ (toCInt . marshall_CursorKind) k
+      pokeByteOff p offsetCXCursorXData $ toCInt xdata
+      pokeByteOff p offsetCXCursorP1 p1
+      pokeByteOff p offsetCXCursorP2 p2
+      pokeByteOff p offsetCXCursorP3 p3
+    {-# INLINE poke #-}
 
 instance Eq Cursor where
     (Cursor aK aXdata aP1 aP2 aP3) == (Cursor bK bXdata bP1 bP2 bP3) =
@@ -2135,19 +2134,19 @@ instance Storable ParentedCursor where
     sizeOf _ = sizeOfParentedCursor
     {-# INLINE sizeOf #-}
 
-    alignment _ = alignOfParentedCursor
+    alignment _ = 4
     {-# INLINE alignment #-}
 
     peek p = do
-      parent <- peek (castPtr p `plusPtr` offsetParentedCursorParent)
-      child <- peek (castPtr p `plusPtr` offsetParentedCursorCursor)
-      return $ ParentedCursor parent child
-    {-# INLINEABLE peek #-}
+      parent <- peekByteOff p offsetParentedCursorParent
+      child <- peekByteOff p offsetParentedCursorCursor
+      return $! ParentedCursor parent child
+    {-# INLINE peek #-}
 
     poke p (ParentedCursor parent child) = do
-      poke (castPtr p `plusPtr` offsetParentedCursorParent) parent
-      poke (castPtr p `plusPtr` offsetParentedCursorCursor) child
-    {-# INLINEABLE poke #-}
+      pokeByteOff p offsetParentedCursorParent parent
+      pokeByteOff p offsetParentedCursorCursor child
+    {-# INLINE poke #-}
 
 -- We deliberately don't export the constructor. The only way to unwrap this is registerParentedCursorList.
 type ParentedCursorList = DVS.Vector ParentedCursor
@@ -2652,24 +2651,24 @@ instance Storable Inclusion where
     sizeOf _ = sizeOfInclusion
     {-# INLINE sizeOf #-}
 
-    alignment _ = alignOfInclusion
+    alignment _ = 4
     {-# INLINE alignment #-}
 
     peek p = do
       let fromCUChar = fromIntegral :: Num b => CUChar -> b
-      file <- File <$> peek (castPtr p `plusPtr` offsetInclusionInclusion)
-      sl <- peek (castPtr p `plusPtr` offsetInclusionLocation)
-      isDirect <- fromCUChar <$> peek (castPtr p `plusPtr` offsetInclusionIsDirect)
-      return $ Inclusion file sl (if isDirect == 0 then False else True)
-    {-# INLINEABLE peek #-}
+      file <- File <$> peekByteOff p offsetInclusionInclusion
+      sl <- peekByteOff p offsetInclusionLocation
+      isDirect <- fromCUChar <$> peekByteOff p offsetInclusionIsDirect
+      return $! Inclusion file sl (if isDirect == 0 then False else True)
+    {-# INLINE peek #-}
 
     poke p (Inclusion (File file) sl isDirect) = do
       let toCUChar = fromIntegral :: Integral a => a -> CUChar
-      poke (castPtr p `plusPtr` offsetInclusionInclusion) file
-      poke (castPtr p `plusPtr` offsetInclusionLocation) sl
-      poke (castPtr p `plusPtr` offsetInclusionIsDirect)
+      pokeByteOff p offsetInclusionInclusion file
+      pokeByteOff p offsetInclusionLocation sl
+      pokeByteOff p offsetInclusionIsDirect
            (toCUChar $ if isDirect then 1 else 0)
-    {-# INLINEABLE poke #-}
+    {-# INLINE poke #-}
 
 -- We deliberately don't export the constructor. The only way to unwrap this is registerInclusionList.
 type InclusionList = DVS.Vector Inclusion
