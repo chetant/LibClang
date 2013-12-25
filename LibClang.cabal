@@ -38,6 +38,7 @@ Library
                    bytestring,
                    filepath,
                    greencard >= 3.0.4.1,
+                   hashable,
                    mtl,
                    resourcet,
                    text,

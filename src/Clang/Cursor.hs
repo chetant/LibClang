@@ -13,7 +13,6 @@ module Clang.Cursor
 , FFI.CursorSet
 , FFI.ParentedCursor(..)
 
-, isSameCursor
 , isNullCursor
 , nullCursor
 , getHash
@@ -78,20 +77,20 @@ import GHC.Word
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 
-isSameCursor :: ClangBase m => FFI.Cursor -> FFI.Cursor -> ClangT s m Bool
-isSameCursor a b = liftIO $ FFI.equalCursors a b
+isNullCursor :: FFI.Cursor -> Bool
+isNullCursor = FFI.cursor_isNull
+{-# INLINE isNullCursor #-}
 
-isNullCursor :: ClangBase m => FFI.Cursor -> ClangT s m Bool
-isNullCursor c = liftIO $ FFI.cursor_isNull c
-
-nullCursor :: ClangBase m => ClangT s m FFI.Cursor
-nullCursor = liftIO FFI.getNullCursor
+nullCursor :: FFI.Cursor
+nullCursor = FFI.getNullCursor
+{-# INLINE nullCursor #-}
 
 getHash :: ClangBase m => FFI.Cursor -> ClangT s m GHC.Word.Word32
 getHash c = liftIO $ FFI.hashCursor c
 
-getKind :: ClangBase m => FFI.Cursor -> ClangT s m FFI.CursorKind
-getKind c = liftIO $ FFI.getCursorKind c
+getKind :: FFI.Cursor -> FFI.CursorKind
+getKind = FFI.getCursorKind
+{-# INLINE getKind #-}
 
 getLinkage :: ClangBase m => FFI.Cursor -> ClangT s m FFI.LinkageKind
 getLinkage c = liftIO $ FFI.getCursorLinkage c
@@ -173,29 +172,37 @@ getIBOutletCollectionType c = liftIO $ FFI.getIBOutletCollectionType c
 isDefinition :: ClangBase m => FFI.Cursor -> ClangT s m Bool
 isDefinition c = liftIO $ FFI.isCursorDefinition c
 
-isDeclaration :: ClangBase m => FFI.CursorKind -> ClangT s m Bool
-isDeclaration k = liftIO $ FFI.isDeclaration k
+isDeclaration :: FFI.CursorKind -> Bool
+isDeclaration = FFI.isDeclaration
+{-# INLINE isDeclaration #-}
 
-isReference :: ClangBase m => FFI.CursorKind -> ClangT s m Bool
-isReference k = liftIO $ FFI.isReference k
+isReference :: FFI.CursorKind -> Bool
+isReference = FFI.isReference
+{-# INLINE isReference #-}
 
-isExpression :: ClangBase m => FFI.CursorKind -> ClangT s m Bool
-isExpression k = liftIO $ FFI.isExpression k
+isExpression :: FFI.CursorKind -> Bool
+isExpression = FFI.isExpression
+{-# INLINE isExpression #-}
 
-isStatement :: ClangBase m => FFI.CursorKind -> ClangT s m Bool
-isStatement k = liftIO $ FFI.isStatement k
+isStatement :: FFI.CursorKind -> Bool
+isStatement = FFI.isStatement
+{-# INLINE isStatement #-}
 
-isInvalid :: ClangBase m => FFI.CursorKind -> ClangT s m Bool
-isInvalid k = liftIO $ FFI.isInvalid k
+isInvalid :: FFI.CursorKind -> Bool
+isInvalid = FFI.isInvalid
+{-# INLINE isInvalid #-}
 
-isTranslationUnit :: ClangBase m => FFI.CursorKind -> ClangT s m Bool
-isTranslationUnit k = liftIO $ FFI.isTranslationUnit k
+isTranslationUnit :: FFI.CursorKind -> Bool
+isTranslationUnit = FFI.isTranslationUnit
+{-# INLINE isTranslationUnit #-}
 
-isPreprocessing :: ClangBase m => FFI.CursorKind -> ClangT s m Bool
-isPreprocessing k = liftIO $ FFI.isPreprocessing k
+isPreprocessing :: FFI.CursorKind -> Bool
+isPreprocessing = FFI.isPreprocessing
+{-# INLINE isPreprocessing #-}
 
-isUnexposed :: ClangBase m => FFI.CursorKind -> ClangT s m Bool
-isUnexposed k = liftIO $ FFI.isUnexposed k
+isUnexposed :: FFI.CursorKind -> Bool
+isUnexposed = FFI.isUnexposed
+{-# INLINE isUnexposed #-}
 
 isVirtualBase :: ClangBase m => FFI.Cursor -> ClangT s m Bool
 isVirtualBase c = liftIO $ FFI.isVirtualBase c
