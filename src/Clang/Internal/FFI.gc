@@ -218,6 +218,7 @@ import Foreign.C
 import Foreign.ForeignPtr.Unsafe (unsafeForeignPtrToPtr)
 import Foreign.GreenCard
 
+import Clang.Internal.FFIConstants
 import Clang.Internal.Monad
 
 %#include <inttypes.h>
@@ -425,6 +426,28 @@ foreign import ccall unsafe "clang-c/Index.h clang_getFileTime" clang_getFileTim
 -- } CXSourceLocation;
 data SourceLocation = SourceLocation !(Ptr ()) !(Ptr ()) !Int
 %dis sourceLocation p1 p2 d = SourceLocation (ptr p1) (ptr p2) (int d)
+
+instance Storable SourceLocation where
+    sizeOf _ = sizeOfCXSourceLocation
+    {-# INLINE sizeOf #-}
+
+    alignment _ = alignOfCXSourceLocation
+    {-# INLINE alignment #-}
+
+    peek p = do
+      let fromCUInt = fromIntegral :: Num b => CUInt -> b
+      p1 <- peek (castPtr p `plusPtr` offsetCXSourceLocationP1)
+      p2 <- peek (castPtr p `plusPtr` offsetCXSourceLocationP2)
+      d <- fromCUInt <$> peek (castPtr p `plusPtr` offsetCXSourceLocationData)
+      return $ SourceLocation p1 p2 d
+    {-# INLINEABLE peek #-}
+
+    poke p (SourceLocation p1 p2 d) = do
+      let toCUInt = fromIntegral :: Integral a => a -> CUInt
+      poke (castPtr p `plusPtr` offsetCXSourceLocationP1) p1
+      poke (castPtr p `plusPtr` offsetCXSourceLocationP2) p2
+      poke (castPtr p `plusPtr` offsetCXSourceLocationData) $ toCUInt d
+    {-# INLINEABLE poke #-}
 
 %C const void* srcLocListGetPtr(CXSourceLocation* s, int i, int pi) {return s[i].ptr_data[pi];}
 %  unsigned srcLocListGetData(CXSourceLocation* s, int i) {return s[i].int_data;}
@@ -1489,45 +1512,31 @@ getReparseFlagsSum = sum . (map toVal_)
 data Cursor = Cursor !CursorKind !Int !(Ptr ()) !(Ptr ()) !(Ptr ())
 %dis cursor k xdata p1 p2 p3 = Cursor (cursorKind k) (int xdata) (ptr p1) (ptr p2) (ptr p3)
 
-%C unsigned sizeOfCXCursor() {return sizeof(CXCursor);}
-%  const void* getCXCursorData(CXCursor* p, int i){return p->data[i];}
-%  enum CXCursorKind getCXCursorKind(CXCursor* p){return p->kind;}
-%  void setCXCursorData(CXCursor* p, int i, const void* ptr){p->data[i] = ptr;}
-%  void setCXCursorKind(CXCursor* p, unsigned kind){p->kind = kind;}
-%  unsigned getCXCursorXData(CXCursor* p){return p->xdata;}
-%  void setCXCursorXData(CXCursor* p, unsigned i){p->xdata = i;}
-foreign import ccall unsafe "FFI_stub_ffi.h sizeOfCXCursor" sizeOfCXCursor :: CUInt
-foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorData" getCXCursorData :: Ptr () -> CInt -> IO (Ptr ())
-foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorKind" getCXCursorKind :: Ptr () -> IO CUInt
-foreign import ccall unsafe "FFI_stub_ffi.h setCXCursorData" setCXCursorData :: Ptr () -> CInt -> Ptr () -> IO ()
-foreign import ccall unsafe "FFI_stub_ffi.h setCXCursorKind" setCXCursorKind :: Ptr () -> CUInt -> IO ()
-foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorXData" getCXCursorXData :: Ptr () -> IO CUInt
-foreign import ccall unsafe "FFI_stub_ffi.h setCXCursorXData" setCXCursorXData :: Ptr () -> CUInt -> IO ()
-
 instance Storable Cursor where
-    sizeOf _ = fromIntegral sizeOfCXCursor
-    {-# INLINEABLE sizeOf #-}
+    sizeOf _ = sizeOfCXCursor
+    {-# INLINE sizeOf #-}
 
-    alignment _ = 4
-    {-# INLINEABLE alignment #-}
+    alignment _ = alignOfCXCursor
+    {-# INLINE alignment #-}
 
     peek p = do
-      let ptr = castPtr p
-      k <- (unmarshall_CursorKind . fromIntegral) <$> getCXCursorKind ptr
-      xdata <- fromIntegral <$> getCXCursorXData ptr
-      p1 <- getCXCursorData ptr 0
-      p2 <- getCXCursorData ptr 1
-      p3 <- getCXCursorData ptr 2
+      let fromCInt = fromIntegral :: Num b => CInt -> b
+      k <- (unmarshall_CursorKind . fromCInt) <$>
+           peek (castPtr p `plusPtr` offsetCXCursorKind)
+      xdata <- fromCInt <$> peek (castPtr p `plusPtr` offsetCXCursorXData)
+      p1 <- peek (castPtr p `plusPtr` offsetCXCursorP1)
+      p2 <- peek (castPtr p `plusPtr` offsetCXCursorP2)
+      p3 <- peek (castPtr p `plusPtr` offsetCXCursorP3)
       return $ Cursor k xdata p1 p2 p3
     {-# INLINEABLE peek #-}
 
     poke p (Cursor k xdata p1 p2 p3) = do
-      let ptr = castPtr p
-      setCXCursorKind ptr $ fromIntegral (marshall_CursorKind k)
-      setCXCursorXData ptr $ fromIntegral xdata
-      setCXCursorData ptr 0 p1
-      setCXCursorData ptr 1 p2
-      setCXCursorData ptr 2 p3
+      let toCInt = fromIntegral :: Integral a => a -> CInt
+      poke (castPtr p `plusPtr` offsetCXCursorKind) $ (toCInt . marshall_CursorKind) k
+      poke (castPtr p `plusPtr` offsetCXCursorXData) $ toCInt xdata
+      poke (castPtr p `plusPtr` offsetCXCursorP1) p1
+      poke (castPtr p `plusPtr` offsetCXCursorP2) p2
+      poke (castPtr p `plusPtr` offsetCXCursorP3) p3
     {-# INLINEABLE poke #-}
 
 instance Eq Cursor where
@@ -2122,29 +2131,22 @@ data ParentedCursor = ParentedCursor
   , childCursor :: !Cursor
   }
 
-%C unsigned sizeOfParentedCursor() {return sizeof(struct ParentedCursor);}
-%  unsigned offsetOfParentedCursorChild() {return offsetof(struct ParentedCursor, cursor);}
-foreign import ccall unsafe "FFI_stub_ffi.h sizeOfParentedCursor" sizeOfParentedCursor :: CUInt
-foreign import ccall unsafe "FFI_stub_ffi.h offsetOfParentedCursorChild" offsetOfParentedCursorChild :: CUInt
-
 instance Storable ParentedCursor where
-    sizeOf _ = fromIntegral sizeOfParentedCursor
-    {-# INLINEABLE sizeOf #-}
+    sizeOf _ = sizeOfParentedCursor
+    {-# INLINE sizeOf #-}
 
-    alignment _ = 4
-    {-# INLINEABLE alignment #-}
+    alignment _ = alignOfParentedCursor
+    {-# INLINE alignment #-}
 
     peek p = do
-      let ptr = castPtr p
-      parent <- peek ptr
-      child <- peek (ptr `plusPtr` fromIntegral offsetOfParentedCursorChild)
+      parent <- peek (castPtr p `plusPtr` offsetParentedCursorParent)
+      child <- peek (castPtr p `plusPtr` offsetParentedCursorCursor)
       return $ ParentedCursor parent child
     {-# INLINEABLE peek #-}
 
     poke p (ParentedCursor parent child) = do
-      let ptr = castPtr p
-      poke ptr parent
-      poke (ptr `plusPtr` fromIntegral offsetOfParentedCursorChild) child
+      poke (castPtr p `plusPtr` offsetParentedCursorParent) parent
+      poke (castPtr p `plusPtr` offsetParentedCursorCursor) child
     {-# INLINEABLE poke #-}
 
 -- We deliberately don't export the constructor. The only way to unwrap this is registerParentedCursorList.
@@ -2646,50 +2648,27 @@ unmarshall_codeCompleteResults = newForeignPtr clang_disposeCodeCompleteResults
 
 data Inclusion = Inclusion !File !SourceLocation !Bool
 
-%C unsigned sizeOfInclusion() {return sizeof(struct Inclusion);}
-%  CXFile getInclusionFile(struct Inclusion* p){return p->inclusion;}
-%  const void* getInclusionSourceLocPtr(struct Inclusion* p, int i){return p->location.ptr_data[i];}
-%  unsigned getInclusionSourceLocInt(struct Inclusion* p){return p->location.int_data;}
-%  unsigned char getInclusionIsDirect(struct Inclusion* p){return p->isDirect;}
-%  void setInclusionFile(struct Inclusion* p, CXFile f){p->inclusion = f;}
-%  void setInclusionSourceLocPtr(struct Inclusion* p, int i, void* v){p->location.ptr_data[i] = v;}
-%  void setInclusionSourceLocInt(struct Inclusion* p, unsigned v){p->location.int_data = v;}
-%  void setInclusionIsDirect(struct Inclusion* p, unsigned char d){p->isDirect = d;}
-foreign import ccall unsafe "FFI_stub_ffi.h sizeOfInclusion" sizeOfInclusion :: CUInt
-foreign import ccall unsafe "FFI_stub_ffi.h getInclusionFile" getInclusionFile :: Ptr () -> IO (Ptr ())
-foreign import ccall unsafe "FFI_stub_ffi.h getInclusionSourceLocPtr" getInclusionSourceLocPtr :: Ptr () -> CInt -> IO (Ptr ())
-foreign import ccall unsafe "FFI_stub_ffi.h getInclusionSourceLocInt" getInclusionSourceLocInt :: Ptr () -> IO CUInt
-foreign import ccall unsafe "FFI_stub_ffi.h getInclusionIsDirect" getInclusionIsDirect :: Ptr () -> IO CUChar
-foreign import ccall unsafe "FFI_stub_ffi.h setInclusionFile" setInclusionFile :: Ptr () -> Ptr () -> IO ()
-foreign import ccall unsafe "FFI_stub_ffi.h setInclusionSourceLocPtr" setInclusionSourceLocPtr :: Ptr () -> CInt -> Ptr () -> IO ()
-foreign import ccall unsafe "FFI_stub_ffi.h setInclusionSourceLocInt" setInclusionSourceLocInt :: Ptr () -> CUInt -> IO ()
-foreign import ccall unsafe "FFI_stub_ffi.h setInclusionIsDirect" setInclusionIsDirect :: Ptr () -> CUChar -> IO ()
-
 instance Storable Inclusion where
-    sizeOf _ = fromIntegral sizeOfInclusion
-    {-# INLINEABLE sizeOf #-}
+    sizeOf _ = sizeOfInclusion
+    {-# INLINE sizeOf #-}
 
-    alignment _ = 4
-    {-# INLINEABLE alignment #-}
+    alignment _ = alignOfInclusion
+    {-# INLINE alignment #-}
 
     peek p = do
-      let ptr = castPtr p
-      f <- getInclusionFile ptr
-      slp1 <- getInclusionSourceLocPtr ptr 0
-      slp2 <- getInclusionSourceLocPtr ptr 1
-      sli <- fromIntegral <$> getInclusionSourceLocInt ptr
-      isDirect <- getInclusionIsDirect ptr
-      return $ Inclusion (File f) (SourceLocation slp1 slp2 sli)
-                         (if isDirect == 0 then False else True)
+      let fromCUChar = fromIntegral :: Num b => CUChar -> b
+      file <- File <$> peek (castPtr p `plusPtr` offsetInclusionInclusion)
+      sl <- peek (castPtr p `plusPtr` offsetInclusionLocation)
+      isDirect <- fromCUChar <$> peek (castPtr p `plusPtr` offsetInclusionIsDirect)
+      return $ Inclusion file sl (if isDirect == 0 then False else True)
     {-# INLINEABLE peek #-}
 
-    poke p (Inclusion (File f) (SourceLocation slp1 slp2 sli) isDirect) = do
-      let ptr = castPtr p
-      setInclusionFile ptr f
-      setInclusionSourceLocPtr ptr 0 slp1
-      setInclusionSourceLocPtr ptr 1 slp2
-      setInclusionSourceLocInt ptr $ fromIntegral sli
-      setInclusionIsDirect ptr $ if isDirect then 1 else 0
+    poke p (Inclusion (File file) sl isDirect) = do
+      let toCUChar = fromIntegral :: Integral a => a -> CUChar
+      poke (castPtr p `plusPtr` offsetInclusionInclusion) file
+      poke (castPtr p `plusPtr` offsetInclusionLocation) sl
+      poke (castPtr p `plusPtr` offsetInclusionIsDirect)
+           (toCUChar $ if isDirect then 1 else 0)
     {-# INLINEABLE poke #-}
 
 -- We deliberately don't export the constructor. The only way to unwrap this is registerInclusionList.

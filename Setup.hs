@@ -3,8 +3,10 @@ import Distribution.PackageDescription
 import Distribution.Simple
 import Distribution.Simple.LocalBuildInfo
 import Distribution.Simple.Install
+import Distribution.Simple.PreProcess
 import Distribution.Simple.Setup
 import Distribution.System
+import Distribution.Verbosity (Verbosity)
 import System.Cmd (system)
 import System.Directory
 import System.FilePath
@@ -14,7 +16,30 @@ main = defaultMainWithHooks simpleUserHooks
          { confHook = libClangConfHook
          , cleanHook = libClangCleanHook
          , buildHook = libClangBuildHook
+         , hookedPreProcessors = [("fficonst", ffiConstHook)]
          }
+
+ffiConstHook :: BuildInfo -> LocalBuildInfo -> PreProcessor
+ffiConstHook _ _ =
+  PreProcessor
+  { platformIndependent = True
+  , runPreProcessor = mkSimplePreProcessor runFFIConstPass
+  }
+
+runFFIConstPass :: FilePath -> FilePath -> Verbosity -> IO ()
+runFFIConstPass inFile outFile _ = do
+  putStrLn "Building FFI constant preprocessor..."
+  curDir <- getCurrentDirectory
+  let libclangIncludeDir = curDir </> "clang" </> "include"
+      cbitsIncludeDir    = curDir </> "cbits"
+  system $ "cd fficonst && make CPPFLAGS="
+        ++ escape ("-I" ++ libclangIncludeDir ++ " -I" ++ cbitsIncludeDir)
+
+  putStrLn "Generating FFI constants..."
+  system $ "cp -f " ++ escape inFile ++ " " ++ escape outFile
+  system $ "./fficonst/fficonst >> " ++ escape outFile
+
+  return ()
 
 libclangLibraries :: [String]
 libclangLibraries =
@@ -115,6 +140,10 @@ libClangBuildHook pkg lbi flags ppHandlers = do
 libClangCleanHook pkg v hooks flags = do
     putStrLn "Cleaning llvm and clang..."
     system $ "rm -rf build/*"
+
+    putStrLn "Cleaning the FFI constant preprocessor..."
+    system $ "rm -f fficonst/fficonst"
+
     (cleanHook simpleUserHooks) pkg v hooks flags
 
 escape :: FilePath -> String
