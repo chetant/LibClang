@@ -1,3 +1,6 @@
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+
 module Clang.Debug
 ( enableStackTraces
 , getVersion
@@ -9,10 +12,10 @@ import Control.Monad.IO.Class
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 
-enableStackTraces :: ClangApp s ()
+enableStackTraces :: ClangBase m => ClangT s m ()
 enableStackTraces = liftIO $ FFI.enableStackTraces
 
-getVersion :: ClangApp s FFI.CXString
+getVersion :: ClangBase m => ClangT s m FFI.CXString
 getVersion = FFI.registerCXString $ FFI.getClangVersion
 
 -- toggleCrashRecovery = FFI.toggleCrashRecovery

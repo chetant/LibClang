@@ -1,5 +1,8 @@
 {-# OPTIONS_GHC -w #-}
-{-# LANGUAGE ForeignFunctionInterface, EmptyDataDecls #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
 
 module Clang.Internal.FFI
 ( Index
@@ -22,6 +25,7 @@ module Clang.Internal.FFI
 , unsafeGetByteString
 , getStringHash
 , File(..)
+, getFileHash
 , getFileName
 , getFileTime
 , getFile
@@ -79,7 +83,6 @@ module Clang.Internal.FFI
 , Cursor
 , getNullCursor
 , getTranslationUnitCursor
-, equalCursors
 , cursor_isNull
 , hashCursor
 , getCursorKind
@@ -102,10 +105,12 @@ module Clang.Internal.FFI
 , cXCursorSet_insert
 , getCursorSemanticParent
 , getCursorLexicalParent
+, registerOverriddenList
 , getOverriddenCursors
 , getIncludedFile
 , getCursor
 , getCursorLocation
+, getCursorSpellingLocation
 , getCursorExtent
 , TypeKind(..)
 , Type
@@ -140,9 +145,14 @@ module Clang.Internal.FFI
 , getNumOverloadedDecls
 , getOverloadedDecl
 , getIBOutletCollectionType
-, ChildVisitResult(..)
-, ChildVisitor
-, visitChildren
+, CursorList
+, registerCursorList
+, getChildren
+, getDescendants
+, ParentedCursor(..)
+, ParentedCursorList
+, registerParentedCursorList
+, getParentedDescendants
 , getCursorUSR
 , constructUSR_ObjCClass
 , constructUSR_ObjCCategory
@@ -191,9 +201,10 @@ module Clang.Internal.FFI
 , codeCompleteGetDiagnostic
 , getClangVersion
 -- , toggleCrashRecovery
-, InclusionVisitor
+, Inclusion(..)
+, InclusionList
+, registerInclusionList
 , getInclusions
-, wrapInclusionVisitor
 ) where
 
 import Control.Applicative ((<$>))
@@ -201,17 +212,22 @@ import Control.Monad (when)
 import Control.Monad.Trans
 import Data.ByteString (ByteString, packCString)
 import Data.ByteString.Unsafe (unsafePackCString)
+import Data.Hashable
+import qualified Data.Vector.Storable as DVS
 import Data.Word
 import Foreign.C
 import Foreign.ForeignPtr.Unsafe (unsafeForeignPtrToPtr)
 import Foreign.GreenCard
 
-import Clang.Internal.ClangApp
+import Clang.Internal.FFIConstants
+import Clang.Internal.Monad
 
 %#include <inttypes.h>
 %#include <stdlib.h>
+%#include <stddef.h>
 %#include <clang-c/Index.h>
 %#include <stdio.h>
+%#include "visitors.h"
 
 %prefix CX
 %prefix CX_
@@ -222,7 +238,7 @@ marshall_fptr :: ForeignPtr a -> IO (Ptr a)
 marshall_fptr  = return . Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr
 
 -- typedef void *CXIndex;
-data Index = Index (Ptr ())
+data Index = Index !(Ptr ())
 
 %enum GlobalOptFlags (Enum, Eq, Ord, Read, Show) Int [CXGlobalOpt_None, CXGlobalOpt_ThreadBackgroundPriorityForIndexing, CXGlobalOpt_ThreadBackgroundPriorityForEditing, CXGlobalOpt_ThreadBackgroundPriorityForAll]
 -- enum CXGlobalOptFlags {
@@ -252,11 +268,12 @@ data Index = Index (Ptr ())
 -- We deliberately don't export the constructor. The only way to unwrap this is registerIndex.
 newtype UnsafeIndex = UnsafeIndex Index
 
-registerIndex :: IO UnsafeIndex -> ClangApp s Index
+registerIndex :: ClangBase m => IO UnsafeIndex -> ClangT s m Index
 registerIndex action = do
-  (_, idx) <- appAllocate (action >>= \(UnsafeIndex i) -> return i)
-                          (\i -> disposeIndex i)
+  (_, idx) <- clangAllocate (action >>= \(UnsafeIndex i) -> return i)
+                            (\i -> disposeIndex i)
   return idx
+{-# INLINEABLE registerIndex #-}
 
 fromIndex :: Index -> Ptr ()
 fromIndex (Index p) = p
@@ -267,7 +284,7 @@ toIndex p = UnsafeIndex (Index p)
 %dis index i = <fromIndex/toIndex> (ptr i)
 
 -- typedef struct CXTranslationUnitImpl *CXTranslationUnit;
-data TranslationUnit = TranslationUnit (Ptr ())
+data TranslationUnit = TranslationUnit !(Ptr ())
 
 -- void clang_disposeTranslationUnit(CXTranslationUnit);
 %fun clang_disposeTranslationUnit :: TranslationUnit -> IO ()
@@ -277,11 +294,12 @@ data TranslationUnit = TranslationUnit (Ptr ())
 -- We deliberately don't export the constructor. The only way to unwrap this is registerTranslationUnit.
 newtype UnsafeTranslationUnit = UnsafeTranslationUnit TranslationUnit
 
-registerTranslationUnit :: IO UnsafeTranslationUnit -> ClangApp s TranslationUnit
+registerTranslationUnit :: ClangBase m => IO UnsafeTranslationUnit -> ClangT s m TranslationUnit
 registerTranslationUnit action = do
-  (_, tu) <- appAllocate (action >>= \(UnsafeTranslationUnit t) -> return t)
-                         (\t -> disposeTranslationUnit t)
+  (_, tu) <- clangAllocate (action >>= \(UnsafeTranslationUnit t) -> return t)
+                           (\t -> disposeTranslationUnit t)
   return tu
+{-# INLINEABLE registerTranslationUnit #-}
 
 fromTranslationUnit :: TranslationUnit  -> Ptr ()
 fromTranslationUnit (TranslationUnit p) = p
@@ -300,7 +318,7 @@ type ClientData = ForeignPtr ClientDataObj
 --   const char* Contents;
 --   unsigned long Length;
 -- };
-data UnsavedFile = UnsavedFile { unsavedFilename :: FilePath, unsavedContents :: String }
+data UnsavedFile = UnsavedFile { unsavedFilename :: !FilePath, unsavedContents :: !String }
 
 %enum AvailabilityKind (Enum, Eq, Ord, Read, Show) Int [CXAvailability_Available, CXAvailability_Deprecated, CXAvailability_NotAvailable]
 -- enum CXAvailabilityKind {
@@ -313,16 +331,17 @@ data UnsavedFile = UnsavedFile { unsavedFilename :: FilePath, unsavedContents ::
 --   const void *data;
 --   unsigned private_flags;
 -- } CXString;
-data CXString = CXString (Ptr ()) Word32
+data CXString = CXString !(Ptr ()) !Word32
 
 -- We deliberately don't export the constructor. The only way to unwrap this is registerCXString.
 newtype UnsafeCXString = UnsafeCXString CXString
 
-registerCXString :: IO UnsafeCXString -> ClangApp s CXString
+registerCXString :: ClangBase m => IO UnsafeCXString -> ClangT s m CXString
 registerCXString action = do
-  (_, str) <- appAllocate (action >>= \(UnsafeCXString s) -> return s)
-                          (\(CXString d f) -> freeCXString d f)
+  (_, str) <- clangAllocate (action >>= \(UnsafeCXString s) -> return s)
+                            (\(CXString d f) -> freeCXString d f)
   return str
+{-# INLINEABLE registerCXString #-}
 
 %C void freeCXString(void* data, unsigned flags) {
 %    CXString str;
@@ -364,13 +383,8 @@ unsafeGetByteString (CXString d f) = getCStringPtr d f >>= unsafePackCString
 %dis word32 x    = %%Word32 ({HsWord32} x)
 %dis word64 x    = %%Word64 ({HsWord64} x)
 
-getStringHash :: CXString -> IO Word64
-getStringHash (CXString d f) = getCStringHash d f
-
-%fun clang_getCStringHash :: Ptr () -> Word32 -> IO Word64
-%call (ptr d) (word32 f)
-%code r = (uint64_t) ((void*) d);
-%result (word64 r)
+getStringHash :: CXString -> WordPtr
+getStringHash (CXString p _) = ptrToWordPtr p
 
 from_Maybe_File :: Maybe File -> File
 from_Maybe_File (Just f) = f
@@ -382,7 +396,11 @@ to_Maybe_File f                       = Just f
 
 -- typedef void *CXFile;
 newtype File = File (Ptr ())
+               deriving (Eq, Ord)
 %dis file x = File (ptr x)
+
+getFileHash :: File -> WordPtr
+getFileHash (File p) = ptrToWordPtr p
 
 -- CXString clang_getFileName(CXFile SFile);
 %fun clang_getFileName :: File -> IO UnsafeCXString
@@ -407,30 +425,37 @@ foreign import ccall unsafe "clang-c/Index.h clang_getFileTime" clang_getFileTim
 --   void *ptr_data[2];
 --   unsigned int_data;
 -- } CXSourceLocation;
-data SourceLocation = SourceLocation (Ptr ()) (Ptr ()) Int
+data SourceLocation = SourceLocation !(Ptr ()) !(Ptr ()) !Int
 %dis sourceLocation p1 p2 d = SourceLocation (ptr p1) (ptr p2) (int d)
 
-%C const void* srcLocListGetPtr(CXSourceLocation* s, int i, int pi) {return s[i].ptr_data[pi];}
-%  unsigned srcLocListGetData(CXSourceLocation* s, int i) {return s[i].int_data;}
+instance Storable SourceLocation where
+    sizeOf _ = sizeOfCXSourceLocation
+    {-# INLINE sizeOf #-}
 
-foreign import ccall safe "FFI_stub_ffi.h srcLocListGetPtr" srcLocListGetPtr_ :: Ptr () -> CInt -> CInt -> IO (Ptr ())
-foreign import ccall safe "FFI_stub_ffi.h srcLocListGetData" srcLocListGetData_ :: Ptr () -> CInt -> IO CInt
+    alignment _ = 4
+    {-# INLINE alignment #-}
 
-unmarshall_SrcLocList :: Ptr () -> CUInt -> IO [SourceLocation]
-unmarshall_SrcLocList sls 0 = return []
-unmarshall_SrcLocList sls nsl = mapM getSrcList_ [0..(nsl-1)]
-    where getSrcList_ i = do
-            p1 <- srcLocListGetPtr_ sls (fromIntegral i) 0
-            p2 <- srcLocListGetPtr_ sls (fromIntegral i) 1
-            i  <- fromIntegral <$> srcLocListGetData_ sls (fromIntegral i)
-            return $ SourceLocation p1 p2 i
+    peek p = do
+      let fromCUInt = fromIntegral :: Num b => CUInt -> b
+      p1 <- peekByteOff p offsetCXSourceLocationP1
+      p2 <- peekByteOff p offsetCXSourceLocationP2
+      d <- fromCUInt <$> peekByteOff p offsetCXSourceLocationData
+      return $! SourceLocation p1 p2 d
+    {-# INLINE peek #-}
+
+    poke p (SourceLocation p1 p2 d) = do
+      let toCUInt = fromIntegral :: Integral a => a -> CUInt
+      pokeByteOff p offsetCXSourceLocationP1 p1
+      pokeByteOff p offsetCXSourceLocationP2 p2
+      pokeByteOff p offsetCXSourceLocationData $ toCUInt d
+    {-# INLINE poke #-}
 
 -- typedef struct {
 --   void *ptr_data[2];
 --   unsigned begin_int_data;
 --   unsigned end_int_data;
 -- } CXSourceRange;
-data SourceRange = SourceRange (Ptr ()) (Ptr ()) Int Int
+data SourceRange = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 %dis sourceRange p1 p2 d1 d2 = SourceRange (ptr p1) (ptr p2) (int d1) (int d2)
 
 -- CXSourceLocation clang_getNullLocation();
@@ -533,7 +558,7 @@ data SourceRange = SourceRange (Ptr ()) (Ptr ()) Int Int
 %enum DiagnosticSeverity (Enum, Eq, Ord, Read, Show) Int [CXDiagnostic_Ignored, CXDiagnostic_Note, CXDiagnostic_Warning, CXDiagnostic_Error, CXDiagnostic_Fatal]
 
 -- typedef void* CXDiagnostic;
-data Diagnostic = Diagnostic (Ptr ())
+data Diagnostic = Diagnostic !(Ptr ())
 
 -- void clang_disposeDiagnostic(CXDiagnostic);
 %fun clang_disposeDiagnostic :: Diagnostic -> IO ()
@@ -543,11 +568,12 @@ data Diagnostic = Diagnostic (Ptr ())
 -- We deliberately don't export the constructor. The only way to unwrap this is registerDiagnostic.
 newtype UnsafeDiagnostic = UnsafeDiagnostic Diagnostic
 
-registerDiagnostic :: IO UnsafeDiagnostic -> ClangApp s Diagnostic
+registerDiagnostic :: ClangBase m => IO UnsafeDiagnostic -> ClangT s m Diagnostic
 registerDiagnostic action = do
-  (_, idx) <- appAllocate (action >>= \(UnsafeDiagnostic i) -> return i)
-                          (\i -> disposeDiagnostic i)
+  (_, idx) <- clangAllocate (action >>= \(UnsafeDiagnostic i) -> return i)
+                            (\i -> disposeDiagnostic i)
   return idx
+{-# INLINEABLE registerDiagnostic #-}
 
 fromDiagnostic :: Diagnostic -> Ptr ()
 fromDiagnostic (Diagnostic p) = p
@@ -1453,55 +1479,76 @@ getReparseFlagsSum = sum . (map toVal_)
 --   CXCursor_InclusionDirective            = 503,
 --   CXCursor_FirstPreprocessing            = CXCursor_PreprocessingDirective,
 --   CXCursor_LastPreprocessing             = CXCursor_InclusionDirective
+--
+--   /* Extra Declarations */
+--   /**
+--    * \brief A module import declaration.
+--    */
+--   CXCursor_ModuleImportDecl              = 600,
+--   CXCursor_FirstExtraDecl                = CXCursor_ModuleImportDecl,
+--   CXCursor_LastExtraDecl                 = CXCursor_ModuleImportDecl
 -- };
-%enum CursorKind (Enum, Eq, Ord, Read, Show) Int [CXCursor_UnexposedDecl,CXCursor_StructDecl,CXCursor_UnionDecl,CXCursor_ClassDecl,CXCursor_EnumDecl,CXCursor_FieldDecl,CXCursor_EnumConstantDecl,CXCursor_FunctionDecl,CXCursor_VarDecl,CXCursor_ParmDecl,CXCursor_ObjCInterfaceDecl,CXCursor_ObjCCategoryDecl,CXCursor_ObjCProtocolDecl,CXCursor_ObjCPropertyDecl,CXCursor_ObjCIvarDecl,CXCursor_ObjCInstanceMethodDecl,CXCursor_ObjCClassMethodDecl,CXCursor_ObjCImplementationDecl,CXCursor_ObjCCategoryImplDecl,CXCursor_TypedefDecl,CXCursor_CXXMethod,CXCursor_Namespace,CXCursor_LinkageSpec,CXCursor_Constructor,CXCursor_Destructor,CXCursor_ConversionFunction,CXCursor_TemplateTypeParameter,CXCursor_NonTypeTemplateParameter,CXCursor_TemplateTemplateParameter,CXCursor_FunctionTemplate,CXCursor_ClassTemplate,CXCursor_ClassTemplatePartialSpecialization,CXCursor_NamespaceAlias,CXCursor_UsingDirective,CXCursor_UsingDeclaration,CXCursor_TypeAliasDecl,CXCursor_ObjCSynthesizeDecl,CXCursor_ObjCDynamicDecl,CXCursor_CXXAccessSpecifier,CXCursor_FirstDecl,CXCursor_LastDecl,CXCursor_FirstRef,CXCursor_ObjCSuperClassRef,CXCursor_ObjCProtocolRef,CXCursor_ObjCClassRef,CXCursor_TypeRef,CXCursor_CXXBaseSpecifier,CXCursor_TemplateRef,CXCursor_NamespaceRef,CXCursor_MemberRef,CXCursor_LabelRef,CXCursor_OverloadedDeclRef,CXCursor_LastRef,CXCursor_FirstInvalid,CXCursor_InvalidFile,CXCursor_NoDeclFound,CXCursor_NotImplemented,CXCursor_InvalidCode,CXCursor_LastInvalid,CXCursor_FirstExpr,CXCursor_UnexposedExpr,CXCursor_DeclRefExpr,CXCursor_MemberRefExpr,CXCursor_CallExpr,CXCursor_ObjCMessageExpr,CXCursor_BlockExpr,CXCursor_IntegerLiteral,CXCursor_FloatingLiteral,CXCursor_ImaginaryLiteral,CXCursor_StringLiteral,CXCursor_CharacterLiteral,CXCursor_ParenExpr,CXCursor_UnaryOperator,CXCursor_ArraySubscriptExpr,CXCursor_BinaryOperator,CXCursor_CompoundAssignOperator,CXCursor_ConditionalOperator,CXCursor_CStyleCastExpr,CXCursor_CompoundLiteralExpr,CXCursor_InitListExpr,CXCursor_AddrLabelExpr,CXCursor_StmtExpr,CXCursor_GenericSelectionExpr,CXCursor_GNUNullExpr,CXCursor_CXXStaticCastExpr,CXCursor_CXXDynamicCastExpr,CXCursor_CXXReinterpretCastExpr,CXCursor_CXXConstCastExpr,CXCursor_CXXFunctionalCastExpr,CXCursor_CXXTypeidExpr,CXCursor_CXXBoolLiteralExpr,CXCursor_CXXNullPtrLiteralExpr,CXCursor_CXXThisExpr,CXCursor_CXXThrowExpr,CXCursor_CXXNewExpr,CXCursor_CXXDeleteExpr,CXCursor_UnaryExpr,CXCursor_ObjCStringLiteral,CXCursor_ObjCEncodeExpr,CXCursor_ObjCSelectorExpr,CXCursor_ObjCProtocolExpr,CXCursor_ObjCBridgedCastExpr,CXCursor_PackExpansionExpr,CXCursor_SizeOfPackExpr,CXCursor_LastExpr,CXCursor_FirstStmt,CXCursor_UnexposedStmt,CXCursor_LabelStmt,CXCursor_CompoundStmt,CXCursor_CaseStmt,CXCursor_DefaultStmt,CXCursor_IfStmt,CXCursor_SwitchStmt,CXCursor_WhileStmt,CXCursor_DoStmt,CXCursor_ForStmt,CXCursor_GotoStmt,CXCursor_IndirectGotoStmt,CXCursor_ContinueStmt,CXCursor_BreakStmt,CXCursor_ReturnStmt,CXCursor_AsmStmt,CXCursor_ObjCAtTryStmt,CXCursor_ObjCAtCatchStmt,CXCursor_ObjCAtFinallyStmt,CXCursor_ObjCAtThrowStmt,CXCursor_ObjCAtSynchronizedStmt,CXCursor_ObjCAutoreleasePoolStmt,CXCursor_ObjCForCollectionStmt,CXCursor_CXXCatchStmt,CXCursor_CXXTryStmt,CXCursor_CXXForRangeStmt,CXCursor_SEHTryStmt,CXCursor_SEHExceptStmt,CXCursor_SEHFinallyStmt,CXCursor_NullStmt,CXCursor_DeclStmt,CXCursor_LastStmt,CXCursor_TranslationUnit,CXCursor_FirstAttr,CXCursor_UnexposedAttr,CXCursor_IBActionAttr,CXCursor_IBOutletAttr,CXCursor_IBOutletCollectionAttr,CXCursor_CXXFinalAttr,CXCursor_CXXOverrideAttr,CXCursor_AnnotateAttr,CXCursor_LastAttr,CXCursor_PreprocessingDirective,CXCursor_MacroDefinition,CXCursor_MacroExpansion,CXCursor_MacroInstantiation,CXCursor_InclusionDirective,CXCursor_FirstPreprocessing,CXCursor_LastPreprocessing]
+%enum CursorKind (Enum, Eq, Ord, Read, Show) Int [CXCursor_UnexposedDecl,CXCursor_StructDecl,CXCursor_UnionDecl,CXCursor_ClassDecl,CXCursor_EnumDecl,CXCursor_FieldDecl,CXCursor_EnumConstantDecl,CXCursor_FunctionDecl,CXCursor_VarDecl,CXCursor_ParmDecl,CXCursor_ObjCInterfaceDecl,CXCursor_ObjCCategoryDecl,CXCursor_ObjCProtocolDecl,CXCursor_ObjCPropertyDecl,CXCursor_ObjCIvarDecl,CXCursor_ObjCInstanceMethodDecl,CXCursor_ObjCClassMethodDecl,CXCursor_ObjCImplementationDecl,CXCursor_ObjCCategoryImplDecl,CXCursor_TypedefDecl,CXCursor_CXXMethod,CXCursor_Namespace,CXCursor_LinkageSpec,CXCursor_Constructor,CXCursor_Destructor,CXCursor_ConversionFunction,CXCursor_TemplateTypeParameter,CXCursor_NonTypeTemplateParameter,CXCursor_TemplateTemplateParameter,CXCursor_FunctionTemplate,CXCursor_ClassTemplate,CXCursor_ClassTemplatePartialSpecialization,CXCursor_NamespaceAlias,CXCursor_UsingDirective,CXCursor_UsingDeclaration,CXCursor_TypeAliasDecl,CXCursor_ObjCSynthesizeDecl,CXCursor_ObjCDynamicDecl,CXCursor_CXXAccessSpecifier,CXCursor_FirstDecl,CXCursor_LastDecl,CXCursor_FirstRef,CXCursor_ObjCSuperClassRef,CXCursor_ObjCProtocolRef,CXCursor_ObjCClassRef,CXCursor_TypeRef,CXCursor_CXXBaseSpecifier,CXCursor_TemplateRef,CXCursor_NamespaceRef,CXCursor_MemberRef,CXCursor_LabelRef,CXCursor_OverloadedDeclRef,CXCursor_LastRef,CXCursor_FirstInvalid,CXCursor_InvalidFile,CXCursor_NoDeclFound,CXCursor_NotImplemented,CXCursor_InvalidCode,CXCursor_LastInvalid,CXCursor_FirstExpr,CXCursor_UnexposedExpr,CXCursor_DeclRefExpr,CXCursor_MemberRefExpr,CXCursor_CallExpr,CXCursor_ObjCMessageExpr,CXCursor_BlockExpr,CXCursor_IntegerLiteral,CXCursor_FloatingLiteral,CXCursor_ImaginaryLiteral,CXCursor_StringLiteral,CXCursor_CharacterLiteral,CXCursor_ParenExpr,CXCursor_UnaryOperator,CXCursor_ArraySubscriptExpr,CXCursor_BinaryOperator,CXCursor_CompoundAssignOperator,CXCursor_ConditionalOperator,CXCursor_CStyleCastExpr,CXCursor_CompoundLiteralExpr,CXCursor_InitListExpr,CXCursor_AddrLabelExpr,CXCursor_StmtExpr,CXCursor_GenericSelectionExpr,CXCursor_GNUNullExpr,CXCursor_CXXStaticCastExpr,CXCursor_CXXDynamicCastExpr,CXCursor_CXXReinterpretCastExpr,CXCursor_CXXConstCastExpr,CXCursor_CXXFunctionalCastExpr,CXCursor_CXXTypeidExpr,CXCursor_CXXBoolLiteralExpr,CXCursor_CXXNullPtrLiteralExpr,CXCursor_CXXThisExpr,CXCursor_CXXThrowExpr,CXCursor_CXXNewExpr,CXCursor_CXXDeleteExpr,CXCursor_UnaryExpr,CXCursor_ObjCStringLiteral,CXCursor_ObjCEncodeExpr,CXCursor_ObjCSelectorExpr,CXCursor_ObjCProtocolExpr,CXCursor_ObjCBridgedCastExpr,CXCursor_PackExpansionExpr,CXCursor_SizeOfPackExpr,CXCursor_LastExpr,CXCursor_FirstStmt,CXCursor_UnexposedStmt,CXCursor_LabelStmt,CXCursor_CompoundStmt,CXCursor_CaseStmt,CXCursor_DefaultStmt,CXCursor_IfStmt,CXCursor_SwitchStmt,CXCursor_WhileStmt,CXCursor_DoStmt,CXCursor_ForStmt,CXCursor_GotoStmt,CXCursor_IndirectGotoStmt,CXCursor_ContinueStmt,CXCursor_BreakStmt,CXCursor_ReturnStmt,CXCursor_AsmStmt,CXCursor_ObjCAtTryStmt,CXCursor_ObjCAtCatchStmt,CXCursor_ObjCAtFinallyStmt,CXCursor_ObjCAtThrowStmt,CXCursor_ObjCAtSynchronizedStmt,CXCursor_ObjCAutoreleasePoolStmt,CXCursor_ObjCForCollectionStmt,CXCursor_CXXCatchStmt,CXCursor_CXXTryStmt,CXCursor_CXXForRangeStmt,CXCursor_SEHTryStmt,CXCursor_SEHExceptStmt,CXCursor_SEHFinallyStmt,CXCursor_NullStmt,CXCursor_DeclStmt,CXCursor_LastStmt,CXCursor_TranslationUnit,CXCursor_FirstAttr,CXCursor_UnexposedAttr,CXCursor_IBActionAttr,CXCursor_IBOutletAttr,CXCursor_IBOutletCollectionAttr,CXCursor_CXXFinalAttr,CXCursor_CXXOverrideAttr,CXCursor_AnnotateAttr,CXCursor_LastAttr,CXCursor_PreprocessingDirective,CXCursor_MacroDefinition,CXCursor_MacroExpansion,CXCursor_MacroInstantiation,CXCursor_InclusionDirective,CXCursor_FirstPreprocessing,CXCursor_LastPreprocessing,CXCursor_ModuleImportDecl,CXCursor_FirstExtraDecl,CXCursor_LastExtraDecl]
 
 -- typedef struct {
 --   enum CXCursorKind kind;
 --   int xdata;
 --   const void* data[3];
 -- } CXCursor;
-data Cursor = Cursor CursorKind Int (Ptr ()) (Ptr ()) (Ptr ())
+data Cursor = Cursor !CursorKind !Int !(Ptr ()) !(Ptr ()) !(Ptr ())
 %dis cursor k xdata p1 p2 p3 = Cursor (cursorKind k) (int xdata) (ptr p1) (ptr p2) (ptr p3)
 
-%C unsigned sizeOfCXCursor() {return sizeof(CXCursor);}
-%  const void* getCXCursorData(CXCursor* p, int i){return p->data[i];}
-%  enum CXCursorKind getCXCursorKind(CXCursor* p){return p->kind;}
-%  void setCXCursorData(CXCursor* p, int i, const void* ptr){p->data[i] = ptr;}
-%  void setCXCursorKind(CXCursor* p, unsigned kind){p->kind = kind;}
-%  unsigned getCXCursorXData(CXCursor* p){return p->xdata;}
-%  void setCXCursorXData(CXCursor* p, unsigned i){p->xdata = i;}
-foreign import ccall unsafe "FFI_stub_ffi.h sizeOfCXCursor" sizeOfCXCursor :: CUInt
-foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorData" getCXCursorData :: Ptr () -> CInt -> IO (Ptr ())
-foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorKind" getCXCursorKind :: Ptr () -> IO CUInt
-foreign import ccall unsafe "FFI_stub_ffi.h setCXCursorData" setCXCursorData :: Ptr () -> CInt -> Ptr () -> IO ()
-foreign import ccall unsafe "FFI_stub_ffi.h setCXCursorKind" setCXCursorKind :: Ptr () -> CUInt -> IO ()
-foreign import ccall unsafe "FFI_stub_ffi.h getCXCursorXData" getCXCursorXData :: Ptr () -> IO CUInt
-foreign import ccall unsafe "FFI_stub_ffi.h setCXCursorXData" setCXCursorXData :: Ptr () -> CUInt -> IO ()
-
 instance Storable Cursor where
-    sizeOf _ = fromIntegral sizeOfCXCursor
+    sizeOf _ = sizeOfCXCursor
+    {-# INLINE sizeOf #-}
+
     alignment _ = 4
+    {-# INLINE alignment #-}
+
     peek p = do
-      let ptr = castPtr p
-      k <- (unmarshall_CursorKind . fromIntegral) <$> getCXCursorKind ptr
-      xdata <- fromIntegral <$> getCXCursorXData ptr
-      p1 <- getCXCursorData ptr 0
-      p2 <- getCXCursorData ptr 1
-      p3 <- getCXCursorData ptr 2
-      return $ Cursor k xdata p1 p2 p3
+      let fromCInt = fromIntegral :: Num b => CInt -> b
+      k <- (unmarshall_CursorKind . fromCInt) <$> peekByteOff p offsetCXCursorKind
+      xdata <- fromCInt <$> peekByteOff p offsetCXCursorXData
+      p1 <- peekByteOff p offsetCXCursorP1
+      p2 <- peekByteOff p offsetCXCursorP2
+      p3 <- peekByteOff p offsetCXCursorP3
+      return $! Cursor k xdata p1 p2 p3
+    {-# INLINE peek #-}
+
     poke p (Cursor k xdata p1 p2 p3) = do
-      let ptr = castPtr p
-      setCXCursorKind ptr $ fromIntegral (marshall_CursorKind k)
-      setCXCursorXData ptr $ fromIntegral xdata
-      setCXCursorData ptr 0 p1
-      setCXCursorData ptr 1 p2
-      setCXCursorData ptr 2 p3
+      let toCInt = fromIntegral :: Integral a => a -> CInt
+      pokeByteOff p offsetCXCursorKind $ (toCInt . marshall_CursorKind) k
+      pokeByteOff p offsetCXCursorXData $ toCInt xdata
+      pokeByteOff p offsetCXCursorP1 p1
+      pokeByteOff p offsetCXCursorP2 p2
+      pokeByteOff p offsetCXCursorP3 p3
+    {-# INLINE poke #-}
+
+instance Eq Cursor where
+    (Cursor aK aXdata aP1 aP2 aP3) == (Cursor bK bXdata bP1 bP2 bP3) =
+        (aK == bK) &&
+        (aXdata == bXdata) &&
+        (aP1 == bP1) &&
+        (aP2' == bP2') &&
+        (aP3 == bP3)
+      where
+        aP2' = if isDeclaration aK then intPtrToPtr 0 else aP2
+        bP2' = if isDeclaration bK then intPtrToPtr 0 else bP2
+    {-# INLINE (==) #-}
+
+instance Hashable Cursor where
+    hash (Cursor k _ p1 p2 _) =
+      let p = if isExpression k || isStatement k then p2 else p1
+          kindHash = hash (marshall_CursorKind k)
+          pAsInt = fromIntegral (ptrToIntPtr p) :: Int
+          dataHash = hash pAsInt
+      in kindHash `combine` dataHash
+    {-# INLINE hash #-}
 
 -- CXCursor clang_getNullCursor(void);
-%fun clang_getNullCursor :: IO Cursor
-%code CXCursor r = clang_getNullCursor();
-%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
+getNullCursor :: Cursor
+getNullCursor = Cursor Cursor_InvalidFile 0 (intPtrToPtr 0) (intPtrToPtr 0) (intPtrToPtr 0)
+{-# INLINE getNullCursor #-}
 
 -- CXCursor clang_getTranslationUnitCursor(CXTranslationUnit);
 %fun clang_getTranslationUnitCursor :: TranslationUnit -> IO Cursor
@@ -1509,20 +1556,18 @@ instance Storable Cursor where
 %code CXCursor r = clang_getTranslationUnitCursor(t);
 %result (cursor {r.kind}  {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
--- unsigned clang_equalCursors(CXCursor, CXCursor);
-%fun clang_equalCursors :: Cursor -> Cursor -> IO Bool
-%call (cursor k xdata p1 p2 p3) (cursor k2 xdata2 p12 p22 p32)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXCursor b = {k2, xdata2, {p12, p22, p32}};
-%     unsigned r = clang_equalCursors(a, b);
-%result (bool r)
-
 -- int clang_Cursor_isNull(CXCursor);
-%fun clang_cursor_isNull :: Cursor -> IO Bool
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     int r = clang_Cursor_isNull(a);
-%result (bool r)
+cursor_isNull :: Cursor -> Bool
+cursor_isNull (Cursor k xdata p1 p2 p3)
+  | k == Cursor_InvalidFile &&
+    xdata == 0 &&
+    p1 == intPtrToPtr 0 &&
+    p2 == intPtrToPtr 0 &&
+    p3 == intPtrToPtr 0
+      = True
+  | otherwise
+      = False
+{-# INLINE cursor_isNull #-}
 
 -- unsigned clang_hashCursor(CXCursor);
 %fun clang_hashCursor :: Cursor -> IO Word32
@@ -1530,30 +1575,60 @@ instance Storable Cursor where
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     unsigned r = clang_hashCursor(a);
 %result (word32 r)
-  
--- enum CXCursorKind clang_getCursorKind(CXCursor);
-%fun clang_getCursorKind :: Cursor -> IO CursorKind
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     enum CXCursorKind r = clang_getCursorKind(a);
-%result (cursorKind r)
+{-# INLINEABLE hashCursor #-}
+ 
+getCursorKind :: Cursor -> CursorKind
+getCursorKind (Cursor k _ _ _ _) = k
+{-# INLINE getCursorKind #-}
 
--- unsigned clang_isDeclaration(enum CXCursorKind);
-%fun clang_isDeclaration :: CursorKind -> IO Bool
--- unsigned clang_isReference(enum CXCursorKind);
-%fun clang_isReference :: CursorKind -> IO Bool
--- unsigned clang_isExpression(enum CXCursorKind);
-%fun clang_isExpression :: CursorKind -> IO Bool
--- unsigned clang_isStatement(enum CXCursorKind);
-%fun clang_isStatement :: CursorKind -> IO Bool
--- unsigned clang_isInvalid(enum CXCursorKind);
-%fun clang_isInvalid :: CursorKind -> IO Bool
--- unsigned clang_isTranslationUnit(enum CXCursorKind);
-%fun clang_isTranslationUnit :: CursorKind -> IO Bool
--- unsigned clang_isPreprocessing(enum CXCursorKind);
-%fun clang_isPreprocessing :: CursorKind -> IO Bool
--- unsigned clang_isUnexposed(enum CXCursorKind);
-%fun clang_isUnexposed :: CursorKind -> IO Bool
+-- unsigned clang_isDeclaration(enum CursorKind);
+isDeclaration :: CursorKind -> Bool
+isDeclaration k =
+  (k >= Cursor_FirstDecl && k <= Cursor_LastDecl) ||
+  (k >= Cursor_FirstExtraDecl && k <= Cursor_LastExtraDecl)
+{-# INLINE isDeclaration #-}
+
+-- unsigned clang_isReference(enum CursorKind);
+isReference :: CursorKind -> Bool
+isReference k =
+  (k >= Cursor_FirstRef && k <= Cursor_LastRef)
+{-# INLINE isReference #-}
+
+-- unsigned clang_isExpression(enum CursorKind);
+isExpression :: CursorKind -> Bool
+isExpression k =
+  (k >= Cursor_FirstExpr && k <= Cursor_LastExpr)
+{-# INLINE isExpression #-}
+
+-- unsigned clang_isStatement(enum CursorKind);
+isStatement :: CursorKind -> Bool
+isStatement k =
+  (k >= Cursor_FirstStmt && k <= Cursor_LastStmt)
+{-# INLINE isStatement #-}
+
+-- unsigned clang_isInvalid(enum CursorKind);
+isInvalid :: CursorKind -> Bool
+isInvalid k =
+  (k >= Cursor_FirstInvalid && k <= Cursor_LastInvalid)
+{-# INLINE isInvalid #-}
+
+-- unsigned clang_isTranslationUnit(enum CursorKind);
+isTranslationUnit :: CursorKind -> Bool
+isTranslationUnit Cursor_TranslationUnit = True
+isTranslationUnit _ = False
+{-# INLINE isTranslationUnit #-}
+
+-- unsigned clang_isPreprocessing(enum CursorKind);
+isPreprocessing :: CursorKind -> Bool
+isPreprocessing k =
+  (k >= Cursor_FirstPreprocessing && k <= Cursor_LastPreprocessing)
+{-# INLINE isPreprocessing #-}
+
+-- unsigned clang_isUnexposed(enum CursorKind);
+isUnexposed :: CursorKind -> Bool
+isUnexposed k =
+  (k >= Cursor_FirstPreprocessing && k <= Cursor_LastPreprocessing)
+{-# INLINE isUnexposed #-}
 
 -- enum CXLinkageKind {
 --   CXLinkage_Invalid,
@@ -1635,42 +1710,24 @@ unmarshall_cursorSet = newForeignPtr clang_disposeCXCursorSet
 %     CXCursor r = clang_getCursorLexicalParent(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
--- We create a dummy type to get around greencard's inability to handle arrays
--- data CursorList = CursorList (Ptr ()) [Cursor]
-type CursorList = [Cursor]
-
-%C enum CXCursorKind cursorListGetKind(CXCursor *clist, int i) {return clist[i].kind;}
-%  unsigned cursorListGetXData(CXCursor *clist, int i) {return clist[i].xdata;}
-%  const void* cursorListGetPtr(CXCursor *clist, int i, int pi) {return clist[i].data[pi];}
-
-foreign import ccall unsafe "FFI_stub_ffi.h cursorListGetKind" cursorListGetKind_ :: Ptr () -> CInt -> IO Int
-foreign import ccall unsafe "FFI_stub_ffi.h cursorListGetXData" cursorListGetXData_ :: Ptr () -> CInt -> IO Int
-foreign import ccall unsafe "FFI_stub_ffi.h cursorListGetPtr" cursorListGetPtr_ :: Ptr () -> CInt -> CInt -> IO (Ptr ())
-
 -- void clang_disposeOverriddenCursors(CXCursor *overridden);
-foreign import ccall unsafe "clang-c/Index.h clang_disposeOverriddenCursors" clang_disposeOverriddenCursors :: Ptr () -> IO ()
-
-unmarshall_cursorList ::  Int -> Ptr () -> IO CursorList
-unmarshall_cursorList numO os = do
-  cursors <- mapM getCursor_ [0..nO]
-  clang_disposeOverriddenCursors os
-  return cursors
-    where nO = fromIntegral (numO-1)
-          getCursor_ i = do
-            kind <- unmarshall_CursorKind <$> (cursorListGetKind_ os i)
-	    xdata <- fromIntegral <$> (cursorListGetXData_ os i) 
-            p1 <- cursorListGetPtr_ os i 0
-            p2 <- cursorListGetPtr_ os i 1
-            p3 <- cursorListGetPtr_ os i 2
-            return $ Cursor kind xdata p1 p2 p3
+%fun disposeOverridden :: CursorList -> IO ()
+%call (cursorList cs n)
+%code clang_disposeOverriddenCursors(cs);
+  
+registerOverriddenList :: ClangBase m => IO UnsafeCursorList -> ClangT s m CursorList
+registerOverriddenList action = do
+    (_, cursorList) <- clangAllocate (action >>= cursorListToVector) disposeOverridden
+    return cursorList
+{-# INLINEABLE registerOverriddenList #-}
 
 -- void clang_getOverriddenCursors(CXCursor cursor, CXCursor **overridden, unsigned *num_overridden);
-%fun clang_getOverriddenCursors :: Cursor -> IO CursorList
+%fun clang_getOverriddenCursors :: Cursor -> IO UnsafeCursorList
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k , xdata, {p1, p2, p3}};
-%     CXCursor * overrides;unsigned num_overrides;
-%     clang_getOverriddenCursors(a, &overrides, &num_overrides);
-%result (cursorList (int num_overrides) (ptr overrides))
+%     CXCursor* overrides; unsigned count;
+%     clang_getOverriddenCursors(a, &overrides, &count);
+%result (cursorList overrides count)
 
 -- CXFile clang_getIncludedFile(CXCursor cursor);
 %fun clang_getIncludedFile :: Cursor -> IO File
@@ -1691,6 +1748,17 @@ unmarshall_cursorList numO os = do
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXSourceLocation r = clang_getCursorLocation(a);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
+{-# INLINEABLE getCursorLocation #-}
+
+-- Variant of clang_getCursorLocation that fuses a call to clang_getSpellingLocation.
+%fun clang_getCursorSpellingLocation :: Cursor -> IO (Maybe File, Int, Int, Int)
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     CXSourceLocation l = clang_getCursorLocation(a);
+%     CXFile f; unsigned ln, c, o;
+%     clang_getSpellingLocation(l, &f, &ln, &c, &o);
+%result (<from_Maybe_File/to_Maybe_File> (file f), (int ln), (int c), (int o))
+{-# INLINEABLE getCursorSpellingLocation #-}
 
 -- CXSourceRange clang_getCursorExtent(CXCursor);
 %fun clang_getCursorExtent :: Cursor -> IO SourceRange
@@ -1698,7 +1766,8 @@ unmarshall_cursorList numO os = do
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXSourceRange r = clang_getCursorExtent(a);
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
-    
+{-# INLINEABLE getCursorExtent #-}
+
 -- enum CXTypeKind {
 --   CXType_Invalid = 0,
 --   CXType_Unexposed = 1,
@@ -1753,7 +1822,7 @@ unmarshall_cursorList numO os = do
 --   enum CXTypeKind kind;
 --   void *data[2];
 -- } CXType;
-data Type = Type TypeKind (Ptr ()) (Ptr ())
+data Type = Type !TypeKind !(Ptr ()) !(Ptr ())
 %dis type k p1 p2 = Type (typeKind k) (ptr p1) (ptr p2)
 
 getTypeKind (Type k _ _) = k
@@ -1978,71 +2047,116 @@ getTypeKind (Type k _ _) = k
 %     CXType r = clang_getIBOutletCollectionType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
--- enum CXChildVisitResult {
---   CXChildVisit_Break,
---   CXChildVisit_Continue,
---   CXChildVisit_Recurse
--- };
-%enum ChildVisitResult (Enum, Eq, Ord, Read, Show) Int [CXChildVisit_Break, CXChildVisit_Continue, CXChildVisit_Recurse]
+-- We deliberately don't export the constructor. The only way to unwrap this is registerCursorList.
+type CursorList = DVS.Vector Cursor
+data UnsafeCursorList = UnsafeCursorList !(Ptr ()) !Int
 
--- typedef enum CXChildVisitResult (*CXCursorVisitor)(CXCursor cursor,
---                                                    CXCursor parent,
---                                                    CXClientData client_data);
-type ChildVisitorRaw = Int -> Int -> Ptr () -> Ptr () -> Ptr () -> 
-                       Int -> Int -> Ptr () -> Ptr () -> Ptr () -> IO Int
-type ChildVisitor = Cursor -- ^ Current cursor
-                 -> Cursor -- ^ Parent cursor
-                 -> IO ChildVisitResult -- ^ Visitor result code
-foreign import ccall "wrapper" wrapChildVisitorRaw :: ChildVisitorRaw -> IO (FunPtr ChildVisitorRaw)
-wrapChildVisitor :: ChildVisitor -> ChildVisitorRaw
-wrapChildVisitor f = \ck cxdata cp1 cp2 cp3
-                      pk pxdata pp1 pp2 pp3 -> do
-                        let child = Cursor (unmarshall_CursorKind ck) cxdata cp1 cp2 cp3
-                            parent = Cursor (unmarshall_CursorKind pk) pxdata pp1 pp2 pp3
-                        vRes <- f child parent
-                        return (marshall_ChildVisitResult vRes)
+-- void freeCursorList(CXCursor* cursors);
+%fun freeCursorList :: CursorList -> IO ()
+%call (cursorList cs n)
+%code freeCursorList(cs);
 
--- unsigned clang_visitChildren(CXCursor parent,
---                                             CXCursorVisitor visitor,
---                                             CXClientData client_data);
-visitChildren :: Cursor -> ChildVisitor -> IO Bool
-visitChildren (Cursor k xdata p1 p2 p3) f = do
-  fp <- wrapChildVisitorRaw (wrapChildVisitor f)
-  x <- prim_visitChildren_ (marshall_CursorKind k) xdata p1 p2 p3 fp
-  retVal <- return $ fromIntegral x
-  freeHaskellFunPtr fp
-  return (retVal == 0)
+registerCursorList :: ClangBase m => IO UnsafeCursorList -> ClangT s m CursorList
+registerCursorList action = do
+    (_, cursorList) <- clangAllocate (action >>= cursorListToVector) freeCursorList
+    return cursorList
+{-# INLINEABLE registerCursorList #-}
 
-%C typedef enum CXChildVisitResult (*HSCursorVisitor)
-%     (HsInt ck,HsInt cxdata, HsPtr cp1, HsPtr cp2,HsPtr cp3,
-%      HsInt pk,HsInt pxdata, HsPtr pp1, HsPtr pp2,HsPtr pp3);
-%
-%  enum CXChildVisitResult primChildVisitor(CXCursor c, CXCursor p, CXClientData visitorp)
-%  {
-%    HSCursorVisitor visitor = (HSCursorVisitor) visitorp;
-%    return visitor(c.kind, c.xdata,
-%                   (void*) c.data[0], (void*) c.data[1], (void*) c.data[2], 
-%                   p.kind, c.xdata,
-%                   (void*) p.data[0], (void*) p.data[1], (void*) p.data[2]);
-%  }
-%
-%  unsigned prim_visitChildren_(HsInt ck, HsInt cxdata, HsPtr p1, HsPtr p2, HsPtr p3, HsPtr fp)
-%  {
-%    CXCursor p = {ck, cxdata, {p1,p2,p3}};
-%    return clang_visitChildren(p, primChildVisitor, (CXClientData) fp);
-%  }
+cursorListToVector :: Storable a => UnsafeCursorList -> IO (DVS.Vector a)
+cursorListToVector (UnsafeCursorList cs n) = do
+  fptr <- newForeignPtr_ (castPtr cs)
+  return $ DVS.unsafeFromForeignPtr fptr 0 n
+{-# INLINE cursorListToVector #-}
 
-foreign import ccall safe "FFI_stub_ffi.h prim_visitChildren_" prim_visitChildren_ :: Int -> Int -> Ptr () -> Ptr () -> Ptr () -> FunPtr ChildVisitorRaw -> IO CUInt
+fromCursorList :: CursorList -> (Ptr (), Int)
+fromCursorList cs = let (p, _, _) = DVS.unsafeToForeignPtr cs in
+                   (castPtr $ Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr p, DVS.length cs)
 
--- #ifdef __has_feature
--- #  if __has_feature(blocks)
--- typedef enum CXChildVisitResult 
---      (^CXCursorVisitorBlock)(CXCursor cursor, CXCursor parent);
--- unsigned clang_visitChildrenWithBlock(CXCursor parent,
---                                       CXCursorVisitorBlock block);
--- #  endif
--- #endif
+toCursorList :: (Ptr (), Int) -> UnsafeCursorList
+toCursorList (cs, n) = UnsafeCursorList cs n
 
+%dis cursorList cs n = <fromCursorList/toCursorList> (ptr cs) (int n)
+
+-- A more efficient alternative to clang_visitChildren.
+-- void getChildren(CXCursor parent, CXCursor** childrenOut, unsigned* countOut)
+%fun getChildren :: Cursor -> IO UnsafeCursorList
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor c = {k, xdata, {p1, p2, p3}};
+%     CXCursor* children; unsigned count;
+%     getChildren(c, &children, &count);
+%result (cursorList children count)
+
+-- Like getChildren, but gets all transitive descendants.
+-- void getDescendants(CXCursor parent, CXCursor** childrenOut, unsigned* countOut)
+%fun getDescendants :: Cursor -> IO UnsafeCursorList
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor c = {k, xdata, {p1, p2, p3}};
+%     CXCursor* children; unsigned count;
+%     getDescendants(c, &children, &count);
+%result (cursorList children count)
+
+data ParentedCursor = ParentedCursor
+  { parentCursor  :: !Cursor
+  , childCursor :: !Cursor
+  }
+
+instance Storable ParentedCursor where
+    sizeOf _ = sizeOfParentedCursor
+    {-# INLINE sizeOf #-}
+
+    alignment _ = 4
+    {-# INLINE alignment #-}
+
+    peek p = do
+      parent <- peekByteOff p offsetParentedCursorParent
+      child <- peekByteOff p offsetParentedCursorCursor
+      return $! ParentedCursor parent child
+    {-# INLINE peek #-}
+
+    poke p (ParentedCursor parent child) = do
+      pokeByteOff p offsetParentedCursorParent parent
+      pokeByteOff p offsetParentedCursorCursor child
+    {-# INLINE poke #-}
+
+-- We deliberately don't export the constructor. The only way to unwrap this is registerParentedCursorList.
+type ParentedCursorList = DVS.Vector ParentedCursor
+data UnsafeParentedCursorList = UnsafeParentedCursorList !(Ptr ()) !Int
+
+-- void freeParentedCursorList(struct ParentedCursor* parentedCursors);
+%fun freeParentedCursorList :: ParentedCursorList -> IO ()
+%call (parentedCursorList cs n)
+%code freeParentedCursorList(cs);
+
+registerParentedCursorList :: ClangBase m => IO UnsafeParentedCursorList
+                           -> ClangT s m ParentedCursorList
+registerParentedCursorList action = do
+    (_, pcList) <- clangAllocate (action >>= mkSafe) freeParentedCursorList
+    return pcList
+  where
+    mkSafe (UnsafeParentedCursorList cs n) = do
+      fptr <- newForeignPtr_ (castPtr cs)
+      return $ DVS.unsafeFromForeignPtr fptr 0 n
+{-# INLINEABLE registerParentedCursorList #-}
+
+fromParentedCursorList :: ParentedCursorList -> (Ptr (), Int)
+fromParentedCursorList cs =
+  let (p, _, _) = DVS.unsafeToForeignPtr cs in
+  (castPtr $ Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr p, DVS.length cs)
+
+toParentedCursorList :: (Ptr (), Int) -> UnsafeParentedCursorList
+toParentedCursorList (cs, n) = UnsafeParentedCursorList cs n
+
+%dis parentedCursorList cs n = <fromParentedCursorList/toParentedCursorList> (ptr cs) (int n)
+
+-- Like getParentedDescendants, but pairs each descendant with its parent.
+-- void getParentedDescendants(CXCursor parent, struct ParentedCursor** descendantsOut,
+--                             unsigned* countOut)
+%fun getParentedDescendants :: Cursor -> IO UnsafeParentedCursorList
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor c = {k, xdata, {p1, p2, p3}};
+%     struct ParentedCursor* descendants; unsigned count;
+%     getParentedDescendants(c, &descendants, &count);
+%result (parentedCursorList descendants count)
 
 -- CXString clang_getCursorUSR(CXCursor);
 %fun clang_getCursorUSR :: Cursor -> IO UnsafeCXString
@@ -2227,7 +2341,7 @@ constructUSR_ObjCProperty s (CXString d f) = constructUSR_ObjCPropertyRaw s d f
 --   unsigned int_data[4];
 --   void *ptr_data;
 -- } CXToken;
-data Token = Token Int Int Int Int (Ptr ())
+data Token = Token !Int !Int !Int !Int !(Ptr ())
 %dis token w x y z p = Token (int w) (int x) (int y) (int z) (ptr p)
 
 -- CXTokenKind clang_getTokenKind(CXToken);
@@ -2315,30 +2429,19 @@ marshall_tokenList ts = do
 %     clang_tokenize(t, a, &tokens, &numTokens);
 %result (tokenList t (int numTokens) (ptr tokens))
 
-unmarshall_cursorListExt ::  Int -> Ptr () -> IO CursorList
-unmarshall_cursorListExt numO os = do
-  cursors <- mapM getCursor_ [0..nO]
-  clang_disposeOverriddenCursors os
-  return cursors
-    where nO = fromIntegral (numO-1)
-          getCursor_ i = do
-            kind <- unmarshall_CursorKind <$> (cursorListGetKind_ os i)
-	    xdata <- fromIntegral <$> (cursorListGetXData_ os i)
-            p1 <- cursorListGetPtr_ os i 0
-            p2 <- cursorListGetPtr_ os i 1
-            p3 <- cursorListGetPtr_ os i 2
-            return $ Cursor kind xdata p1 p2 p3
-
--- FIXME
 -- TODO: test me
+-- Note that registerCursorList can be used for the result of this
+-- function because it just calls free() to dispose of the list.
+--
 -- void clang_annotateTokens(CXTranslationUnit TU,
 --                                          CXToken *Tokens, unsigned NumTokens,
 --                                          CXCursor *Cursors);
-%fun clang_annotateTokens :: TranslationUnit -> TokenList -> IO CursorList
+%fun clang_annotateTokens :: TranslationUnit -> TokenList -> IO UnsafeCursorList
 %call (translationUnit t) (tokenList ((int nts), (fptr (ptr ts))))
 %code CXCursor * cs = (CXCursor *)malloc(sizeof(CXCursor)*nts);
+%     unsigned count = nts;
 %     clang_annotateTokens(t, ts, nts, cs);
-%result (cursorListExt nts (ptr cs))
+%result (cursorList cs count)
 
 -- CXString clang_getCursorKindSpelling(enum CXCursorKind Kind);
 %fun clang_getCursorKindSpelling :: CursorKind -> IO UnsafeCXString
@@ -2372,7 +2475,7 @@ newtype CompletionString = CompletionString (Ptr ())
 --   enum CXCursorKind CursorKind;
 --   CXCompletionString CompletionString;
 -- } CXCompletionResult;
-data CompletionResult = CompletionResult CursorKind CompletionString
+data CompletionResult = CompletionResult !CursorKind !CompletionString
 %dis completionResult k s = CompletionResult (cursorKind k) (competionString s)
 
 -- enum CXCompletionChunkKind {
@@ -2501,32 +2604,63 @@ unmarshall_codeCompleteResults = newForeignPtr clang_disposeCodeCompleteResults
 -- -- void clang_toggleCrashRecovery(unsigned isEnabled);
 -- %fun clang_toggleCrashRecovery :: Bool -> IO ()
 
--- typedef void (*CXInclusionVisitor)(CXFile included_file,
---                                    CXSourceLocation* inclusion_stack,
---                                    unsigned include_len,
---                                    CXClientData client_data);
--- void clang_getInclusions(CXTranslationUnit tu,
---                                         CXInclusionVisitor visitor,
---                                         CXClientData client_data);
+data Inclusion = Inclusion !File !SourceLocation !Bool
 
-type InclusionVisitorRaw = File -> Ptr () -> CUInt -> Ptr () -> IO ()
-type InclusionVisitor = File -> [SourceLocation] -> IO ()
+instance Storable Inclusion where
+    sizeOf _ = sizeOfInclusion
+    {-# INLINE sizeOf #-}
 
-getInclusions :: TranslationUnit -> InclusionVisitor -> IO ()
-getInclusions t iv = do
-  f <- marshall_inclusionVisitor iv
-  prim_getInclusions_ (fromTranslationUnit t) f
-  freeHaskellFunPtr f
+    alignment _ = 4
+    {-# INLINE alignment #-}
 
-%C void prim_getInclusions_(HsPtr t, HsPtr f) { clang_getInclusions(t, f, NULL); }
-foreign import  ccall safe "FFI_stub_ffi.h prim_getInclusions_" prim_getInclusions_ :: Ptr a1 -> FunPtr InclusionVisitorRaw -> IO ()
+    peek p = do
+      let fromCUChar = fromIntegral :: Num b => CUChar -> b
+      file <- File <$> peekByteOff p offsetInclusionInclusion
+      sl <- peekByteOff p offsetInclusionLocation
+      isDirect <- fromCUChar <$> peekByteOff p offsetInclusionIsDirect
+      return $! Inclusion file sl (if isDirect == 0 then False else True)
+    {-# INLINE peek #-}
 
-foreign import ccall "wrapper" wrapInclusionVisitorRaw :: InclusionVisitorRaw -> IO (FunPtr InclusionVisitorRaw)
+    poke p (Inclusion (File file) sl isDirect) = do
+      let toCUChar = fromIntegral :: Integral a => a -> CUChar
+      pokeByteOff p offsetInclusionInclusion file
+      pokeByteOff p offsetInclusionLocation sl
+      pokeByteOff p offsetInclusionIsDirect
+           (toCUChar $ if isDirect then 1 else 0)
+    {-# INLINE poke #-}
 
-wrapInclusionVisitor :: InclusionVisitor -> InclusionVisitorRaw
-wrapInclusionVisitor f = \file pSrcLoc nSrcLoc _ -> do
-                           srcLocs <- unmarshall_SrcLocList pSrcLoc nSrcLoc
-                           f file srcLocs
+-- We deliberately don't export the constructor. The only way to unwrap this is registerInclusionList.
+type InclusionList = DVS.Vector Inclusion
+data UnsafeInclusionList = UnsafeInclusionList !(Ptr ()) !Int
 
-marshall_inclusionVisitor :: InclusionVisitor -> IO (FunPtr InclusionVisitorRaw)
-marshall_inclusionVisitor f = wrapInclusionVisitorRaw (wrapInclusionVisitor f)
+-- void freeInclusions(struct Inclusion* inclusions);
+%fun freeInclusions :: InclusionList -> IO ()
+%call (inclusionList is n)
+%code freeInclusionList(is);
+
+registerInclusionList :: ClangBase m => IO UnsafeInclusionList -> ClangT s m InclusionList
+registerInclusionList action = do
+    (_, inclusionList) <- clangAllocate (action >>= mkSafe) freeInclusions
+    return inclusionList
+  where
+    mkSafe (UnsafeInclusionList is n) = do
+      fptr <- newForeignPtr_ (castPtr is)
+      return $ DVS.unsafeFromForeignPtr fptr 0 n
+{-# INLINEABLE registerInclusionList #-}
+
+fromInclusionList :: InclusionList -> (Ptr (), Int)
+fromInclusionList is = let (p, _, _) = DVS.unsafeToForeignPtr is in
+                       (castPtr $ Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr p, DVS.length is)
+
+toInclusionList :: (Ptr (), Int) -> UnsafeInclusionList
+toInclusionList (is, n) = UnsafeInclusionList is n
+
+%dis inclusionList is n = <fromInclusionList/toInclusionList> (ptr is) (int n)
+
+-- A more efficient alternative to clang_getInclusions.
+-- void getInclusions(CXTranslationUnit tu, struct Inclusion** inclusionsOut, unsigned* countOut)
+%fun getInclusions :: TranslationUnit -> IO UnsafeInclusionList
+%call (translationUnit t)
+%code struct Inclusion* inclusions; unsigned count;
+%     getInclusions(t, &inclusions, &count);
+%result (inclusionList inclusions count)

@@ -1,3 +1,6 @@
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+
 module Clang.Token
 ( FFI.Token
 , FFI.TokenKind
@@ -13,17 +16,17 @@ import Control.Monad.IO.Class
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 
-getKind :: FFI.Token -> ClangApp s FFI.TokenKind
+getKind :: ClangBase m => FFI.Token -> ClangT s m FFI.TokenKind
 getKind t = liftIO $ FFI.getTokenKind t
 
-getSpelling :: FFI.TranslationUnit -> FFI.Token -> ClangApp s FFI.CXString
+getSpelling :: ClangBase m => FFI.TranslationUnit -> FFI.Token -> ClangT s m FFI.CXString
 getSpelling tu tk = FFI.registerCXString $ FFI.getTokenSpelling tu tk
 
-getLocation :: FFI.TranslationUnit -> FFI.Token -> ClangApp s FFI.SourceLocation
+getLocation :: ClangBase m => FFI.TranslationUnit -> FFI.Token -> ClangT s m FFI.SourceLocation
 getLocation tu tk = liftIO $ FFI.getTokenLocation tu tk
 
-getExtent :: FFI.TranslationUnit -> FFI.Token -> ClangApp s FFI.SourceRange
+getExtent :: ClangBase m => FFI.TranslationUnit -> FFI.Token -> ClangT s m FFI.SourceRange
 getExtent tu tk = liftIO $ FFI.getTokenExtent tu tk
 
-tokenize :: FFI.TranslationUnit -> FFI.SourceRange -> ClangApp s [FFI.Token]
+tokenize :: ClangBase m => FFI.TranslationUnit -> FFI.SourceRange -> ClangT s m [FFI.Token]
 tokenize tu sr = liftIO $ FFI.tokenize tu sr

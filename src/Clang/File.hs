@@ -1,7 +1,11 @@
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+
 module Clang.File
 ( FFI.UnsavedFile
 , FFI.File
 , getName
+, hashFile
 , getPOSIXTime
 , getUTCTime
 , getFile
@@ -15,14 +19,17 @@ import Data.Time.Clock (UTCTime)
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 
-getName :: FFI.File -> ClangApp s FFI.CXString
+getName :: ClangBase m => FFI.File -> ClangT s m FFI.CXString
 getName f = FFI.registerCXString $ FFI.getFileName f
 
-getPOSIXTime :: FFI.File -> ClangApp s POSIXTime
+hashFile :: ClangBase m => FFI.File -> ClangT s m Int
+hashFile f = return $! fromIntegral $ FFI.getFileHash f
+
+getPOSIXTime :: ClangBase m => FFI.File -> ClangT s m POSIXTime
 getPOSIXTime f = liftIO $ realToFrac <$> FFI.getFileTime f
 
-getUTCTime :: FFI.File -> ClangApp s UTCTime
+getUTCTime :: ClangBase m => FFI.File -> ClangT s m UTCTime
 getUTCTime f = liftIO $ posixSecondsToUTCTime . realToFrac <$> FFI.getFileTime f
 
-getFile :: FFI.TranslationUnit -> FilePath -> ClangApp s FFI.File
+getFile :: ClangBase m => FFI.TranslationUnit -> FilePath -> ClangT s m FFI.File
 getFile t f = liftIO $ FFI.getFile t f

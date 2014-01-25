@@ -1,32 +1,53 @@
-module Clang.Traversal
-( annotateTokens
-, ChildVisitor
-, FFI.ChildVisitResult(..)
-, visitChildren
-, InclusionVisitor
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+
+-- | Traversals for the libclang AST.
+--
+-- For efficiency, traversal functions return a
+-- 'Data.Vector.Storable.Vector'. For cases where performance is
+-- not a concern, 'toList' can be used to convert these vectors
+-- to a standard Haskell list.
+
+module Clang.Traversal (
+-- * Basic traversals
+  FFI.CursorList
+, getChildren
+, getDescendants
+, FFI.ParentedCursorList
+, getParentedDescendants
+
+-- * Inclusion traversals
+, FFI.Inclusion(..)
+, FFI.InclusionList
 , getInclusions
+
+-- * Token traversals
+, annotateTokens
+
+-- * Convenience reexports
+, toList
 ) where
 
-import Control.Monad.IO.Class
+import Data.Vector.Storable (toList)
 
 import qualified Clang.Internal.FFI as FFI
-import Clang.Internal.ClangApp
+import Clang.Monad
 
-annotateTokens :: FFI.TranslationUnit -- ^ The translation unit related to the tokens
-               -> [FFI.Token] -- ^ Token list that you want cursors for
-               -> ClangApp s [FFI.Cursor] -- ^ Cursors corresponding to the tokens
-annotateTokens tu ts = liftIO $ FFI.annotateTokens tu ts
+annotateTokens ::
+     ClangBase m =>
+     FFI.TranslationUnit -- ^ The translation unit related to the tokens
+  -> [FFI.Token] -- ^ Token list that you want cursors for
+  -> ClangT s m FFI.CursorList -- ^ Cursors corresponding to the tokens
+annotateTokens tu ts = FFI.registerCursorList $ FFI.annotateTokens tu ts
 
-type ChildVisitor s = FFI.Cursor -> FFI.Cursor -> ClangApp s FFI.ChildVisitResult
+getChildren :: ClangBase m => FFI.Cursor -> ClangT s m FFI.CursorList
+getChildren c = FFI.registerCursorList $ FFI.getChildren c
 
-visitChildren :: FFI.Cursor -> ChildVisitor s -> ClangApp s Bool
-visitChildren c cv = do
-  run <- mkClangAppRunner
-  liftIO $ FFI.visitChildren c (\child parent -> run $ cv child parent)
+getDescendants :: ClangBase m => FFI.Cursor -> ClangT s m FFI.CursorList
+getDescendants c = FFI.registerCursorList $ FFI.getDescendants c
 
-type InclusionVisitor s = FFI.File -> [FFI.SourceLocation] -> ClangApp s ()
+getParentedDescendants :: ClangBase m => FFI.Cursor -> ClangT s m FFI.ParentedCursorList
+getParentedDescendants c = FFI.registerParentedCursorList $ FFI.getParentedDescendants c
 
-getInclusions :: FFI.TranslationUnit -> InclusionVisitor s -> ClangApp s ()
-getInclusions tu iv = do
-    run <- mkClangAppRunner
-    liftIO $ FFI.getInclusions tu (\f ls -> run $ iv f ls)
+getInclusions :: ClangBase m => FFI.TranslationUnit -> ClangT s m FFI.InclusionList
+getInclusions tu = FFI.registerInclusionList $ FFI.getInclusions tu

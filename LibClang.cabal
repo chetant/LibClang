@@ -33,18 +33,23 @@ Source-Repository head
   location: git://github.com/chetant/LibClang.git
 
 Library
-  ghc-options:     -Wall
+  ghc-options:     -Wall -funbox-strict-fields -O
   build-depends:   base < 5,
                    bytestring,
                    filepath,
                    greencard >= 3.0.4.1,
+                   hashable,
                    mtl,
                    resourcet,
                    text,
                    time,
-                   transformers
+                   transformers,
+                   transformers-base,
+                   vector
   hs-source-dirs:  src
-  c-sources:       src/Clang/Internal/FFI_stub_ffi.c
+  c-sources:       src/Clang/Internal/FFI_stub_ffi.c,
+                   cbits/visitors.c
+  include-dirs:    cbits
   exposed-modules: Clang,
                    Clang.Completion,
                    Clang.CrossReference,
@@ -59,6 +64,7 @@ Library
                    Clang.TranslationUnit,
                    Clang.Traversal,
                    Clang.Type
-  other-modules: Clang.Internal.ClangApp,
+  other-modules: Clang.Internal.Monad,
                  Clang.Internal.FFI,
+                 Clang.Internal.FFIConstants,
                  Paths_LibClang

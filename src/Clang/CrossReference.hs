@@ -1,3 +1,6 @@
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+
 module Clang.CrossReference
 ( getUSR
 , constructUSR_ObjCClass
@@ -11,23 +14,23 @@ module Clang.CrossReference
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 
-getUSR :: FFI.Cursor -> ClangApp s FFI.CXString
+getUSR :: ClangBase m => FFI.Cursor -> ClangT s m FFI.CXString
 getUSR c = FFI.registerCXString $ FFI.getCursorUSR c
 
-constructUSR_ObjCClass :: String -> ClangApp s FFI.CXString
+constructUSR_ObjCClass :: ClangBase m => String -> ClangT s m FFI.CXString
 constructUSR_ObjCClass cls = FFI.registerCXString $ FFI.constructUSR_ObjCClass cls
 
-constructUSR_ObjCCategory :: String -> String -> ClangApp s FFI.CXString
+constructUSR_ObjCCategory :: ClangBase m => String -> String -> ClangT s m FFI.CXString
 constructUSR_ObjCCategory cls cat = FFI.registerCXString $ FFI.constructUSR_ObjCCategory cls cat
 
-constructUSR_ObjCProtocol :: String -> ClangApp s FFI.CXString
+constructUSR_ObjCProtocol :: ClangBase m => String -> ClangT s m FFI.CXString
 constructUSR_ObjCProtocol prt = FFI.registerCXString $ FFI.constructUSR_ObjCProtocol prt
 
-constructUSR_ObjCIvar :: String -> FFI.CXString -> ClangApp s FFI.CXString
+constructUSR_ObjCIvar :: ClangBase m => String -> FFI.CXString -> ClangT s m FFI.CXString
 constructUSR_ObjCIvar v cls = FFI.registerCXString $ FFI.constructUSR_ObjCIvar v cls
 
-constructUSR_ObjCMethod :: String -> Bool -> FFI.CXString -> ClangApp s FFI.CXString
+constructUSR_ObjCMethod :: ClangBase m => String -> Bool -> FFI.CXString -> ClangT s m FFI.CXString
 constructUSR_ObjCMethod m isInstance cls = FFI.registerCXString $ FFI.constructUSR_ObjCMethod m isInstance cls
 
-constructUSR_ObjCProperty :: String -> FFI.CXString -> ClangApp s FFI.CXString
+constructUSR_ObjCProperty :: ClangBase m => String -> FFI.CXString -> ClangT s m FFI.CXString
 constructUSR_ObjCProperty p cls = FFI.registerCXString $ FFI.constructUSR_ObjCProperty p cls
