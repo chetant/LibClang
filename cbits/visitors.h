@@ -17,8 +17,8 @@ void getDescendants(CXCursor parent, CXCursor** childrenOut, unsigned* countOut)
 void getParentedDescendants(CXCursor parent, struct ParentedCursor** descendantsOut,
                             unsigned* countOut);
 
-void freeChildren(CXCursor* children);
-void freeParentedDescendants(struct ParentedCursor* descendants);
+void freeCursorList(CXCursor* cursors);
+void freeParentedCursorList(struct ParentedCursor* parentedCursors);
 
 // Wrappers for clang_getInclusions.
 struct Inclusion
@@ -31,6 +31,6 @@ struct Inclusion
 void getInclusions(CXTranslationUnit tu, struct Inclusion** inclusionsOut,
                    unsigned* countOut);
 
-void freeInclusions(struct Inclusion* inclusions);
+void freeInclusionList(struct Inclusion* inclusions);
 
 #endif

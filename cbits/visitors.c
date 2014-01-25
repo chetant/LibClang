@@ -119,14 +119,14 @@ void getParentedDescendants(CXCursor parent, struct ParentedCursor** descendants
   *countOut = descendantList.count;
 }
 
-void freeChildren(CXCursor* children)
+void freeCursorList(CXCursor* cursors)
 {
-  free(children);
+  free(cursors);
 }
 
-void freeParentedDescendants(struct ParentedCursor* descendants)
+void freeParentedCursorList(struct ParentedCursor* parentedCursors)
 {
-  free(descendants);
+  free(parentedCursors);
 }
 
 struct InclusionList
@@ -177,7 +177,7 @@ void getInclusions(CXTranslationUnit tu, struct Inclusion** inclusionsOut,
   *countOut = inclusionList.count;
 }
 
-void freeInclusions(struct Inclusion* inclusions)
+void freeInclusionList(struct Inclusion* inclusions)
 {
   free(inclusions);
 }

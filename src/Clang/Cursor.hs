@@ -107,7 +107,7 @@ getSemanticParent c = liftIO $ FFI.getCursorSemanticParent c
 getLexicalParent :: ClangBase m => FFI.Cursor -> ClangT s m FFI.Cursor
 getLexicalParent c = liftIO $ FFI.getCursorLexicalParent c
 
-getOverriddenCursors :: ClangBase m => FFI.Cursor -> ClangT s m FFI.ChildList
+getOverriddenCursors :: ClangBase m => FFI.Cursor -> ClangT s m FFI.CursorList
 getOverriddenCursors c = FFI.registerOverriddenList $ FFI.getOverriddenCursors c
 
 getIncludedFile :: ClangBase m => FFI.Cursor -> ClangT s m FFI.File

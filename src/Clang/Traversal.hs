@@ -3,14 +3,14 @@
 
 -- | Traversals for the libclang AST.
 --
--- For efficiency, most traversal functions return a
+-- For efficiency, traversal functions return a
 -- 'Data.Vector.Storable.Vector'. For cases where performance is
 -- not a concern, 'toList' can be used to convert these vectors
 -- to a standard Haskell list.
 
 module Clang.Traversal (
 -- * Basic traversals
-  FFI.ChildList
+  FFI.CursorList
 , getChildren
 , getDescendants
 , FFI.ParentedCursorList
@@ -37,14 +37,14 @@ annotateTokens ::
      ClangBase m =>
      FFI.TranslationUnit -- ^ The translation unit related to the tokens
   -> [FFI.Token] -- ^ Token list that you want cursors for
-  -> ClangT s m FFI.ChildList -- ^ Cursors corresponding to the tokens
-annotateTokens tu ts = FFI.registerChildList $ FFI.annotateTokens tu ts
+  -> ClangT s m FFI.CursorList -- ^ Cursors corresponding to the tokens
+annotateTokens tu ts = FFI.registerCursorList $ FFI.annotateTokens tu ts
 
-getChildren :: ClangBase m => FFI.Cursor -> ClangT s m FFI.ChildList
-getChildren c = FFI.registerChildList $ FFI.getChildren c
+getChildren :: ClangBase m => FFI.Cursor -> ClangT s m FFI.CursorList
+getChildren c = FFI.registerCursorList $ FFI.getChildren c
 
-getDescendants :: ClangBase m => FFI.Cursor -> ClangT s m FFI.ChildList
-getDescendants c = FFI.registerChildList $ FFI.getDescendants c
+getDescendants :: ClangBase m => FFI.Cursor -> ClangT s m FFI.CursorList
+getDescendants c = FFI.registerCursorList $ FFI.getDescendants c
 
 getParentedDescendants :: ClangBase m => FFI.Cursor -> ClangT s m FFI.ParentedCursorList
 getParentedDescendants c = FFI.registerParentedCursorList $ FFI.getParentedDescendants c
