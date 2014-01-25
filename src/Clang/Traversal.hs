@@ -1,19 +1,35 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-module Clang.Traversal
-( annotateTokens
+-- | Traversals for the libclang AST.
+--
+-- For efficiency, most traversal functions return a
+-- 'Data.Vector.Storable.Vector'. For cases where performance is
+-- not a concern, 'toList' can be used to convert these vectors
+-- to a standard Haskell list.
+
+module Clang.Traversal (
+-- * Basic traversals
+  FFI.ChildList
 , getChildren
 , getDescendants
-, FFI.ChildList
-, getParentedDescendants
 , FFI.ParentedCursorList
-, getInclusions
+, getParentedDescendants
+
+-- * Inclusion traversals
 , FFI.Inclusion(..)
 , FFI.InclusionList
+, getInclusions
+
+-- * Token traversals
+, annotateTokens
+
+-- * Convenience reexports
+, toList
 ) where
 
 import Control.Monad.IO.Class
+import Data.Vector.Storable (toList)
 
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
