@@ -105,6 +105,7 @@ module Clang.Internal.FFI
 , cXCursorSet_insert
 , getCursorSemanticParent
 , getCursorLexicalParent
+, registerOverriddenList
 , getOverriddenCursors
 , getIncludedFile
 , getCursor
@@ -1709,42 +1710,24 @@ unmarshall_cursorSet = newForeignPtr clang_disposeCXCursorSet
 %     CXCursor r = clang_getCursorLexicalParent(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
--- We create a dummy type to get around greencard's inability to handle arrays
--- data CursorList = CursorList (Ptr ()) [Cursor]
-type CursorList = [Cursor]
-
-%C enum CXCursorKind cursorListGetKind(CXCursor *clist, int i) {return clist[i].kind;}
-%  unsigned cursorListGetXData(CXCursor *clist, int i) {return clist[i].xdata;}
-%  const void* cursorListGetPtr(CXCursor *clist, int i, int pi) {return clist[i].data[pi];}
-
-foreign import ccall unsafe "FFI_stub_ffi.h cursorListGetKind" cursorListGetKind_ :: Ptr () -> CInt -> IO Int
-foreign import ccall unsafe "FFI_stub_ffi.h cursorListGetXData" cursorListGetXData_ :: Ptr () -> CInt -> IO Int
-foreign import ccall unsafe "FFI_stub_ffi.h cursorListGetPtr" cursorListGetPtr_ :: Ptr () -> CInt -> CInt -> IO (Ptr ())
-
 -- void clang_disposeOverriddenCursors(CXCursor *overridden);
-foreign import ccall unsafe "clang-c/Index.h clang_disposeOverriddenCursors" clang_disposeOverriddenCursors :: Ptr () -> IO ()
-
-unmarshall_cursorList ::  Int -> Ptr () -> IO CursorList
-unmarshall_cursorList numO os = do
-  cursors <- mapM getCursor_ [0..nO]
-  clang_disposeOverriddenCursors os
-  return cursors
-    where nO = fromIntegral (numO-1)
-          getCursor_ i = do
-            kind <- unmarshall_CursorKind <$> (cursorListGetKind_ os i)
-	    xdata <- fromIntegral <$> (cursorListGetXData_ os i) 
-            p1 <- cursorListGetPtr_ os i 0
-            p2 <- cursorListGetPtr_ os i 1
-            p3 <- cursorListGetPtr_ os i 2
-            return $ Cursor kind xdata p1 p2 p3
+%fun disposeOverridden :: ChildList -> IO ()
+%call (childList cs n)
+%code clang_disposeOverriddenCursors(cs);
+  
+registerOverriddenList :: ClangBase m => IO UnsafeChildList -> ClangT s m ChildList
+registerOverriddenList action = do
+    (_, childList) <- clangAllocate (action >>= cursorListToVector) disposeOverridden
+    return childList
+{-# INLINEABLE registerOverriddenList #-}
 
 -- void clang_getOverriddenCursors(CXCursor cursor, CXCursor **overridden, unsigned *num_overridden);
-%fun clang_getOverriddenCursors :: Cursor -> IO CursorList
+%fun clang_getOverriddenCursors :: Cursor -> IO UnsafeChildList
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k , xdata, {p1, p2, p3}};
-%     CXCursor * overrides;unsigned num_overrides;
-%     clang_getOverriddenCursors(a, &overrides, &num_overrides);
-%result (cursorList (int num_overrides) (ptr overrides))
+%     CXCursor* overrides; unsigned count;
+%     clang_getOverriddenCursors(a, &overrides, &count);
+%result (childList overrides count)
 
 -- CXFile clang_getIncludedFile(CXCursor cursor);
 %fun clang_getIncludedFile :: Cursor -> IO File
@@ -2075,13 +2058,15 @@ data UnsafeChildList = UnsafeChildList !(Ptr ()) !Int
 
 registerChildList :: ClangBase m => IO UnsafeChildList -> ClangT s m ChildList
 registerChildList action = do
-    (_, childList) <- clangAllocate (action >>= mkSafe) freeChildren
+    (_, childList) <- clangAllocate (action >>= cursorListToVector) freeChildren
     return childList
-  where
-    mkSafe (UnsafeChildList cs n) = do
-      fptr <- newForeignPtr_ (castPtr cs)
-      return $ DVS.unsafeFromForeignPtr fptr 0 n
 {-# INLINEABLE registerChildList #-}
+
+cursorListToVector :: Storable a => UnsafeChildList -> IO (DVS.Vector a)
+cursorListToVector (UnsafeChildList cs n) = do
+  fptr <- newForeignPtr_ (castPtr cs)
+  return $ DVS.unsafeFromForeignPtr fptr 0 n
+{-# INLINE cursorListToVector #-}
 
 fromChildList :: ChildList -> (Ptr (), Int)
 fromChildList cs = let (p, _, _) = DVS.unsafeToForeignPtr cs in
@@ -2444,30 +2429,19 @@ marshall_tokenList ts = do
 %     clang_tokenize(t, a, &tokens, &numTokens);
 %result (tokenList t (int numTokens) (ptr tokens))
 
-unmarshall_cursorListExt ::  Int -> Ptr () -> IO CursorList
-unmarshall_cursorListExt numO os = do
-  cursors <- mapM getCursor_ [0..nO]
-  clang_disposeOverriddenCursors os
-  return cursors
-    where nO = fromIntegral (numO-1)
-          getCursor_ i = do
-            kind <- unmarshall_CursorKind <$> (cursorListGetKind_ os i)
-	    xdata <- fromIntegral <$> (cursorListGetXData_ os i)
-            p1 <- cursorListGetPtr_ os i 0
-            p2 <- cursorListGetPtr_ os i 1
-            p3 <- cursorListGetPtr_ os i 2
-            return $ Cursor kind xdata p1 p2 p3
-
--- FIXME
 -- TODO: test me
+-- Note that registerChildList can be used for the result of this
+-- function because it just calls free() to dispose of the list.
+--
 -- void clang_annotateTokens(CXTranslationUnit TU,
 --                                          CXToken *Tokens, unsigned NumTokens,
 --                                          CXCursor *Cursors);
-%fun clang_annotateTokens :: TranslationUnit -> TokenList -> IO CursorList
+%fun clang_annotateTokens :: TranslationUnit -> TokenList -> IO UnsafeChildList
 %call (translationUnit t) (tokenList ((int nts), (fptr (ptr ts))))
 %code CXCursor * cs = (CXCursor *)malloc(sizeof(CXCursor)*nts);
+%     unsigned count = nts;
 %     clang_annotateTokens(t, ts, nts, cs);
-%result (cursorListExt nts (ptr cs))
+%result (childList cs count)
 
 -- CXString clang_getCursorKindSpelling(enum CXCursorKind Kind);
 %fun clang_getCursorKindSpelling :: CursorKind -> IO UnsafeCXString

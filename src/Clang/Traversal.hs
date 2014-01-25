@@ -28,7 +28,6 @@ module Clang.Traversal (
 , toList
 ) where
 
-import Control.Monad.IO.Class
 import Data.Vector.Storable (toList)
 
 import qualified Clang.Internal.FFI as FFI
@@ -38,8 +37,8 @@ annotateTokens ::
      ClangBase m =>
      FFI.TranslationUnit -- ^ The translation unit related to the tokens
   -> [FFI.Token] -- ^ Token list that you want cursors for
-  -> ClangT s m [FFI.Cursor] -- ^ Cursors corresponding to the tokens
-annotateTokens tu ts = liftIO $ FFI.annotateTokens tu ts
+  -> ClangT s m FFI.ChildList -- ^ Cursors corresponding to the tokens
+annotateTokens tu ts = FFI.registerChildList $ FFI.annotateTokens tu ts
 
 getChildren :: ClangBase m => FFI.Cursor -> ClangT s m FFI.ChildList
 getChildren c = FFI.registerChildList $ FFI.getChildren c
