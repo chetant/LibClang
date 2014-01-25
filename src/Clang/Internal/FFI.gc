@@ -449,21 +449,6 @@ instance Storable SourceLocation where
       pokeByteOff p offsetCXSourceLocationData $ toCUInt d
     {-# INLINE poke #-}
 
-%C const void* srcLocListGetPtr(CXSourceLocation* s, int i, int pi) {return s[i].ptr_data[pi];}
-%  unsigned srcLocListGetData(CXSourceLocation* s, int i) {return s[i].int_data;}
-
-foreign import ccall safe "FFI_stub_ffi.h srcLocListGetPtr" srcLocListGetPtr_ :: Ptr () -> CInt -> CInt -> IO (Ptr ())
-foreign import ccall safe "FFI_stub_ffi.h srcLocListGetData" srcLocListGetData_ :: Ptr () -> CInt -> IO CInt
-
-unmarshall_SrcLocList :: Ptr () -> CUInt -> IO [SourceLocation]
-unmarshall_SrcLocList sls 0 = return []
-unmarshall_SrcLocList sls nsl = mapM getSrcList_ [0..(nsl-1)]
-    where getSrcList_ i = do
-            p1 <- srcLocListGetPtr_ sls (fromIntegral i) 0
-            p2 <- srcLocListGetPtr_ sls (fromIntegral i) 1
-            i  <- fromIntegral <$> srcLocListGetData_ sls (fromIntegral i)
-            return $ SourceLocation p1 p2 i
-
 -- typedef struct {
 --   void *ptr_data[2];
 --   unsigned begin_int_data;
