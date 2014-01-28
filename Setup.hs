@@ -54,6 +54,7 @@ libclangLibraries =
   , "-lclangFormat"
   , "-lclangFrontend"
   , "-lclangFrontendTool"
+  , "-lclangIndex"
   , "-lclangLex"
   , "-lclangParse"
   , "-lclangRewriteCore"
@@ -61,11 +62,13 @@ libclangLibraries =
   , "-lclangSema"
   , "-lclangSerialization"
   , "-lclangTooling"
-  , "-lLLVMSupport"
-  , "-lLLVMMCParser"
-  , "-lLLVMMC"
   , "-lLLVMBitReader"
   , "-lLLVMCore"
+  , "-lLLVMMCParser"
+  , "-lLLVMMC"
+  , "-lLLVMOption"
+  , "-lLLVMSupport"
+  , "-lLLVMTransformUtils"
   ]
 
 libClangConfHook (pkg, pbi) flags = do
@@ -85,9 +88,6 @@ libClangConfHook (pkg, pbi) flags = do
   putStrLn "Configuring llvm and clang..."
   system $ "cd build && test -e Makefile || ../llvm/configure"
         ++ " --enable-optimized"
-        ++ " --disable-clang-rewriter"
-        ++ " --disable-clang-static-analyzer"
-        ++ " --disable-clang-arcmt"
         ++ " --enable-keep-symbols"
         ++ " --disable-jit"
         ++ " --disable-docs"
@@ -113,6 +113,7 @@ libClangConfHook (pkg, pbi) flags = do
                , includeDirs  = includeDirs  libbi ++ [".", llvmPrefixDir </> "include"]
                , ldOptions    = stdlibArg          ++
                                 ["-lpthread"]      ++
+                                ["-lcurses"]       ++
                                 libclangLibraries  ++
                                 ["-lstdc++"]       ++
                                 ldOptions    libbi ++

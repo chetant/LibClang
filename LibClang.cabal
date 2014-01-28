@@ -26,7 +26,8 @@ Description:
 
 Category: Language
 Build-type: Custom
-Data-Files: build/out/lib/clang/3.4/include/*.h
+Data-Files: build/out/lib/clang/3.4/include/*.h ,
+            build/out/lib/clang/3.4/include/*.map
 Extra-Source-Files: configure, LibClang.buildinfo.in, test/Makefile.in, test/*.hs, test/*.c, test/runTest.sh
 Source-Repository head
   type: git

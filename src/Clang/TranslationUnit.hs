@@ -16,7 +16,6 @@ module Clang.TranslationUnit
 , withCreate
 , withCreateFromSourceFile
 , withParse
-, libclangIncludePath
 , defaultSaveOptions
 , save
 , defaultReparseOptions
@@ -39,6 +38,8 @@ withCreate :: ClangBase m => FFI.Index -> String
            -> (FFI.TranslationUnit -> ClangT s m a)
            -> ClangT s m a
 withCreate idx str f = do
+  resourcePath <- liftIO $ clangResourcesPath
+  liftIO $ FFI.setClangResourcesPath idx resourcePath
   tu <- FFI.registerTranslationUnit $ FFI.createTranslationUnit idx str
   f tu
 
@@ -51,6 +52,8 @@ withCreateFromSourceFile ::
   -> (FFI.TranslationUnit -> ClangT s m a) -- ^ Function that will process the TranslationUnit
   -> ClangT s m a
 withCreateFromSourceFile idx fn ss ufs f = do
+    resourcePath <- liftIO $ clangResourcesPath
+    liftIO $ FFI.setClangResourcesPath idx resourcePath
     tu <- FFI.registerTranslationUnit $ create idx fn ss ufs
     f tu
   where create = FFI.createTranslationUnitFromSourceFile
@@ -66,15 +69,17 @@ withParse ::
   -> ClangT s m a -- ^ Result to be returned if source couldn't be parsed
   -> ClangT s m a
 withParse idx ms ss ufs opts f nr = do
+    resourcePath <- liftIO $ clangResourcesPath
+    liftIO $ FFI.setClangResourcesPath idx resourcePath
     tu <- liftIO $ FFI.parseTranslationUnit idx ms ss ufs flags
     maybe nr run tu
   where flags = FFI.getTranslationUnitFlagsSum opts
         run t = do tu <- FFI.registerTranslationUnit (return t)
                    f tu
 
-libclangIncludePath :: ClangBase m => m FilePath
-libclangIncludePath = liftIO $
-  getDataFileName $ "build" </> "out" </> "lib" </> "clang" </> "3.4" </> "include"
+clangResourcesPath :: ClangBase m => m FilePath
+clangResourcesPath = liftIO $
+  getDataFileName $ "build" </> "out" </> "lib" </> "clang" </> "3.4"
 
 -- No other option right now
 defaultSaveOptions :: ClangBase m => ClangT s m [FFI.SaveTranslationUnitFlags]
