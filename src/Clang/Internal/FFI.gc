@@ -14,7 +14,6 @@ module Clang.Internal.FFI
 , TranslationUnit
 , UnsafeTranslationUnit
 , registerTranslationUnit
-, ClientData
 , UnsavedFile
 , AvailabilityKind(..)
 , CXString
@@ -309,10 +308,6 @@ toTranslationUnit :: Ptr () -> UnsafeTranslationUnit
 toTranslationUnit p = UnsafeTranslationUnit (TranslationUnit p)
 
 %dis translationUnit t = <fromTranslationUnit/toTranslationUnit> (ptr t)
-
--- typedef const void* CXClientData;
-data ClientDataObj
-type ClientData = ForeignPtr ClientDataObj
 
 -- struct CXUnsavedFile {
 --   const char* Filename;
