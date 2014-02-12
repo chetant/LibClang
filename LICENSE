@@ -1,5 +1,6 @@
-Copyright (c)2011, # Each patch is attributed to its author, usually by email address (for
-# example, `Fred Bloggs
+Copyright (c) Chetan Taralekar 2010, 2011
+Copyright (c) Seth Fowler 2013, 2014
+Each patch is attributed to its author, usually by email address.
 
 All rights reserved.
 
@@ -14,10 +15,9 @@ modification, are permitted provided that the following conditions are met:
       disclaimer in the documentation and/or other materials provided
       with the distribution.
 
-    * Neither the name of # Each patch is attributed to its author, usually by email address (for
-# example, `Fred Bloggs nor the names of other
-      contributors may be used to endorse or promote products derived
-      from this software without specific prior written permission.
+    * The names of the contributors may not be used to endorse or promote
+    products derived from this software without specific prior written
+    permission.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
