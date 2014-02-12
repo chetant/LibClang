@@ -31,18 +31,18 @@ module Clang.Type
 ) where
 
 import Control.Monad.IO.Class
+import Data.Int (Int64)
+import Data.Word (Word64)
 
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
-
-import Data.Int ( Int64 )
-import Data.Word ( Word64 )
+import Clang.String (ClangString)
 
 isSameType :: ClangBase m => FFI.Type -> FFI.Type -> ClangT s m Bool
 isSameType a b = liftIO $ FFI.equalTypes a b
 
-getTypeSpelling :: ClangBase m => FFI.Type -> ClangT s m FFI.CXString
-getTypeSpelling t = FFI.registerCXString $ FFI.getTypeSpelling t
+getTypeSpelling :: ClangBase m => FFI.Type -> ClangT s m (ClangString s)
+getTypeSpelling = FFI.getTypeSpelling
 
 getTypedefDeclUnderlyingType :: ClangBase m => FFI.Cursor -> ClangT s m FFI.Type
 getTypedefDeclUnderlyingType c = liftIO $ FFI.getTypedefDeclUnderlyingType c
@@ -94,5 +94,5 @@ isVirtualBase c = liftIO $ FFI.isVirtualBase c
 
 
 -- Typekind functions
-getTypeKindSpelling :: ClangBase m => FFI.TypeKind -> ClangT s m FFI.CXString
-getTypeKindSpelling k = FFI.registerCXString $ FFI.getTypeKindSpelling k
+getTypeKindSpelling :: ClangBase m => FFI.TypeKind -> ClangT s m (ClangString s)
+getTypeKindSpelling = FFI.getTypeKindSpelling

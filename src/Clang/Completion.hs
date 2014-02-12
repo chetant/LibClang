@@ -20,19 +20,20 @@ module Clang.Completion
 , sortResults
 ) where
 
-import Control.Monad(mzero)
+import Control.Monad (mzero)
 import Control.Monad.IO.Class
-import Data.Bits((.&.))
-import Data.Maybe(catMaybes)
+import Data.Bits ((.&.))
+import Data.Maybe (catMaybes)
 
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
+import Clang.String (ClangString)
 
 getChunkKind :: ClangBase m => FFI.CompletionString -> Int -> ClangT s m FFI.CompletionChunkKind
 getChunkKind cs i = liftIO $ FFI.getCompletionChunkKind cs i
 
-getChunkText :: ClangBase m => FFI.CompletionString -> Int -> ClangT s m FFI.CXString
-getChunkText cs i = FFI.registerCXString $ FFI.getCompletionChunkText cs i
+getChunkText :: ClangBase m => FFI.CompletionString -> Int -> ClangT s m (ClangString s)
+getChunkText = FFI.getCompletionChunkText
 
 getChunkCompletionString :: ClangBase m => FFI.CompletionString -> Int ->
                             ClangT s m FFI.CompletionString

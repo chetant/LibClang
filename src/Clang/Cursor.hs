@@ -76,6 +76,7 @@ import GHC.Word
 
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
+import Clang.String (ClangString)
 
 isNullCursor :: FFI.Cursor -> Bool
 isNullCursor = FFI.cursor_isNull
@@ -128,14 +129,14 @@ getType c = liftIO $ FFI.getCursorType c
 getResultType :: ClangBase m => FFI.Cursor -> ClangT s m FFI.Type
 getResultType c = liftIO $ FFI.getCursorResultType c
 
-getDeclObjCTypeEncoding :: ClangBase m => FFI.Cursor -> ClangT s m FFI.CXString
-getDeclObjCTypeEncoding c = FFI.registerCXString $ FFI.getDeclObjCTypeEncoding c
+getDeclObjCTypeEncoding :: ClangBase m => FFI.Cursor -> ClangT s m (ClangString s)
+getDeclObjCTypeEncoding = FFI.getDeclObjCTypeEncoding
 
-getSpelling :: ClangBase m => FFI.Cursor -> ClangT s m FFI.CXString
-getSpelling c = FFI.registerCXString $ FFI.getCursorSpelling c
+getSpelling :: ClangBase m => FFI.Cursor -> ClangT s m (ClangString s)
+getSpelling = FFI.getCursorSpelling
 
-getDisplayName :: ClangBase m => FFI.Cursor -> ClangT s m FFI.CXString
-getDisplayName c = FFI.registerCXString $ FFI.getCursorDisplayName c
+getDisplayName :: ClangBase m => FFI.Cursor -> ClangT s m (ClangString s)
+getDisplayName = FFI.getCursorDisplayName
 
 getReferenced :: ClangBase m => FFI.Cursor -> ClangT s m FFI.Cursor
 getReferenced c = liftIO $ FFI.getCursorReferenced c
@@ -241,5 +242,5 @@ setInsert s c = liftIO $ FFI.cXCursorSet_insert s c
 
 --CursorKind functions
 
-getCursorKindSpelling :: ClangBase m => FFI.CursorKind -> ClangT s m FFI.CXString
-getCursorKindSpelling k = FFI.registerCXString $ FFI.getCursorKindSpelling k
+getCursorKindSpelling :: ClangBase m => FFI.CursorKind -> ClangT s m (ClangString s)
+getCursorKindSpelling = FFI.getCursorKindSpelling

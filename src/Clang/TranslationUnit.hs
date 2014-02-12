@@ -29,10 +29,11 @@ import System.FilePath ((</>))
 
 import Clang.Internal.Monad
 import qualified Clang.Internal.FFI as FFI
+import Clang.String (ClangString)
 import Paths_LibClang (getDataFileName)
 
-getSpelling :: ClangBase m => FFI.TranslationUnit -> ClangT s m FFI.CXString
-getSpelling tu = FFI.registerCXString $ FFI.getTranslationUnitSpelling tu
+getSpelling :: ClangBase m => FFI.TranslationUnit -> ClangT s m (ClangString s)
+getSpelling = FFI.getTranslationUnitSpelling
 
 withCreate :: ClangBase m => FFI.Index -> String
            -> (FFI.TranslationUnit -> ClangT s m a)

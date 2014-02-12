@@ -18,9 +18,10 @@ import Data.Time.Clock (UTCTime)
 
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
+import Clang.String (ClangString)
 
-getName :: ClangBase m => FFI.File -> ClangT s m FFI.CXString
-getName f = FFI.registerCXString $ FFI.getFileName f
+getName :: ClangBase m => FFI.File -> ClangT s m (ClangString s)
+getName = FFI.getFileName
 
 hashFile :: ClangBase m => FFI.File -> ClangT s m Int
 hashFile f = return $! fromIntegral $ FFI.getFileHash f
