@@ -1739,30 +1739,39 @@ isUnexposed k =
 %result (languageKind r)
 
 -- typedef struct CXCursorSetImpl *CXCursorSet;
-data CursorSetObj
-type CursorSet = ForeignPtr CursorSetObj
+newtype CursorSet s = CursorSet { unCursorSet :: Ptr () }
 
 -- void clang_disposeCXCursorSet(CXCursorSet cset);
-foreign import ccall unsafe "clang-c/Index.h &clang_disposeCXCursorSet" clang_disposeCXCursorSet :: FunPtr (Ptr CursorSetObj -> IO ())
+%fun clang_disposeCXCursorSet :: CursorSet s -> IO ()
+%call (cursorset cs)
+%code clang_disposeCXCursorSet(cs);
 
--- FIXME
-unmarshall_cursorSet :: Ptr CursorSetObj -> IO (ForeignPtr CursorSetObj)
-unmarshall_cursorSet = newForeignPtr clang_disposeCXCursorSet
+registerCursorSet :: ClangBase m => IO (CursorSet ()) -> ClangT s m (CursorSet s)
+registerCursorSet action = do
+  (_, idx) <- clangAllocate (action >>= return . unsafeCoerce)
+                            (\i -> disposeCXCursorSet i)
+  return idx
+{-# INLINEABLE registerCursorSet #-}
+
+%dis cursorset cs = <unCursorSet/CursorSet> (ptr cs)
 
 -- CXCursorSet clang_createCXCursorSet();
-%fun clang_createCXCursorSet :: IO CursorSet
-%code CXCursorSet r = clang_createCXCursorSet();
-%result (cursorSet (ptr r))
+%fun unsafe_createCXCursorSet :: IO (CursorSet ())
+%code CXCursorSet cs = clang_createCXCursorSet();
+%result (cursorset cs)
+
+createCXCursorSet :: ClangBase m => ClangT s m (CursorSet s)
+createCXCursorSet = registerCursorSet unsafe_createCXCursorSet
 
 -- unsigned clang_CXCursorSet_contains(CXCursorSet cset, CXCursor cursor);
-%fun clang_CXCursorSet_contains :: CursorSet -> Cursor s -> IO Bool
-%call (fptr (ptr cs)) (cursor k xdata p1 p2 p3)
+%fun clang_CXCursorSet_contains :: CursorSet s -> Cursor s -> IO Bool
+%call (cursorset cs) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %result (bool {clang_CXCursorSet_contains(cs, a)})
 
 -- unsigned clang_CXCursorSet_insert(CXCursorSet cset, CXCursor cursor);
-%fun clang_CXCursorSet_insert :: CursorSet -> Cursor s -> IO Bool
-%call (fptr (ptr cs)) (cursor k xdata p1 p2 p3)
+%fun clang_CXCursorSet_insert :: CursorSet s -> Cursor s -> IO Bool
+%call (cursorset cs) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %result (bool {clang_CXCursorSet_insert(cs, a)})
 

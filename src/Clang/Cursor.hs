@@ -231,13 +231,13 @@ getOverloadedDecls c = liftIO $ do
 
 -- CursorSet functions
 
-createSet :: ClangBase m => ClangT s m FFI.CursorSet
-createSet = liftIO $ FFI.createCXCursorSet
+createSet :: ClangBase m => ClangT s m (FFI.CursorSet s)
+createSet = FFI.createCXCursorSet
 
-setContains :: ClangBase m => FFI.CursorSet -> FFI.Cursor s -> ClangT s m Bool
+setContains :: ClangBase m => FFI.CursorSet s -> FFI.Cursor s -> ClangT s m Bool
 setContains s c = liftIO $ FFI.cXCursorSet_contains s c
 
-setInsert :: ClangBase m => FFI.CursorSet -> FFI.Cursor s -> ClangT s m Bool
+setInsert :: ClangBase m => FFI.CursorSet s -> FFI.Cursor s -> ClangT s m Bool
 setInsert s c = liftIO $ FFI.cXCursorSet_insert s c
 
 
