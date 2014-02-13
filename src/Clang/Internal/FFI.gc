@@ -2603,14 +2603,14 @@ foreign import ccall unsafe "clang-c/Index.h clang_enableStackTraces" enableStac
 --                                           unsigned stack_size);
 
 -- typedef void *CXCompletionString;
-newtype CompletionString = CompletionString (Ptr ())
+newtype CompletionString s = CompletionString (Ptr ())
 %dis completionString x = CompletionString (ptr x)
 
 -- typedef struct {
 --   enum CXCursorKind CursorKind;
 --   CXCompletionString CompletionString;
 -- } CXCompletionResult;
-data CompletionResult = CompletionResult !CursorKind !CompletionString
+data CompletionResult s = CompletionResult !CursorKind !(CompletionString s)
 %dis completionResult k s = CompletionResult (cursorKind k) (competionString s)
 
 -- enum CXCompletionChunkKind {
@@ -2641,37 +2641,37 @@ data CompletionResult = CompletionResult !CursorKind !CompletionString
 -- enum CXCompletionChunkKind
 -- clang_getCompletionChunkKind(CXCompletionString completion_string,
 --                              unsigned chunk_number);
-%fun clang_getCompletionChunkKind :: CompletionString -> Int -> IO CompletionChunkKind
+%fun clang_getCompletionChunkKind :: CompletionString s -> Int -> IO CompletionChunkKind
 
 -- CXString
 -- clang_getCompletionChunkText(CXCompletionString completion_string,
 --                              unsigned chunk_number);
-%fun unsafe_getCompletionChunkText :: CompletionString -> Int -> IO (CXString ())
+%fun unsafe_getCompletionChunkText :: CompletionString s -> Int -> IO (CXString ())
 %call (completionString s) (int i)
 %code CXString out = clang_getCompletionChunkText(s, i);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getCompletionChunkText :: ClangBase m => CompletionString -> Int -> ClangT s m (CXString s)
+getCompletionChunkText :: ClangBase m => CompletionString s -> Int -> ClangT s m (CXString s)
 getCompletionChunkText = (registerCXString .) . unsafe_getCompletionChunkText
 
 -- CXCompletionString
 -- clang_getCompletionChunkCompletionString(CXCompletionString completion_string,
 --                                          unsigned chunk_number);
-%fun clang_getCompletionChunkCompletionString :: CompletionString -> Int -> IO CompletionString
+%fun clang_getCompletionChunkCompletionString :: CompletionString s -> Int -> IO (CompletionString s)
 
 -- unsigned
 -- clang_getNumCompletionChunks(CXCompletionString completion_string);
-%fun clang_getNumCompletionChunks :: CompletionString -> IO Int
+%fun clang_getNumCompletionChunks :: CompletionString s -> IO Int
 
 -- unsigned
 -- clang_getCompletionPriority(CXCompletionString completion_string);
-%fun clang_getCompletionPriority :: CompletionString -> IO Int
+%fun clang_getCompletionPriority :: CompletionString s -> IO Int
   
 -- enum CXAvailabilityKind 
 -- clang_getCompletionAvailability(CXCompletionString completion_string);
-%fun clang_getCompletionAvailability :: CompletionString -> IO AvailabilityKind
+%fun clang_getCompletionAvailability :: CompletionString s -> IO AvailabilityKind
 
 -- enum CXCodeComplete_Flags {
 --   CXCodeComplete_IncludeMacros = 0x01,
@@ -2692,15 +2692,25 @@ foreign import ccall unsafe "clang-c/Index.h clang_defaultCodeCompleteOptions" d
 --   CXCompletionResult *Results;
 --   unsigned NumResults;
 -- } CXCodeCompleteResults;
-data CodeCompleteResultsObj
-type CodeCompleteResults = ForeignPtr CodeCompleteResultsObj
+newtype CodeCompleteResults s = CodeCompleteResults (Ptr ())
+
+unCodeCompleteResults :: CodeCompleteResults s -> Ptr ()
+unCodeCompleteResults (CodeCompleteResults p) = p
 
 -- void clang_disposeCodeCompleteResults(CXCodeCompleteResults *Results);
-foreign import ccall unsafe "FFI_stub_ffi.h &clang_disposeCodeCompleteResults" clang_disposeCodeCompleteResults :: FunPtr (Ptr CodeCompleteResultsObj -> IO ())
+%fun clang_disposeCodeCompleteResults :: CodeCompleteResults s -> IO ()
+%call (codeCompleteResults rs)
+%code clang_disposeCodeCompleteResults(rs);
 
--- FIXME
-unmarshall_codeCompleteResults :: Ptr CodeCompleteResultsObj -> IO (ForeignPtr CodeCompleteResultsObj)
-unmarshall_codeCompleteResults = newForeignPtr clang_disposeCodeCompleteResults
+registerCodeCompleteResults :: ClangBase m => IO (CodeCompleteResults ())
+                            -> ClangT s m (CodeCompleteResults s)
+registerCodeCompleteResults action = do
+  (_, ccrs) <- clangAllocate (action >>= return . unsafeCoerce)
+                             (\rs -> disposeCodeCompleteResults rs)
+  return ccrs
+{-# INLINEABLE registerCodeCompleteResults #-}
+
+%dis codeCompleteResults rs = <unCodeCompleteResults/CodeCompleteResults> (ptr rs)
 
 -- CXCodeCompleteResults *clang_codeCompleteAt(CXTranslationUnit TU,
 --                                             const char *complete_filename,
@@ -2709,31 +2719,36 @@ unmarshall_codeCompleteResults = newForeignPtr clang_disposeCodeCompleteResults
 --                                             struct CXUnsavedFile *unsaved_files,
 --                                             unsigned num_unsaved_files,
 --                                             unsigned options);
-%fun clang_codeCompleteAt :: TranslationUnit s -> String -> Int -> Int -> [UnsavedFile] -> Int -> IO CodeCompleteResults
+%fun unsafe_codeCompleteAt :: TranslationUnit s -> String -> Int -> Int -> [UnsavedFile] -> Int -> IO (CodeCompleteResults ())
 %call (translationUnit t) (string s) (int i1) (int i2) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs))) (int i3)
-%code r = clang_codeCompleteAt(t, s, i1, i2, ufs, nufs, i3)
-%result (codeCompleteResults (ptr r))
+%code rs = clang_codeCompleteAt(t, s, i1, i2, ufs, nufs, i3)
+%result (codeCompleteResults rs)
+
+codeCompleteAt :: ClangBase m => TranslationUnit s -> String -> Int -> Int -> [UnsavedFile]
+               -> Int -> ClangT s m (CodeCompleteResults s)
+codeCompleteAt tu f l c ufs os =
+  registerCodeCompleteResults $ unsafe_codeCompleteAt tu f l c ufs os
 
 -- void clang_sortCodeCompletionResults(CXCompletionResult *Results,
 --                                      unsigned NumResults);
-%fun clang_sortCodeCompletionResults :: CodeCompleteResults  -> Int -> IO ()
-%call (fptr (ptr c)) (int i)
-%code clang_sortCodeCompletionResults(c, i);
+%fun clang_sortCodeCompletionResults :: CodeCompleteResults s -> Int -> IO ()
+%call (codeCompleteResults rs) (int i)
+%code clang_sortCodeCompletionResults(rs, i);
 
 -- unsigned clang_codeCompleteGetNumDiagnostics(CXCodeCompleteResults *Results);
-%fun clang_codeCompleteGetNumDiagnostics :: CodeCompleteResults -> IO Int
-%call (fptr (ptr c))
-%code r = clang_codeCompleteGetNumDiagnostics(c);
-%result (int r)
+%fun clang_codeCompleteGetNumDiagnostics :: CodeCompleteResults s -> IO Int
+%call (codeCompleteResults rs)
+%code nd = clang_codeCompleteGetNumDiagnostics(rs);
+%result (int nd)
 
 -- CXDiagnostic clang_codeCompleteGetDiagnostic(CXCodeCompleteResults *Results,
 --                                              unsigned Index);
-%fun unsafe_codeCompleteGetDiagnostic :: CodeCompleteResults -> Int -> IO (Diagnostic ())
-%call (fptr (ptr c)) (int i)
-%code CXDiagnostic r = clang_codeCompleteGetDiagnostic(c, i);
+%fun unsafe_codeCompleteGetDiagnostic :: CodeCompleteResults s -> Int -> IO (Diagnostic ())
+%call (codeCompleteResults rs) (int i)
+%code CXDiagnostic r = clang_codeCompleteGetDiagnostic(rs, i);
 %result (diag r)
 
-codeCompleteGetDiagnostic :: ClangBase m => CodeCompleteResults -> Int
+codeCompleteGetDiagnostic :: ClangBase m => CodeCompleteResults s -> Int
                           -> ClangT s m (Diagnostic s)
 codeCompleteGetDiagnostic = (registerDiagnostic .) . unsafe_codeCompleteGetDiagnostic
 
