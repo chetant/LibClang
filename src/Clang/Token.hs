@@ -24,7 +24,7 @@ getSpelling :: ClangBase m => FFI.TranslationUnit s -> FFI.Token -> ClangT s m (
 getSpelling = FFI.getTokenSpelling
 
 getLocation :: ClangBase m => FFI.TranslationUnit s -> FFI.Token
-            -> ClangT s m FFI.SourceLocation
+            -> ClangT s m (FFI.SourceLocation s)
 getLocation tu tk = liftIO $ FFI.getTokenLocation tu tk
 
 getExtent :: ClangBase m => FFI.TranslationUnit s -> FFI.Token -> ClangT s m FFI.SourceRange

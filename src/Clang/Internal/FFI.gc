@@ -198,7 +198,6 @@ module Clang.Internal.FFI
 -- , toggleCrashRecovery
 , Inclusion(..)
 , InclusionList
-, registerInclusionList
 , getInclusions
 ) where
 
@@ -397,10 +396,10 @@ foreign import ccall unsafe "clang-c/Index.h clang_getFileTime" clang_getFileTim
 --   void *ptr_data[2];
 --   unsigned int_data;
 -- } CXSourceLocation;
-data SourceLocation = SourceLocation !(Ptr ()) !(Ptr ()) !Int
+data SourceLocation s = SourceLocation !(Ptr ()) !(Ptr ()) !Int
 %dis sourceLocation p1 p2 d = SourceLocation (ptr p1) (ptr p2) (int d)
 
-instance Storable SourceLocation where
+instance Storable (SourceLocation s) where
     sizeOf _ = sizeOfCXSourceLocation
     {-# INLINE sizeOf #-}
 
@@ -431,12 +430,15 @@ data SourceRange = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 %dis sourceRange p1 p2 d1 d2 = SourceRange (ptr p1) (ptr p2) (int d1) (int d2)
 
 -- CXSourceLocation clang_getNullLocation();
-%fun clang_getNullLocation :: IO SourceLocation
+%fun unsafe_getNullLocation :: IO (SourceLocation ())
 %code CXSourceLocation r = clang_getNullLocation();
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
 
+getNullLocation :: ClangBase m => ClangT s m (SourceLocation s)
+getNullLocation = liftIO (unsafeCoerce <$> unsafe_getNullLocation)
+
 -- unsigned clang_equalLocations(CXSourceLocation loc1, CXSourceLocation loc2);
-%fun clang_equalLocations :: SourceLocation -> SourceLocation -> IO Bool
+%fun clang_equalLocations :: SourceLocation s -> SourceLocation s -> IO Bool
 %call (sourceLocation p1 p2 d) (sourceLocation p12 p22 d2)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXSourceLocation m = {{p12, p22}, d2};
@@ -446,7 +448,7 @@ data SourceRange = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 --                                                   CXFile file,
 --                                                   unsigned line,
 --                                                   unsigned column);
-%fun clang_getLocation :: TranslationUnit s -> File -> Int -> Int -> IO SourceLocation
+%fun clang_getLocation :: TranslationUnit s -> File -> Int -> Int -> IO (SourceLocation s)
 %call (translationUnit t) (file f) (int i) (int j)
 %code CXSourceLocation r = clang_getLocation((CXTranslationUnit)t, f, i, j);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
@@ -454,7 +456,7 @@ data SourceRange = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 -- CXSourceLocation clang_getLocationForOffset(CXTranslationUnit tu,
 --                                                            CXFile file,
 --                                                            unsigned offset);
-%fun clang_getLocationForOffset :: TranslationUnit s -> File -> Int -> IO SourceLocation
+%fun clang_getLocationForOffset :: TranslationUnit s -> File -> Int -> IO (SourceLocation s)
 %call (translationUnit t) (file f) (int i)
 %code CXSourceLocation r = clang_getLocationForOffset((CXTranslationUnit)t, f, i);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
@@ -466,7 +468,7 @@ data SourceRange = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 
 -- CXSourceRange clang_getRange(CXSourceLocation begin,
 --                                             CXSourceLocation end);
-%fun clang_getRange :: SourceLocation -> SourceLocation -> IO SourceRange
+%fun clang_getRange :: SourceLocation s -> SourceLocation s -> IO SourceRange
 %call (sourceLocation p1 p2 d) (sourceLocation p12 p22 d2)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXSourceLocation m = {{p12, p22}, d2};
@@ -478,7 +480,7 @@ data SourceRange = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 --                                                unsigned *line,
 --                                                unsigned *column,
 --                                                unsigned *offset);
-%fun clang_getExpansionLocation :: SourceLocation -> IO (Maybe File, Int, Int, Int)
+%fun clang_getExpansionLocation :: SourceLocation s -> IO (Maybe File, Int, Int, Int)
 %call (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXFile f;unsigned ln,c,o;clang_getExpansionLocation(l,&f,&ln,&c,&o);
@@ -489,7 +491,7 @@ data SourceRange = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 --                                                    unsigned *line,
 --                                                    unsigned *column,
 --                                                    unsigned *offset);
-%fun clang_getInstantiationLocation :: SourceLocation -> IO (Maybe File, Int, Int, Int)
+%fun clang_getInstantiationLocation :: SourceLocation s -> IO (Maybe File, Int, Int, Int)
 %call (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXFile f;unsigned ln,c,o;clang_getInstantiationLocation(l,&f,&ln,&c,&o);
@@ -500,25 +502,31 @@ data SourceRange = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 --                                               unsigned *line,
 --                                               unsigned *column,
 --                                               unsigned *offset);
-%fun clang_getSpellingLocation :: SourceLocation -> IO (Maybe File, Int, Int, Int)
+%fun clang_getSpellingLocation :: SourceLocation s -> IO (Maybe File, Int, Int, Int)
 %call (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXFile f;unsigned ln,c,o;clang_getSpellingLocation(l,&f,&ln,&c,&o);
 %result (<from_Maybe_File/to_Maybe_File> (file f), (int ln), (int c), (int o))
 
 -- CXSourceLocation clang_getRangeStart(CXSourceRange range);
-%fun clang_getRangeStart :: SourceRange -> IO SourceLocation
+%fun unsafe_getRangeStart :: SourceRange -> IO (SourceLocation ())
 %call (sourceRange p1 p2 d1 d2)
 %code CXSourceRange a = {{p1, p2}, d1, d2};
 %     CXSourceLocation r = clang_getRangeStart(a);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
 
+getRangeStart :: ClangBase m => SourceRange -> ClangT s m (SourceLocation s)
+getRangeStart sr = liftIO $ unsafeCoerce <$> unsafe_getRangeStart sr
+
 -- CXSourceLocation clang_getRangeEnd(CXSourceRange range);
-%fun clang_getRangeEnd :: SourceRange -> IO SourceLocation
+%fun unsafe_getRangeEnd :: SourceRange -> IO (SourceLocation ())
 %call (sourceRange p1 p2 d1 d2)
 %code CXSourceRange a = {{p1, p2}, d1, d2};
 %     CXSourceLocation r = clang_getRangeEnd(a);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
+
+getRangeEnd :: ClangBase m => SourceRange -> ClangT s m (SourceLocation s)
+getRangeEnd sr = liftIO $ unsafeCoerce <$> unsafe_getRangeEnd sr
 
 -- enum CXDiagnosticSeverity {
 --   CXDiagnostic_Ignored = 0,
@@ -609,10 +617,13 @@ formatDiagnostic = (registerCXString .) . unsafe_formatDiagnostic
 %result (diagnosticSeverity s)
 
 -- CXSourceLocation clang_getDiagnosticLocation(CXDiagnostic);
-%fun clang_getDiagnosticLocation :: Diagnostic -> IO SourceLocation
+%fun unsafe_getDiagnosticLocation :: Diagnostic -> IO (SourceLocation ())
 %call (diag d)
 %code CXSourceLocation r = clang_getDiagnosticLocation(d);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
+
+getDiagnosticLocation :: ClangBase m => Diagnostic -> ClangT s m (SourceLocation s)
+getDiagnosticLocation d = liftIO $ unsafeCoerce <$> unsafe_getDiagnosticLocation d
 
 -- CXString clang_getDiagnosticSpelling(CXDiagnostic);
 %fun unsafe_getDiagnosticSpelling :: Diagnostic -> IO (CXString ())
@@ -1785,18 +1796,22 @@ registerOverriddenList action = do
 %result (file {clang_getIncludedFile(a)})
   
 -- CXCursor clang_getCursor(CXTranslationUnit, CXSourceLocation);
-%fun clang_getCursor :: TranslationUnit s -> SourceLocation -> IO Cursor
+%fun clang_getCursor :: TranslationUnit s -> SourceLocation s -> IO Cursor
 %call (translationUnit t) (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXCursor r = clang_getCursor(t, l);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXSourceLocation clang_getCursorLocation(CXCursor);
-%fun clang_getCursorLocation :: Cursor -> IO SourceLocation
+%fun unsafe_getCursorLocation :: Cursor -> IO (SourceLocation ())
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXSourceLocation r = clang_getCursorLocation(a);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
+{-# INLINE unsafe_getCursorLocation #-}
+
+getCursorLocation :: ClangBase m => Cursor -> ClangT s m (SourceLocation s)
+getCursorLocation c = liftIO $ unsafeCoerce <$> unsafe_getCursorLocation c
 {-# INLINEABLE getCursorLocation #-}
 
 -- Variant of clang_getCursorLocation that fuses a call to clang_getSpellingLocation.
@@ -2448,7 +2463,7 @@ getTokenSpelling = (registerCXString .) . unsafe_getTokenSpelling
 
 -- CXSourceLocation clang_getTokenLocation(CXTranslationUnit,
 --                                                        CXToken);
-%fun clang_getTokenLocation :: TranslationUnit s -> Token -> IO SourceLocation
+%fun clang_getTokenLocation :: TranslationUnit s -> Token -> IO (SourceLocation s)
 %call (translationUnit t) (token w x y z p)
 %code CXToken a = {{w, x, y, z}, p};
 %     CXSourceLocation r = clang_getTokenLocation(t, a);
@@ -2700,9 +2715,9 @@ getClangVersion = registerCXString $ unsafe_getClangVersion
 -- -- void clang_toggleCrashRecovery(unsigned isEnabled);
 -- %fun clang_toggleCrashRecovery :: Bool -> IO ()
 
-data Inclusion = Inclusion !File !SourceLocation !Bool
+data Inclusion s = Inclusion !File !(SourceLocation s) !Bool
 
-instance Storable Inclusion where
+instance Storable (Inclusion s) where
     sizeOf _ = sizeOfInclusion
     {-# INLINE sizeOf #-}
 
@@ -2725,16 +2740,15 @@ instance Storable Inclusion where
            (toCUChar $ if isDirect then 1 else 0)
     {-# INLINE poke #-}
 
--- We deliberately don't export the constructor. The only way to unwrap this is registerInclusionList.
-type InclusionList = DVS.Vector Inclusion
+type InclusionList s = DVS.Vector (Inclusion s)
 data UnsafeInclusionList = UnsafeInclusionList !(Ptr ()) !Int
 
 -- void freeInclusions(struct Inclusion* inclusions);
-%fun freeInclusions :: InclusionList -> IO ()
+%fun freeInclusions :: InclusionList s -> IO ()
 %call (inclusionList is n)
 %code freeInclusionList(is);
 
-registerInclusionList :: ClangBase m => IO UnsafeInclusionList -> ClangT s m InclusionList
+registerInclusionList :: ClangBase m => IO UnsafeInclusionList -> ClangT s m (InclusionList s)
 registerInclusionList action = do
     (_, inclusionList) <- clangAllocate (action >>= mkSafe) freeInclusions
     return inclusionList
@@ -2744,7 +2758,7 @@ registerInclusionList action = do
       return $ DVS.unsafeFromForeignPtr fptr 0 n
 {-# INLINEABLE registerInclusionList #-}
 
-fromInclusionList :: InclusionList -> (Ptr (), Int)
+fromInclusionList :: InclusionList s -> (Ptr (), Int)
 fromInclusionList is = let (p, _, _) = DVS.unsafeToForeignPtr is in
                        (castPtr $ Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr p, DVS.length is)
 
@@ -2755,8 +2769,11 @@ toInclusionList (is, n) = UnsafeInclusionList is n
 
 -- A more efficient alternative to clang_getInclusions.
 -- void getInclusions(CXTranslationUnit tu, struct Inclusion** inclusionsOut, unsigned* countOut)
-%fun getInclusions :: TranslationUnit s -> IO UnsafeInclusionList
+%fun unsafe_getInclusions :: TranslationUnit s -> IO UnsafeInclusionList
 %call (translationUnit t)
 %code struct Inclusion* inclusions; unsigned count;
 %     getInclusions(t, &inclusions, &count);
 %result (inclusionList inclusions count)
+
+getInclusions :: ClangBase m => TranslationUnit s -> ClangT s m (InclusionList s)
+getInclusions = registerInclusionList . unsafe_getInclusions

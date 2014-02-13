@@ -114,8 +114,8 @@ getOverriddenCursors c = FFI.registerOverriddenList $ FFI.getOverriddenCursors c
 getIncludedFile :: ClangBase m => FFI.Cursor -> ClangT s m FFI.File
 getIncludedFile c = liftIO $ FFI.getIncludedFile c
 
-getLocation :: ClangBase m => FFI.Cursor -> ClangT s m FFI.SourceLocation
-getLocation c = liftIO $ FFI.getCursorLocation c
+getLocation :: ClangBase m => FFI.Cursor -> ClangT s m (FFI.SourceLocation s)
+getLocation = FFI.getCursorLocation
 
 getSpellingLocation:: ClangBase m => FFI.Cursor -> ClangT s m (Maybe FFI.File, Int, Int, Int)
 getSpellingLocation l = liftIO $ FFI.getCursorSpellingLocation l

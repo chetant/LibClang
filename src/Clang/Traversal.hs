@@ -49,5 +49,5 @@ getDescendants c = FFI.registerCursorList $ FFI.getDescendants c
 getParentedDescendants :: ClangBase m => FFI.Cursor -> ClangT s m FFI.ParentedCursorList
 getParentedDescendants c = FFI.registerParentedCursorList $ FFI.getParentedDescendants c
 
-getInclusions :: ClangBase m => FFI.TranslationUnit s -> ClangT s m FFI.InclusionList
-getInclusions tu = FFI.registerInclusionList $ FFI.getInclusions tu
+getInclusions :: ClangBase m => FFI.TranslationUnit s -> ClangT s m (FFI.InclusionList s)
+getInclusions = FFI.getInclusions
