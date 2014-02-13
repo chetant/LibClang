@@ -103,7 +103,7 @@ reparse ::
   -> ClangT s m Bool
 reparse t ufs opts = liftIO $ FFI.reparseTranslationUnit t ufs (FFI.getReparseFlagsSum opts)
 
-getCursor :: ClangBase m => FFI.TranslationUnit s -> ClangT s m FFI.Cursor
+getCursor :: ClangBase m => FFI.TranslationUnit s -> ClangT s m (FFI.Cursor s)
 getCursor tu = liftIO $ FFI.getTranslationUnitCursor tu
 
 -- index functions

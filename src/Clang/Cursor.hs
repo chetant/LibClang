@@ -78,99 +78,100 @@ import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 import Clang.String (ClangString)
 
-isNullCursor :: FFI.Cursor -> Bool
+isNullCursor :: FFI.Cursor s -> Bool
 isNullCursor = FFI.cursor_isNull
 {-# INLINE isNullCursor #-}
 
-nullCursor :: FFI.Cursor
+nullCursor :: ClangBase m => ClangT s m (FFI.Cursor s)
 nullCursor = FFI.getNullCursor
 {-# INLINE nullCursor #-}
 
-getHash :: ClangBase m => FFI.Cursor -> ClangT s m GHC.Word.Word32
+getHash :: ClangBase m => FFI.Cursor s -> ClangT s m GHC.Word.Word32
 getHash c = liftIO $ FFI.hashCursor c
 
-getKind :: FFI.Cursor -> FFI.CursorKind
+getKind :: FFI.Cursor s -> FFI.CursorKind
 getKind = FFI.getCursorKind
 {-# INLINE getKind #-}
 
-getLinkage :: ClangBase m => FFI.Cursor -> ClangT s m FFI.LinkageKind
+getLinkage :: ClangBase m => FFI.Cursor s -> ClangT s m FFI.LinkageKind
 getLinkage c = liftIO $ FFI.getCursorLinkage c
 
-getAvailability  :: ClangBase m => FFI.Cursor -> ClangT s m FFI.AvailabilityKind
+getAvailability  :: ClangBase m => FFI.Cursor s -> ClangT s m FFI.AvailabilityKind
 getAvailability c = liftIO $ FFI.getCursorAvailability c
 
-getLanguage :: ClangBase m => FFI.Cursor -> ClangT s m FFI.LanguageKind
+getLanguage :: ClangBase m => FFI.Cursor s -> ClangT s m FFI.LanguageKind
 getLanguage c = liftIO $ FFI.getCursorLanguage c
 
-getSemanticParent :: ClangBase m => FFI.Cursor -> ClangT s m FFI.Cursor
+getSemanticParent :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.Cursor s)
 getSemanticParent c = liftIO $ FFI.getCursorSemanticParent c
 
-getLexicalParent :: ClangBase m => FFI.Cursor -> ClangT s m FFI.Cursor
+getLexicalParent :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.Cursor s)
 getLexicalParent c = liftIO $ FFI.getCursorLexicalParent c
 
-getOverriddenCursors :: ClangBase m => FFI.Cursor -> ClangT s m FFI.CursorList
+getOverriddenCursors :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.CursorList s)
 getOverriddenCursors c = FFI.registerOverriddenList $ FFI.getOverriddenCursors c
 
-getIncludedFile :: ClangBase m => FFI.Cursor -> ClangT s m FFI.File
+getIncludedFile :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.File s)
 getIncludedFile c = liftIO $ FFI.getIncludedFile c
 
-getLocation :: ClangBase m => FFI.Cursor -> ClangT s m (FFI.SourceLocation s)
-getLocation = FFI.getCursorLocation
+getLocation :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.SourceLocation s)
+getLocation c = liftIO $ FFI.getCursorLocation c
 
-getSpellingLocation:: ClangBase m => FFI.Cursor -> ClangT s m (Maybe FFI.File, Int, Int, Int)
+getSpellingLocation :: ClangBase m => FFI.Cursor s
+                    -> ClangT s m (Maybe (FFI.File s), Int, Int, Int)
 getSpellingLocation l = liftIO $ FFI.getCursorSpellingLocation l
 
-getExtent :: ClangBase m => FFI.Cursor -> ClangT s m (FFI.SourceRange s)
-getExtent = FFI.getCursorExtent
+getExtent :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.SourceRange s)
+getExtent c = liftIO $ FFI.getCursorExtent c
 
-getType :: ClangBase m => FFI.Cursor -> ClangT s m FFI.Type
+getType :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.Type s)
 getType c = liftIO $ FFI.getCursorType c
 
-getResultType :: ClangBase m => FFI.Cursor -> ClangT s m FFI.Type
+getResultType :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.Type s)
 getResultType c = liftIO $ FFI.getCursorResultType c
 
-getDeclObjCTypeEncoding :: ClangBase m => FFI.Cursor -> ClangT s m (ClangString s)
+getDeclObjCTypeEncoding :: ClangBase m => FFI.Cursor s -> ClangT s m (ClangString s)
 getDeclObjCTypeEncoding = FFI.getDeclObjCTypeEncoding
 
-getSpelling :: ClangBase m => FFI.Cursor -> ClangT s m (ClangString s)
+getSpelling :: ClangBase m => FFI.Cursor s -> ClangT s m (ClangString s)
 getSpelling = FFI.getCursorSpelling
 
-getDisplayName :: ClangBase m => FFI.Cursor -> ClangT s m (ClangString s)
+getDisplayName :: ClangBase m => FFI.Cursor s -> ClangT s m (ClangString s)
 getDisplayName = FFI.getCursorDisplayName
 
-getReferenced :: ClangBase m => FFI.Cursor -> ClangT s m FFI.Cursor
+getReferenced :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.Cursor s)
 getReferenced c = liftIO $ FFI.getCursorReferenced c
 
-getDefinition :: ClangBase m => FFI.Cursor -> ClangT s m FFI.Cursor
+getDefinition :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.Cursor s)
 getDefinition c = liftIO $ FFI.getCursorDefinition c
 
-getCanonicalCursor :: ClangBase m => FFI.Cursor -> ClangT s m FFI.Cursor
+getCanonicalCursor :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.Cursor s)
 getCanonicalCursor c = liftIO $ FFI.getCanonicalCursor c
 
-getTemplateKind :: ClangBase m => FFI.Cursor -> ClangT s m FFI.CursorKind
+getTemplateKind :: ClangBase m => FFI.Cursor s -> ClangT s m FFI.CursorKind
 getTemplateKind c = liftIO $ FFI.getTemplateCursorKind c
 
-getSpecializedTemplate :: ClangBase m => FFI.Cursor -> ClangT s m FFI.Cursor
+getSpecializedTemplate :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.Cursor s)
 getSpecializedTemplate c = liftIO $ FFI.getSpecializedCursorTemplate c
 
-getTypeDeclaration :: ClangBase m => FFI.Type -> ClangT s m FFI.Cursor
+getTypeDeclaration :: ClangBase m => FFI.Type s -> ClangT s m (FFI.Cursor s)
 getTypeDeclaration t = liftIO $ FFI.getTypeDeclaration t
 
-getBaseExpression :: ClangBase m => FFI.Cursor -> ClangT s m FFI.Cursor
+getBaseExpression :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.Cursor s)
 getBaseExpression c = liftIO $ FFI.cursor_getBaseExpression c
 
-getNumArguments :: ClangBase m => FFI.Cursor -> ClangT s m Int
+getNumArguments :: ClangBase m => FFI.Cursor s -> ClangT s m Int
 getNumArguments c = liftIO $ FFI.cursor_getNumArguments c
 
-getArgument :: ClangBase m => FFI.Cursor -> Int -> ClangT s m FFI.Cursor
+getArgument :: ClangBase m => FFI.Cursor s -> Int -> ClangT s m (FFI.Cursor s)
 getArgument c i = liftIO $ FFI.cursor_getArgument c i
 
 -- attribute function
 
-getIBOutletCollectionType :: ClangBase m => FFI.Cursor -> ClangT s m FFI.Type
+getIBOutletCollectionType :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.Type s)
 getIBOutletCollectionType c = liftIO $ FFI.getIBOutletCollectionType c
 
-isDefinition :: ClangBase m => FFI.Cursor -> ClangT s m Bool
+isDefinition :: ClangBase m => FFI.Cursor s -> ClangT s m Bool
 isDefinition c = liftIO $ FFI.isCursorDefinition c
 
 isDeclaration :: FFI.CursorKind -> Bool
@@ -205,25 +206,25 @@ isUnexposed :: FFI.CursorKind -> Bool
 isUnexposed = FFI.isUnexposed
 {-# INLINE isUnexposed #-}
 
-isVirtualBase :: ClangBase m => FFI.Cursor -> ClangT s m Bool
+isVirtualBase :: ClangBase m => FFI.Cursor s -> ClangT s m Bool
 isVirtualBase c = liftIO $ FFI.isVirtualBase c
 
-isPureVirtualCppMethod :: ClangBase m => FFI.Cursor -> ClangT s m Bool
+isPureVirtualCppMethod :: ClangBase m => FFI.Cursor s -> ClangT s m Bool
 isPureVirtualCppMethod c = liftIO $ FFI.cXXMethod_isPureVirtual c
 
-isStaticCppMethod :: ClangBase m => FFI.Cursor -> ClangT s m Bool
+isStaticCppMethod :: ClangBase m => FFI.Cursor s -> ClangT s m Bool
 isStaticCppMethod c = liftIO $ FFI.cXXMethod_isStatic c
 
-isVirtualCppMethod :: ClangBase m => FFI.Cursor -> ClangT s m Bool
+isVirtualCppMethod :: ClangBase m => FFI.Cursor s -> ClangT s m Bool
 isVirtualCppMethod c = liftIO $ FFI.cXXMethod_isVirtual c
 
-isDynamicCall :: ClangBase m => FFI.Cursor -> ClangT s m Bool
+isDynamicCall :: ClangBase m => FFI.Cursor s -> ClangT s m Bool
 isDynamicCall c = liftIO $ FFI.cursor_isDynamicCall c
 
-getCXXAccessSpecifier :: ClangBase m => FFI.Cursor -> ClangT s m FFI.CXXAccessSpecifier
+getCXXAccessSpecifier :: ClangBase m => FFI.Cursor s -> ClangT s m FFI.CXXAccessSpecifier
 getCXXAccessSpecifier c = liftIO $ FFI.getCXXAccessSpecifier c
 
-getOverloadedDecls :: ClangBase m => FFI.Cursor -> ClangT s m [FFI.Cursor]
+getOverloadedDecls :: ClangBase m => FFI.Cursor s -> ClangT s m [FFI.Cursor s]
 getOverloadedDecls c = liftIO $ do
                          numDecls <- FFI.getNumOverloadedDecls c
                          mapM (FFI.getOverloadedDecl c) [0..(numDecls-1)]
@@ -233,10 +234,10 @@ getOverloadedDecls c = liftIO $ do
 createSet :: ClangBase m => ClangT s m FFI.CursorSet
 createSet = liftIO $ FFI.createCXCursorSet
 
-setContains :: ClangBase m => FFI.CursorSet -> FFI.Cursor -> ClangT s m Bool
+setContains :: ClangBase m => FFI.CursorSet -> FFI.Cursor s -> ClangT s m Bool
 setContains s c = liftIO $ FFI.cXCursorSet_contains s c
 
-setInsert :: ClangBase m => FFI.CursorSet -> FFI.Cursor -> ClangT s m Bool
+setInsert :: ClangBase m => FFI.CursorSet -> FFI.Cursor s -> ClangT s m Bool
 setInsert s c = liftIO $ FFI.cXCursorSet_insert s c
 
 

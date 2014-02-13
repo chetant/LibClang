@@ -362,40 +362,45 @@ unsafeGetByteString (CXString d f) = liftIO $ getCStringPtr d f >>= unsafePackCS
 getStringHash :: CXString s -> WordPtr
 getStringHash (CXString p _) = ptrToWordPtr p
 
-from_Maybe_File :: Maybe File -> File
+from_Maybe_File :: Maybe (File s) -> File s
 from_Maybe_File (Just f) = f
 from_Maybe_File Nothing  = File nullPtr
 
-to_Maybe_File :: File -> Maybe File
+to_Maybe_File :: File s -> Maybe (File s)
 to_Maybe_File (File p) | p == nullPtr = Nothing
 to_Maybe_File f                       = Just f
 
 -- typedef void *CXFile;
-newtype File = File (Ptr ())
-               deriving (Eq, Ord)
-%dis file x = File (ptr x)
+newtype File s = File (Ptr ())
+  deriving (Eq, Ord)
 
-getFileHash :: File -> WordPtr
+unFile :: File s -> Ptr ()
+unFile (File p) = p
+
+%dis file p = <unFile/File> (ptr p)
+
+getFileHash :: File s -> WordPtr
 getFileHash (File p) = ptrToWordPtr p
 
 -- CXString clang_getFileName(CXFile SFile);
-%fun unsafe_getFileName :: File -> IO (CXString ())
+%fun unsafe_getFileName :: File s -> IO (CXString ())
 %call (file x)
 %code CXString out = clang_getFileName(x);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getFileName :: ClangBase m => File -> ClangT s m (CXString s)
+getFileName :: ClangBase m => File s -> ClangT s m (CXString s)
 getFileName = registerCXString . unsafe_getFileName
 
 -- time_t clang_getFileTime(CXFile SFile);
--- %fun clang_getFileTime :: File -> IO CTime
-getFileTime (File ptr) = clang_getFileTime ptr
 foreign import ccall unsafe "clang-c/Index.h clang_getFileTime" clang_getFileTime :: Ptr () -> IO CTime
 
+getFileTime :: File s -> IO CTime
+getFileTime (File ptr) = clang_getFileTime ptr
+
 -- CXFile clang_getFile(CXTranslationUnit tu, const char *file_name);
-%fun clang_getFile :: TranslationUnit s -> String -> IO File
+%fun clang_getFile :: TranslationUnit s -> String -> IO (File s)
 %call (translationUnit t) (string s)
 %code CXFile r = clang_getFile(t, s);
 %result (file r)
@@ -456,7 +461,7 @@ getNullLocation = liftIO (unsafeCoerce <$> unsafe_getNullLocation)
 --                                                   CXFile file,
 --                                                   unsigned line,
 --                                                   unsigned column);
-%fun clang_getLocation :: TranslationUnit s -> File -> Int -> Int -> IO (SourceLocation s)
+%fun clang_getLocation :: TranslationUnit s -> File s -> Int -> Int -> IO (SourceLocation s)
 %call (translationUnit t) (file f) (int i) (int j)
 %code CXSourceLocation r = clang_getLocation((CXTranslationUnit)t, f, i, j);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
@@ -464,7 +469,7 @@ getNullLocation = liftIO (unsafeCoerce <$> unsafe_getNullLocation)
 -- CXSourceLocation clang_getLocationForOffset(CXTranslationUnit tu,
 --                                                            CXFile file,
 --                                                            unsigned offset);
-%fun clang_getLocationForOffset :: TranslationUnit s -> File -> Int -> IO (SourceLocation s)
+%fun clang_getLocationForOffset :: TranslationUnit s -> File s -> Int -> IO (SourceLocation s)
 %call (translationUnit t) (file f) (int i)
 %code CXSourceLocation r = clang_getLocationForOffset((CXTranslationUnit)t, f, i);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
@@ -491,7 +496,7 @@ getNullRange = liftIO $ unsafeCoerce <$> unsafe_getNullRange
 --                                                unsigned *line,
 --                                                unsigned *column,
 --                                                unsigned *offset);
-%fun clang_getExpansionLocation :: SourceLocation s -> IO (Maybe File, Int, Int, Int)
+%fun clang_getExpansionLocation :: SourceLocation s -> IO (Maybe (File s), Int, Int, Int)
 %call (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXFile f;unsigned ln,c,o;clang_getExpansionLocation(l,&f,&ln,&c,&o);
@@ -502,7 +507,7 @@ getNullRange = liftIO $ unsafeCoerce <$> unsafe_getNullRange
 --                                                    unsigned *line,
 --                                                    unsigned *column,
 --                                                    unsigned *offset);
-%fun clang_getInstantiationLocation :: SourceLocation s -> IO (Maybe File, Int, Int, Int)
+%fun clang_getInstantiationLocation :: SourceLocation s -> IO (Maybe (File s), Int, Int, Int)
 %call (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXFile f;unsigned ln,c,o;clang_getInstantiationLocation(l,&f,&ln,&c,&o);
@@ -513,7 +518,7 @@ getNullRange = liftIO $ unsafeCoerce <$> unsafe_getNullRange
 --                                               unsigned *line,
 --                                               unsigned *column,
 --                                               unsigned *offset);
-%fun clang_getSpellingLocation :: SourceLocation s -> IO (Maybe File, Int, Int, Int)
+%fun clang_getSpellingLocation :: SourceLocation s -> IO (Maybe (File s), Int, Int, Int)
 %call (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXFile f;unsigned ln,c,o;clang_getSpellingLocation(l,&f,&ln,&c,&o);
@@ -1559,10 +1564,10 @@ getReparseFlagsSum = sum . (map toVal_)
 --   int xdata;
 --   const void* data[3];
 -- } CXCursor;
-data Cursor = Cursor !CursorKind !Int !(Ptr ()) !(Ptr ()) !(Ptr ())
+data Cursor s = Cursor !CursorKind !Int !(Ptr ()) !(Ptr ()) !(Ptr ())
 %dis cursor k xdata p1 p2 p3 = Cursor (cursorKind k) (int xdata) (ptr p1) (ptr p2) (ptr p3)
 
-instance Storable Cursor where
+instance Storable (Cursor s) where
     sizeOf _ = sizeOfCXCursor
     {-# INLINE sizeOf #-}
 
@@ -1588,7 +1593,7 @@ instance Storable Cursor where
       pokeByteOff p offsetCXCursorP3 p3
     {-# INLINE poke #-}
 
-instance Eq Cursor where
+instance Eq (Cursor s) where
     (Cursor aK aXdata aP1 aP2 aP3) == (Cursor bK bXdata bP1 bP2 bP3) =
         (aK == bK) &&
         (aXdata == bXdata) &&
@@ -1600,7 +1605,7 @@ instance Eq Cursor where
         bP2' = if isDeclaration bK then intPtrToPtr 0 else bP2
     {-# INLINE (==) #-}
 
-instance Hashable Cursor where
+instance Hashable (Cursor s) where
     hash (Cursor k _ p1 p2 _) =
       let p = if isExpression k || isStatement k then p2 else p1
           kindHash = hash (marshall_CursorKind k)
@@ -1610,18 +1615,19 @@ instance Hashable Cursor where
     {-# INLINE hash #-}
 
 -- CXCursor clang_getNullCursor(void);
-getNullCursor :: Cursor
-getNullCursor = Cursor Cursor_InvalidFile 0 (intPtrToPtr 0) (intPtrToPtr 0) (intPtrToPtr 0)
+getNullCursor :: ClangBase m => ClangT s m (Cursor s)
+getNullCursor =
+  return $ Cursor Cursor_InvalidFile 0 (intPtrToPtr 0) (intPtrToPtr 0) (intPtrToPtr 0)
 {-# INLINE getNullCursor #-}
 
 -- CXCursor clang_getTranslationUnitCursor(CXTranslationUnit);
-%fun clang_getTranslationUnitCursor :: TranslationUnit s -> IO Cursor
+%fun clang_getTranslationUnitCursor :: TranslationUnit s -> IO (Cursor s)
 %call (translationUnit t)
 %code CXCursor r = clang_getTranslationUnitCursor(t);
 %result (cursor {r.kind}  {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- int clang_Cursor_isNull(CXCursor);
-cursor_isNull :: Cursor -> Bool
+cursor_isNull :: Cursor s -> Bool
 cursor_isNull (Cursor k xdata p1 p2 p3)
   | k == Cursor_InvalidFile &&
     xdata == 0 &&
@@ -1634,14 +1640,14 @@ cursor_isNull (Cursor k xdata p1 p2 p3)
 {-# INLINE cursor_isNull #-}
 
 -- unsigned clang_hashCursor(CXCursor);
-%fun clang_hashCursor :: Cursor -> IO Word32
+%fun clang_hashCursor :: Cursor s -> IO Word32
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     unsigned r = clang_hashCursor(a);
 %result (word32 r)
 {-# INLINEABLE hashCursor #-}
  
-getCursorKind :: Cursor -> CursorKind
+getCursorKind :: Cursor s -> CursorKind
 getCursorKind (Cursor k _ _ _ _) = k
 {-# INLINE getCursorKind #-}
 
@@ -1704,14 +1710,14 @@ isUnexposed k =
 %enum LinkageKind (Enum, Eq, Ord, Read, Show) Int [CXLinkage_Invalid,CXLinkage_NoLinkage,CXLinkage_Internal,CXLinkage_UniqueExternal,CXLinkage_External]
 
 -- enum CXLinkageKind clang_getCursorLinkage(CXCursor cursor);
-%fun clang_getCursorLinkage :: Cursor -> IO LinkageKind
+%fun clang_getCursorLinkage :: Cursor s -> IO LinkageKind
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     enum CXLinkageKind r = clang_getCursorLinkage(a);
 %result (linkageKind r)
 
 -- enum CXAvailabilityKind clang_getCursorAvailability(CXCursor cursor);
-%fun clang_getCursorAvailability :: Cursor -> IO AvailabilityKind
+%fun clang_getCursorAvailability :: Cursor s -> IO AvailabilityKind
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     enum CXAvailabilityKind r = clang_getCursorAvailability(a);
@@ -1726,7 +1732,7 @@ isUnexposed k =
 %enum LanguageKind (Enum, Eq, Ord, Read, Show) Int [CXLanguage_Invalid,CXLanguage_C,CXLanguage_ObjC,CXLanguage_CPlusPlus]
 
 -- enum CXLanguageKind clang_getCursorLanguage(CXCursor cursor);
-%fun clang_getCursorLanguage :: Cursor -> IO LanguageKind
+%fun clang_getCursorLanguage :: Cursor s -> IO LanguageKind
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     enum CXLanguageKind r = clang_getCursorLanguage(a);
@@ -1749,44 +1755,44 @@ unmarshall_cursorSet = newForeignPtr clang_disposeCXCursorSet
 %result (cursorSet (ptr r))
 
 -- unsigned clang_CXCursorSet_contains(CXCursorSet cset, CXCursor cursor);
-%fun clang_CXCursorSet_contains :: CursorSet -> Cursor -> IO Bool
+%fun clang_CXCursorSet_contains :: CursorSet -> Cursor s -> IO Bool
 %call (fptr (ptr cs)) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %result (bool {clang_CXCursorSet_contains(cs, a)})
 
 -- unsigned clang_CXCursorSet_insert(CXCursorSet cset, CXCursor cursor);
-%fun clang_CXCursorSet_insert :: CursorSet -> Cursor -> IO Bool
+%fun clang_CXCursorSet_insert :: CursorSet -> Cursor s -> IO Bool
 %call (fptr (ptr cs)) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %result (bool {clang_CXCursorSet_insert(cs, a)})
 
 -- CXCursor clang_getCursorSemanticParent(CXCursor cursor);
-%fun clang_getCursorSemanticParent :: Cursor -> IO Cursor
+%fun clang_getCursorSemanticParent :: Cursor s -> IO (Cursor s)
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCursorSemanticParent(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXCursor clang_getCursorLexicalParent(CXCursor cursor);
-%fun clang_getCursorLexicalParent :: Cursor -> IO Cursor
+%fun clang_getCursorLexicalParent :: Cursor s -> IO (Cursor s)
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCursorLexicalParent(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- void clang_disposeOverriddenCursors(CXCursor *overridden);
-%fun disposeOverridden :: CursorList -> IO ()
+%fun disposeOverridden :: CursorList s -> IO ()
 %call (cursorList cs n)
 %code clang_disposeOverriddenCursors(cs);
   
-registerOverriddenList :: ClangBase m => IO UnsafeCursorList -> ClangT s m CursorList
+registerOverriddenList :: ClangBase m => IO UnsafeCursorList -> ClangT s m (CursorList s)
 registerOverriddenList action = do
     (_, cursorList) <- clangAllocate (action >>= cursorListToVector) disposeOverridden
     return cursorList
 {-# INLINEABLE registerOverriddenList #-}
 
 -- void clang_getOverriddenCursors(CXCursor cursor, CXCursor **overridden, unsigned *num_overridden);
-%fun clang_getOverriddenCursors :: Cursor -> IO UnsafeCursorList
+%fun clang_getOverriddenCursors :: Cursor s -> IO UnsafeCursorList
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k , xdata, {p1, p2, p3}};
 %     CXCursor* overrides; unsigned count;
@@ -1794,32 +1800,28 @@ registerOverriddenList action = do
 %result (cursorList overrides count)
 
 -- CXFile clang_getIncludedFile(CXCursor cursor);
-%fun clang_getIncludedFile :: Cursor -> IO File
+%fun clang_getIncludedFile :: Cursor s -> IO (File s)
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %result (file {clang_getIncludedFile(a)})
-  
+
 -- CXCursor clang_getCursor(CXTranslationUnit, CXSourceLocation);
-%fun clang_getCursor :: TranslationUnit s -> SourceLocation s -> IO Cursor
+%fun clang_getCursor :: TranslationUnit s -> SourceLocation s -> IO (Cursor s)
 %call (translationUnit t) (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXCursor r = clang_getCursor(t, l);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXSourceLocation clang_getCursorLocation(CXCursor);
-%fun unsafe_getCursorLocation :: Cursor -> IO (SourceLocation ())
+%fun clang_getCursorLocation :: Cursor s -> IO (SourceLocation s)
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXSourceLocation r = clang_getCursorLocation(a);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
-{-# INLINE unsafe_getCursorLocation #-}
-
-getCursorLocation :: ClangBase m => Cursor -> ClangT s m (SourceLocation s)
-getCursorLocation c = liftIO $ unsafeCoerce <$> unsafe_getCursorLocation c
 {-# INLINEABLE getCursorLocation #-}
 
 -- Variant of clang_getCursorLocation that fuses a call to clang_getSpellingLocation.
-%fun clang_getCursorSpellingLocation :: Cursor -> IO (Maybe File, Int, Int, Int)
+%fun clang_getCursorSpellingLocation :: Cursor s -> IO (Maybe (File s), Int, Int, Int)
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXSourceLocation l = clang_getCursorLocation(a);
@@ -1829,15 +1831,11 @@ getCursorLocation c = liftIO $ unsafeCoerce <$> unsafe_getCursorLocation c
 {-# INLINEABLE getCursorSpellingLocation #-}
 
 -- CXSourceRange clang_getCursorExtent(CXCursor);
-%fun unsafe_getCursorExtent :: Cursor -> IO (SourceRange ())
+%fun clang_getCursorExtent :: Cursor s -> IO (SourceRange s)
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXSourceRange r = clang_getCursorExtent(a);
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
-{-# INLINE unsafe_getCursorExtent #-}
-
-getCursorExtent :: ClangBase m => Cursor -> ClangT s m (SourceRange s)
-getCursorExtent c = liftIO $ unsafeCoerce <$> unsafe_getCursorExtent c
 {-# INLINEABLE getCursorExtent #-}
 
 -- enum CXTypeKind {
@@ -1899,20 +1897,20 @@ getCursorExtent c = liftIO $ unsafeCoerce <$> unsafe_getCursorExtent c
 --   enum CXTypeKind kind;
 --   void *data[2];
 -- } CXType;
-data Type = Type !TypeKind !(Ptr ()) !(Ptr ())
+data Type s = Type !TypeKind !(Ptr ()) !(Ptr ())
 %dis type k p1 p2 = Type (typeKind k) (ptr p1) (ptr p2)
 
 getTypeKind (Type k _ _) = k
 
 -- CXType clang_getCursorType(CXCursor C);
-%fun clang_getCursorType :: Cursor -> IO Type
+%fun clang_getCursorType :: Cursor s -> IO (Type s)
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getCursorType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
 -- CXString clang_getTypeSpelling(CXType CT);
-%fun unsafe_getTypeSpelling :: Type -> IO (CXString ())
+%fun unsafe_getTypeSpelling :: (Type s) -> IO (CXString ())
 %call (type k p1 p2)
 %code CXType t = {k, {p1, p2}};
 %     CXString out = clang_getTypeSpelling(t);
@@ -1920,18 +1918,18 @@ getTypeKind (Type k _ _) = k
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getTypeSpelling :: ClangBase m => Type -> ClangT s m (CXString s)
+getTypeSpelling :: ClangBase m => (Type s) -> ClangT s m (CXString s)
 getTypeSpelling = registerCXString . unsafe_getTypeSpelling
 
 -- CXType clang_getTypedefDeclUnderlyingType(CXCursor C);
-%fun clang_getTypedefDeclUnderlyingType :: Cursor -> IO Type
+%fun clang_getTypedefDeclUnderlyingType :: Cursor s -> IO (Type s)
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getTypedefDeclUnderlyingType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
 -- CXType clang_getEnumDeclIntegerType(CXCursor C);
-%fun clang_getEnumDeclIntegerType :: Cursor -> IO Type
+%fun clang_getEnumDeclIntegerType :: Cursor s -> IO (Type s)
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getEnumDeclIntegerType(a);
@@ -1940,42 +1938,42 @@ getTypeSpelling = registerCXString . unsafe_getTypeSpelling
 %dis int64 x    = %%Int64 ({HsInt64} x)
 
 -- long long clang_getEnumConstantDeclValue(CXCursor);
-%fun clang_getEnumConstantDeclValue :: Cursor -> IO Int64
+%fun clang_getEnumConstantDeclValue :: Cursor s -> IO Int64
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_getEnumConstantDeclValue(a);
 %result (int64 r)
 
 -- unsigned long long clang_getEnumConstantDeclUnsignedValue(CXCursor);
-%fun clang_getEnumConstantDeclUnsignedValue :: Cursor -> IO Word64
+%fun clang_getEnumConstantDeclUnsignedValue :: Cursor s -> IO Word64
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_getEnumConstantDeclUnsignedValue(a);
 %result (word64 r)
 
 -- int clang_Cursor_getNumArguments(CXCursor C);
-%fun clang_cursor_getNumArguments :: Cursor -> IO Int
+%fun clang_cursor_getNumArguments :: Cursor s -> IO Int
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_Cursor_getNumArguments(a);
 %result (int r)
 
 -- CXCursor clang_Cursor_getArgument(CXCursor C, unsigned i);
-%fun clang_cursor_getArgument :: Cursor -> Int -> IO Cursor
+%fun clang_cursor_getArgument :: Cursor s -> Int -> IO (Cursor s)
 %call (cursor k xdata p1 p2 p3) (int i)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_Cursor_getArgument(a, i);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXCursor clang_Cursor_getBaseExpression(CXCursor C);
-%fun clang_cursor_getBaseExpression :: Cursor -> IO Cursor
+%fun clang_cursor_getBaseExpression :: Cursor s -> IO (Cursor s)
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_Cursor_getBaseExpression(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- unsigned clang_equalTypes(CXType A, CXType B);
-%fun clang_equalTypes :: Type -> Type -> IO Bool
+%fun clang_equalTypes :: Type s -> Type s -> IO Bool
 %call (type k p1 p2) (type k2 p12 p22)
 %code CXType a = {k, {p1, p2}};
 %     CXType b = {k2, {p12, p22}};
@@ -1983,49 +1981,49 @@ getTypeSpelling = registerCXString . unsafe_getTypeSpelling
 %result (bool r)
 
 -- CXType clang_getCanonicalType(CXType T);
-%fun clang_getCanonicalType :: Type -> IO Type
+%fun clang_getCanonicalType :: Type s -> IO (Type s)
 %call (type k p1 p2)
 %code CXType a = {k, {p1, p2}};
 %     CXType r = clang_getCanonicalType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
 -- unsigned clang_isConstQualifiedType(CXType T);
-%fun clang_isConstQualifiedType :: Type -> IO Bool
+%fun clang_isConstQualifiedType :: Type s -> IO Bool
 %call (type k p1 p2)
 %code CXType a = {k, {p1, p2}};
 %     r = clang_isConstQualifiedType(a);
 %result (bool r)
 
 -- unsigned clang_isVolatileQualifiedType(CXType T);
-%fun clang_isVolatileQualifiedType :: Type -> IO Bool
+%fun clang_isVolatileQualifiedType :: Type s -> IO Bool
 %call (type k p1 p2)
 %code CXType a = {k, {p1, p2}};
 %     r = clang_isVolatileQualifiedType(a);
 %result (bool r)
 
 -- unsigned clang_isRestrictQualifiedType(CXType T);
-%fun clang_isRestrictQualifiedType :: Type -> IO Bool
+%fun clang_isRestrictQualifiedType :: Type s -> IO Bool
 %call (type k p1 p2)
 %code CXType a = {k, {p1, p2}};
 %     r = clang_isRestrictQualifiedType(a);
 %result (bool r)
 
 -- CXType clang_getPointeeType(CXType T);
-%fun clang_getPointeeType :: Type -> IO Type
+%fun clang_getPointeeType :: Type s -> IO (Type s)
 %call (type k p1 p2)
 %code CXType a = {k, {p1, p2}};
 %     CXType r = clang_getPointeeType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
 -- CXCursor clang_getTypeDeclaration(CXType T);
-%fun clang_getTypeDeclaration :: Type -> IO Cursor
+%fun clang_getTypeDeclaration :: Type s -> IO (Cursor s)
 %call (type k p1 p2)
 %code CXType a = {k, {p1, p2}};
 %     CXCursor r = clang_getTypeDeclaration(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXString clang_getDeclObjCTypeEncoding(CXCursor C);
-%fun unsafe_getDeclObjCTypeEncoding :: Cursor -> IO (CXString ())
+%fun unsafe_getDeclObjCTypeEncoding :: Cursor s -> IO (CXString ())
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString out = clang_getDeclObjCTypeEncoding(a);
@@ -2033,7 +2031,7 @@ getTypeSpelling = registerCXString . unsafe_getTypeSpelling
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getDeclObjCTypeEncoding :: ClangBase m => Cursor -> ClangT s m (CXString s)
+getDeclObjCTypeEncoding :: ClangBase m => Cursor s -> ClangT s m (CXString s)
 getDeclObjCTypeEncoding = registerCXString . unsafe_getDeclObjCTypeEncoding
 
 -- CXString clang_getTypeKindSpelling(enum CXTypeKind K);
@@ -2048,49 +2046,49 @@ getTypeKindSpelling :: ClangBase m => TypeKind -> ClangT s m (CXString s)
 getTypeKindSpelling = registerCXString . unsafe_getTypeKindSpelling
 
 -- CXType clang_getResultType(CXType T);
-%fun clang_getResultType :: Type -> IO Type
+%fun clang_getResultType :: Type s -> IO (Type s)
 %call (type k p1 p2)
 %code CXType a = {k, {p1, p2}};
 %     CXType r = clang_getResultType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
 -- CXType clang_getNumArgTypes(CXType T);
-%fun clang_getNumArgTypes :: Type -> IO Int
+%fun clang_getNumArgTypes :: Type s -> IO Int
 %call (type k p1 p2)
 %code CXType a = {k, {p1, p2}};
 %     r = clang_getNumArgTypes(a);
 %result (int r)
 
 -- CXType clang_getArgType(CXType T, int i);
-%fun clang_getArgType :: Type -> Int -> IO Type
+%fun clang_getArgType :: Type s -> Int -> IO (Type s)
 %call (type k p1 p2) (int i)
 %code CXType a = {k, {p1, p2}};
 %     CXType r = clang_getArgType(a, i);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
 -- unsigned clang_isFunctionTypeVariadic(CXType T);
-%fun clang_isFunctionTypeVariadic :: Type -> IO Bool
+%fun clang_isFunctionTypeVariadic :: Type s -> IO Bool
 %call (type k p1 p2)
 %code CXType a = {k, {p1, p2}};
 %     r = clang_isFunctionTypeVariadic(a);
 %result (bool r)
 
 -- CXType clang_getCursorResultType(CXCursor C);
-%fun clang_getCursorResultType :: Cursor -> IO Type
+%fun clang_getCursorResultType :: Cursor s -> IO (Type s)
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getCursorResultType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
 -- unsigned clang_isPODType(CXType T);
-%fun clang_isPODType :: Type -> IO Bool
+%fun clang_isPODType :: Type s -> IO Bool
 %call (type k p1 p2)
 %code CXType a = {k, {p1, p2}};
 %     r = clang_isPODType(a);
 %result (bool r)
 
 -- unsigned clang_isVirtualBase(CXCursor);
-%fun clang_isVirtualBase :: Cursor -> IO Bool
+%fun clang_isVirtualBase :: Cursor s -> IO Bool
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_isVirtualBase(a);
@@ -2105,14 +2103,14 @@ getTypeKindSpelling = registerCXString . unsafe_getTypeKindSpelling
 %enum CXXAccessSpecifier (Enum, Eq, Ord, Read, Show) Int [CX_CXXInvalidAccessSpecifier, CX_CXXPublic, CX_CXXProtected, CX_CXXPrivate]
 
 -- enum CX_CXXAccessSpecifier clang_getCXXAccessSpecifier(CXCursor);
-%fun clang_getCXXAccessSpecifier :: Cursor -> IO CXXAccessSpecifier
+%fun clang_getCXXAccessSpecifier :: Cursor s -> IO CXXAccessSpecifier
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_getCXXAccessSpecifier(a);
 %result (cXXAccessSpecifier r)
 
 -- unsigned clang_getNumOverloadedDecls(CXCursor cursor);
-%fun clang_getNumOverloadedDecls :: Cursor -> IO Int
+%fun clang_getNumOverloadedDecls :: Cursor s -> IO Int
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_getNumOverloadedDecls(a);
@@ -2120,29 +2118,29 @@ getTypeKindSpelling = registerCXString . unsafe_getTypeKindSpelling
 
 -- CXCursor clang_getOverloadedDecl(CXCursor cursor, 
 --                                                 unsigned index);
-%fun clang_getOverloadedDecl :: Cursor -> Int -> IO Cursor
+%fun clang_getOverloadedDecl :: Cursor s -> Int -> IO (Cursor s)
 %call (cursor k xdata p1 p2 p3) (int i)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getOverloadedDecl(a, i);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXType clang_getIBOutletCollectionType(CXCursor);
-%fun clang_getIBOutletCollectionType :: Cursor -> IO Type
+%fun clang_getIBOutletCollectionType :: Cursor s -> IO (Type s)
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getIBOutletCollectionType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
 -- We deliberately don't export the constructor. The only way to unwrap this is registerCursorList.
-type CursorList = DVS.Vector Cursor
+type CursorList s = DVS.Vector (Cursor s)
 data UnsafeCursorList = UnsafeCursorList !(Ptr ()) !Int
 
 -- void freeCursorList(CXCursor* cursors);
-%fun freeCursorList :: CursorList -> IO ()
+%fun freeCursorList :: CursorList s -> IO ()
 %call (cursorList cs n)
 %code freeCursorList(cs);
 
-registerCursorList :: ClangBase m => IO UnsafeCursorList -> ClangT s m CursorList
+registerCursorList :: ClangBase m => IO UnsafeCursorList -> ClangT s m (CursorList s)
 registerCursorList action = do
     (_, cursorList) <- clangAllocate (action >>= cursorListToVector) freeCursorList
     return cursorList
@@ -2154,7 +2152,7 @@ cursorListToVector (UnsafeCursorList cs n) = do
   return $ DVS.unsafeFromForeignPtr fptr 0 n
 {-# INLINE cursorListToVector #-}
 
-fromCursorList :: CursorList -> (Ptr (), Int)
+fromCursorList :: CursorList s -> (Ptr (), Int)
 fromCursorList cs = let (p, _, _) = DVS.unsafeToForeignPtr cs in
                    (castPtr $ Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr p, DVS.length cs)
 
@@ -2165,7 +2163,7 @@ toCursorList (cs, n) = UnsafeCursorList cs n
 
 -- A more efficient alternative to clang_visitChildren.
 -- void getChildren(CXCursor parent, CXCursor** childrenOut, unsigned* countOut)
-%fun getChildren :: Cursor -> IO UnsafeCursorList
+%fun getChildren :: Cursor s -> IO UnsafeCursorList
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor c = {k, xdata, {p1, p2, p3}};
 %     CXCursor* children; unsigned count;
@@ -2174,19 +2172,19 @@ toCursorList (cs, n) = UnsafeCursorList cs n
 
 -- Like getChildren, but gets all transitive descendants.
 -- void getDescendants(CXCursor parent, CXCursor** childrenOut, unsigned* countOut)
-%fun getDescendants :: Cursor -> IO UnsafeCursorList
+%fun getDescendants :: Cursor s -> IO UnsafeCursorList
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor c = {k, xdata, {p1, p2, p3}};
 %     CXCursor* children; unsigned count;
 %     getDescendants(c, &children, &count);
 %result (cursorList children count)
 
-data ParentedCursor = ParentedCursor
-  { parentCursor  :: !Cursor
-  , childCursor :: !Cursor
+data ParentedCursor s = ParentedCursor
+  { parentCursor  :: !(Cursor s)
+  , childCursor :: !(Cursor s)
   }
 
-instance Storable ParentedCursor where
+instance Storable (ParentedCursor s) where
     sizeOf _ = sizeOfParentedCursor
     {-# INLINE sizeOf #-}
 
@@ -2205,16 +2203,16 @@ instance Storable ParentedCursor where
     {-# INLINE poke #-}
 
 -- We deliberately don't export the constructor. The only way to unwrap this is registerParentedCursorList.
-type ParentedCursorList = DVS.Vector ParentedCursor
+type ParentedCursorList s = DVS.Vector (ParentedCursor s)
 data UnsafeParentedCursorList = UnsafeParentedCursorList !(Ptr ()) !Int
 
 -- void freeParentedCursorList(struct ParentedCursor* parentedCursors);
-%fun freeParentedCursorList :: ParentedCursorList -> IO ()
+%fun freeParentedCursorList :: ParentedCursorList s -> IO ()
 %call (parentedCursorList cs n)
 %code freeParentedCursorList(cs);
 
 registerParentedCursorList :: ClangBase m => IO UnsafeParentedCursorList
-                           -> ClangT s m ParentedCursorList
+                           -> ClangT s m (ParentedCursorList s)
 registerParentedCursorList action = do
     (_, pcList) <- clangAllocate (action >>= mkSafe) freeParentedCursorList
     return pcList
@@ -2224,7 +2222,7 @@ registerParentedCursorList action = do
       return $ DVS.unsafeFromForeignPtr fptr 0 n
 {-# INLINEABLE registerParentedCursorList #-}
 
-fromParentedCursorList :: ParentedCursorList -> (Ptr (), Int)
+fromParentedCursorList :: ParentedCursorList s -> (Ptr (), Int)
 fromParentedCursorList cs =
   let (p, _, _) = DVS.unsafeToForeignPtr cs in
   (castPtr $ Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr p, DVS.length cs)
@@ -2237,7 +2235,7 @@ toParentedCursorList (cs, n) = UnsafeParentedCursorList cs n
 -- Like getParentedDescendants, but pairs each descendant with its parent.
 -- void getParentedDescendants(CXCursor parent, struct ParentedCursor** descendantsOut,
 --                             unsigned* countOut)
-%fun getParentedDescendants :: Cursor -> IO UnsafeParentedCursorList
+%fun getParentedDescendants :: Cursor s -> IO UnsafeParentedCursorList
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor c = {k, xdata, {p1, p2, p3}};
 %     struct ParentedCursor* descendants; unsigned count;
@@ -2245,7 +2243,7 @@ toParentedCursorList (cs, n) = UnsafeParentedCursorList cs n
 %result (parentedCursorList descendants count)
 
 -- CXString clang_getCursorUSR(CXCursor);
-%fun unsafe_getCursorUSR :: Cursor -> IO (CXString ())
+%fun unsafe_getCursorUSR :: Cursor s -> IO (CXString ())
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString out = clang_getCursorUSR(a);
@@ -2253,7 +2251,7 @@ toParentedCursorList (cs, n) = UnsafeParentedCursorList cs n
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getCursorUSR :: ClangBase m => Cursor -> ClangT s m (CXString s)
+getCursorUSR :: ClangBase m => Cursor s -> ClangT s m (CXString s)
 getCursorUSR = registerCXString . unsafe_getCursorUSR
 
 -- CXString clang_constructUSR_ObjCClass(const char *class_name);
@@ -2341,7 +2339,7 @@ constructUSR_ObjCProperty s (CXString d f) =
   registerCXString $ unsafe_constructUSR_ObjCProperty s d f
 
 -- CXString clang_getCursorSpelling(CXCursor);
-%fun unsafe_getCursorSpelling :: Cursor -> IO (CXString ())
+%fun unsafe_getCursorSpelling :: Cursor s -> IO (CXString ())
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString out = clang_getCursorSpelling(a);
@@ -2349,11 +2347,11 @@ constructUSR_ObjCProperty s (CXString d f) =
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getCursorSpelling :: ClangBase m => Cursor -> ClangT s m (CXString s)
+getCursorSpelling :: ClangBase m => Cursor s -> ClangT s m (CXString s)
 getCursorSpelling = registerCXString . unsafe_getCursorSpelling
 
 -- CXString clang_getCursorDisplayName(CXCursor);
-%fun unsafe_getCursorDisplayName :: Cursor -> IO (CXString ())
+%fun unsafe_getCursorDisplayName :: Cursor s -> IO (CXString ())
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString out = clang_getCursorDisplayName(a);
@@ -2361,74 +2359,74 @@ getCursorSpelling = registerCXString . unsafe_getCursorSpelling
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getCursorDisplayName :: ClangBase m => Cursor -> ClangT s m (CXString s)
+getCursorDisplayName :: ClangBase m => Cursor s -> ClangT s m (CXString s)
 getCursorDisplayName = registerCXString . unsafe_getCursorDisplayName
   
 -- CXCursor clang_getCursorReferenced(CXCursor);
-%fun clang_getCursorReferenced :: Cursor -> IO Cursor
+%fun clang_getCursorReferenced :: Cursor s -> IO (Cursor s)
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCursorReferenced(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXCursor clang_getCursorDefinition(CXCursor);
-%fun clang_getCursorDefinition :: Cursor -> IO Cursor
+%fun clang_getCursorDefinition :: Cursor s -> IO (Cursor s)
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCursorDefinition(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- unsigned clang_isCursorDefinition(CXCursor);
-%fun clang_isCursorDefinition :: Cursor -> IO Bool
+%fun clang_isCursorDefinition :: Cursor s -> IO Bool
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_isCursorDefinition(a);
 %result (bool r)
 
 -- unsigned clang_Cursor_isDynamicCall(CXCursor);
-%fun clang_cursor_isDynamicCall :: Cursor -> IO Bool
+%fun clang_cursor_isDynamicCall :: Cursor s -> IO Bool
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_Cursor_isDynamicCall(a);
 %result (bool r)
 
 -- CXCursor clang_getCanonicalCursor(CXCursor);
-%fun clang_getCanonicalCursor :: Cursor -> IO Cursor
+%fun clang_getCanonicalCursor :: Cursor s -> IO (Cursor s)
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCanonicalCursor(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- unsigned clang_CXXMethod_isPureVirtual(CXCursor C);
-%fun clang_CXXMethod_isPureVirtual :: Cursor -> IO Bool
+%fun clang_CXXMethod_isPureVirtual :: Cursor s -> IO Bool
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_CXXMethod_isPureVirtual(a);
 %result (bool r)
 
 -- unsigned clang_CXXMethod_isStatic(CXCursor C);
-%fun clang_CXXMethod_isStatic :: Cursor -> IO Bool
+%fun clang_CXXMethod_isStatic :: Cursor s -> IO Bool
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_CXXMethod_isStatic(a);
 %result (bool r)
 
 -- unsigned clang_CXXMethod_isVirtual(CXCursor C);
-%fun clang_CXXMethod_isVirtual :: Cursor -> IO Bool
+%fun clang_CXXMethod_isVirtual :: Cursor s -> IO Bool
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_CXXMethod_isVirtual(a);
 %result (bool r)
 
 -- enum CXCursorKind clang_getTemplateCursorKind(CXCursor C);
-%fun clang_getTemplateCursorKind :: Cursor -> IO CursorKind
+%fun clang_getTemplateCursorKind :: Cursor s -> IO CursorKind
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_getTemplateCursorKind(a);
 %result (cursorKind r)
 
 -- CXCursor clang_getSpecializedCursorTemplate(CXCursor C);
-%fun clang_getSpecializedCursorTemplate :: Cursor -> IO Cursor
+%fun clang_getSpecializedCursorTemplate :: Cursor s -> IO (Cursor s)
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getSpecializedCursorTemplate(a);
@@ -2727,7 +2725,7 @@ getClangVersion = registerCXString $ unsafe_getClangVersion
 -- -- void clang_toggleCrashRecovery(unsigned isEnabled);
 -- %fun clang_toggleCrashRecovery :: Bool -> IO ()
 
-data Inclusion s = Inclusion !File !(SourceLocation s) !Bool
+data Inclusion s = Inclusion !(File s) !(SourceLocation s) !Bool
 
 instance Storable (Inclusion s) where
     sizeOf _ = sizeOfInclusion

@@ -15,7 +15,7 @@ import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 import Clang.String (ClangString)
 
-getUSR :: ClangBase m => FFI.Cursor -> ClangT s m (ClangString s)
+getUSR :: ClangBase m => FFI.Cursor s -> ClangT s m (ClangString s)
 getUSR = FFI.getCursorUSR
 
 constructUSR_ObjCClass :: ClangBase m => String -> ClangT s m (ClangString s)

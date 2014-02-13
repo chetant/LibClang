@@ -37,16 +37,16 @@ annotateTokens ::
      ClangBase m =>
      FFI.TranslationUnit s -- ^ The translation unit related to the tokens
   -> [FFI.Token] -- ^ Token list that you want cursors for
-  -> ClangT s m FFI.CursorList -- ^ Cursors corresponding to the tokens
+  -> ClangT s m (FFI.CursorList s) -- ^ Cursors corresponding to the tokens
 annotateTokens tu ts = FFI.registerCursorList $ FFI.annotateTokens tu ts
 
-getChildren :: ClangBase m => FFI.Cursor -> ClangT s m FFI.CursorList
+getChildren :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.CursorList s)
 getChildren c = FFI.registerCursorList $ FFI.getChildren c
 
-getDescendants :: ClangBase m => FFI.Cursor -> ClangT s m FFI.CursorList
+getDescendants :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.CursorList s)
 getDescendants c = FFI.registerCursorList $ FFI.getDescendants c
 
-getParentedDescendants :: ClangBase m => FFI.Cursor -> ClangT s m FFI.ParentedCursorList
+getParentedDescendants :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.ParentedCursorList s)
 getParentedDescendants c = FFI.registerParentedCursorList $ FFI.getParentedDescendants c
 
 getInclusions :: ClangBase m => FFI.TranslationUnit s -> ClangT s m (FFI.InclusionList s)
