@@ -239,20 +239,6 @@ data Index s where
 unIndex :: Index s -> Ptr ()
 unIndex (Index p) = p
 
-%enum GlobalOptFlags (Enum, Eq, Ord, Read, Show) Int [CXGlobalOpt_None, CXGlobalOpt_ThreadBackgroundPriorityForIndexing, CXGlobalOpt_ThreadBackgroundPriorityForEditing, CXGlobalOpt_ThreadBackgroundPriorityForAll]
--- enum CXGlobalOptFlags {
---   CXGlobalOpt_None,
---   CXGlobalOpt_ThreadBackgroundPriorityForIndexing,
---   CXGlobalOpt_ThreadBackgroundPriorityForEditing,
---   CXGlobalOpt_ThreadBackgroundPriorityForAll
--- };
-
-
--- void clang_CXIndex_setGlobalOptions(CXIndex, unsigned options);
-%fun clang_CXIndex_setGlobalOptions :: Index s -> GlobalOptFlags -> IO ()
-%call (index i) (globalOptFlags f)
-%code clang_CXIndex_setGlobalOptions(i, f);
-
 -- CXIndex clang_createIndex(int excludeDeclarationsFromPCH, int displayDiagnostics);
 %fun unsafe_createIndex :: Bool -> Bool -> IO (Index ())
 %call (bool a) (bool b)
@@ -275,6 +261,20 @@ registerIndex action = do
 {-# INLINEABLE registerIndex #-}
 
 %dis index i = <unIndex/Index> (ptr i)
+
+%enum GlobalOptFlags (Enum, Eq, Ord, Read, Show) Int [CXGlobalOpt_None, CXGlobalOpt_ThreadBackgroundPriorityForIndexing, CXGlobalOpt_ThreadBackgroundPriorityForEditing, CXGlobalOpt_ThreadBackgroundPriorityForAll]
+-- enum CXGlobalOptFlags {
+--   CXGlobalOpt_None,
+--   CXGlobalOpt_ThreadBackgroundPriorityForIndexing,
+--   CXGlobalOpt_ThreadBackgroundPriorityForEditing,
+--   CXGlobalOpt_ThreadBackgroundPriorityForAll
+-- };
+
+
+-- void clang_CXIndex_setGlobalOptions(CXIndex, unsigned options);
+%fun clang_CXIndex_setGlobalOptions :: Index s -> GlobalOptFlags -> IO ()
+%call (index i) (globalOptFlags f)
+%code clang_CXIndex_setGlobalOptions(i, f);
 
 -- typedef struct CXTranslationUnitImpl *CXTranslationUnit;
 data TranslationUnit s where
