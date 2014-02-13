@@ -417,7 +417,7 @@ instance Storable (SourceLocation s) where
     sizeOf _ = sizeOfCXSourceLocation
     {-# INLINE sizeOf #-}
 
-    alignment _ = 4
+    alignment _ = alignOfCXSourceLocation
     {-# INLINE alignment #-}
 
     peek p = do
@@ -1572,7 +1572,7 @@ instance Storable (Cursor s) where
     sizeOf _ = sizeOfCXCursor
     {-# INLINE sizeOf #-}
 
-    alignment _ = 4
+    alignment _ = alignOfCXCursor
     {-# INLINE alignment #-}
 
     peek p = do
@@ -2198,7 +2198,7 @@ instance Storable (ParentedCursor s) where
     sizeOf _ = sizeOfParentedCursor
     {-# INLINE sizeOf #-}
 
-    alignment _ = 4
+    alignment _ = alignOfParentedCursor
     {-# INLINE alignment #-}
 
     peek p = do
@@ -2462,7 +2462,7 @@ instance Storable (Token s) where
     sizeOf _ = sizeOfCXToken
     {-# INLINE sizeOf #-}
 
-    alignment _ = 4
+    alignment _ = alignOfCXToken
     {-# INLINE alignment #-}
 
     peek p = do
@@ -2771,7 +2771,7 @@ instance Storable (Inclusion s) where
     sizeOf _ = sizeOfInclusion
     {-# INLINE sizeOf #-}
 
-    alignment _ = 4
+    alignment _ = alignOfInclusion
     {-# INLINE alignment #-}
 
     peek p = do
