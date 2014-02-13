@@ -120,8 +120,8 @@ getLocation = FFI.getCursorLocation
 getSpellingLocation:: ClangBase m => FFI.Cursor -> ClangT s m (Maybe FFI.File, Int, Int, Int)
 getSpellingLocation l = liftIO $ FFI.getCursorSpellingLocation l
 
-getExtent :: ClangBase m => FFI.Cursor -> ClangT s m FFI.SourceRange
-getExtent c = liftIO $ FFI.getCursorExtent c
+getExtent :: ClangBase m => FFI.Cursor -> ClangT s m (FFI.SourceRange s)
+getExtent = FFI.getCursorExtent
 
 getType :: ClangBase m => FFI.Cursor -> ClangT s m FFI.Type
 getType c = liftIO $ FFI.getCursorType c

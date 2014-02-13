@@ -43,23 +43,27 @@ getCursor :: ClangBase m => FFI.TranslationUnit s -> FFI.SourceLocation s
 getCursor tu sl = liftIO $ FFI.getCursor tu sl
 
 -- Range functions
-nullRange :: ClangBase m => ClangT s m FFI.SourceRange
-nullRange = liftIO FFI.getNullRange
+nullRange :: ClangBase m => ClangT s m (FFI.SourceRange s)
+nullRange = FFI.getNullRange
 
-getRange :: ClangBase m => FFI.SourceLocation s -> FFI.SourceLocation s -> ClangT s m FFI.SourceRange
+getRange :: ClangBase m => FFI.SourceLocation s -> FFI.SourceLocation s
+         -> ClangT s m (FFI.SourceRange s)
 getRange from to = liftIO $ FFI.getRange from to
 
-getExpansionLocation :: ClangBase m => FFI.SourceLocation s -> ClangT s m (Maybe FFI.File, Int, Int, Int)
+getExpansionLocation :: ClangBase m => FFI.SourceLocation s
+                     -> ClangT s m (Maybe FFI.File, Int, Int, Int)
 getExpansionLocation l = liftIO $ FFI.getExpansionLocation l
 
-getInstantiationLocation :: ClangBase m => FFI.SourceLocation s -> ClangT s m (Maybe FFI.File, Int, Int, Int)
+getInstantiationLocation :: ClangBase m => FFI.SourceLocation s
+                         -> ClangT s m (Maybe FFI.File, Int, Int, Int)
 getInstantiationLocation l = liftIO $ FFI.getInstantiationLocation l
 
-getSpellingLocation:: ClangBase m => FFI.SourceLocation s -> ClangT s m (Maybe FFI.File, Int, Int, Int)
+getSpellingLocation :: ClangBase m => FFI.SourceLocation s
+                    -> ClangT s m (Maybe FFI.File, Int, Int, Int)
 getSpellingLocation l = liftIO $ FFI.getSpellingLocation l
 
-getStart :: ClangBase m => FFI.SourceRange -> ClangT s m (FFI.SourceLocation s)
-getStart = FFI.getRangeStart
+getStart :: ClangBase m => FFI.SourceRange s -> ClangT s m (FFI.SourceLocation s)
+getStart sr = liftIO $ FFI.getRangeStart sr
 
-getEnd :: ClangBase m => FFI.SourceRange -> ClangT s m (FFI.SourceLocation s)
-getEnd = FFI.getRangeEnd
+getEnd :: ClangBase m => FFI.SourceRange s -> ClangT s m (FFI.SourceLocation s)
+getEnd sr = liftIO $ FFI.getRangeEnd sr

@@ -27,8 +27,8 @@ getLocation :: ClangBase m => FFI.TranslationUnit s -> FFI.Token
             -> ClangT s m (FFI.SourceLocation s)
 getLocation tu tk = liftIO $ FFI.getTokenLocation tu tk
 
-getExtent :: ClangBase m => FFI.TranslationUnit s -> FFI.Token -> ClangT s m FFI.SourceRange
+getExtent :: ClangBase m => FFI.TranslationUnit s -> FFI.Token -> ClangT s m (FFI.SourceRange s)
 getExtent tu tk = liftIO $ FFI.getTokenExtent tu tk
 
-tokenize :: ClangBase m => FFI.TranslationUnit s -> FFI.SourceRange -> ClangT s m [FFI.Token]
+tokenize :: ClangBase m => FFI.TranslationUnit s -> FFI.SourceRange s -> ClangT s m [FFI.Token]
 tokenize tu sr = liftIO $ FFI.tokenize tu sr

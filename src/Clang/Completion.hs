@@ -70,10 +70,8 @@ codeCompleteAt t fname l c ufs opts = liftIO $ FFI.codeCompleteAt t fname l c uf
 sortResults :: ClangBase m => FFI.CodeCompleteResults -> Int -> ClangT s m ()
 sortResults c i = liftIO $ FFI.sortCodeCompletionResults c i
 
-getDiagnostics :: ClangBase m => FFI.CodeCompleteResults -> ClangT s m [FFI.Diagnostic]
+getDiagnostics :: ClangBase m => FFI.CodeCompleteResults -> ClangT s m [FFI.Diagnostic s]
 getDiagnostics c = do
-    numD <- liftIO $ FFI.codeCompleteGetNumDiagnostics c
-    mapM getDiag [0..(numD-1)]
-  where
-    getDiag n = FFI.registerDiagnostic $ FFI.codeCompleteGetDiagnostic c n
+  numD <- liftIO $ FFI.codeCompleteGetNumDiagnostics c
+  mapM (FFI.codeCompleteGetDiagnostic c) [0..(numD-1)]
 
