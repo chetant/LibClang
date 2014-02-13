@@ -58,7 +58,7 @@ defaultCodeCompleteOptions = do
 
 codeCompleteAt ::
      ClangBase m =>
-     FFI.TranslationUnit
+     FFI.TranslationUnit s
   -> FilePath -- ^ Filename of the source file
   -> Int -- ^ Line in the source file
   -> Int -- ^ Column on the line

@@ -7,14 +7,10 @@
 
 module Clang.Internal.FFI
 ( Index
-, UnsafeIndex
-, registerIndex
 , createIndex
 , GlobalOptFlags(..)
 , cXIndex_setGlobalOptions
 , TranslationUnit
-, UnsafeTranslationUnit
-, registerTranslationUnit
 , UnsavedFile
 , AvailabilityKind(..)
 , CXString
@@ -238,7 +234,7 @@ marshall_fptr :: ForeignPtr a -> IO (Ptr a)
 marshall_fptr  = return . Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr
 
 -- typedef void *CXIndex;
-data Index = Index !(Ptr ())
+data Index s = Index { unIndex :: !(Ptr ()) }
 
 %enum GlobalOptFlags (Enum, Eq, Ord, Read, Show) Int [CXGlobalOpt_None, CXGlobalOpt_ThreadBackgroundPriorityForIndexing, CXGlobalOpt_ThreadBackgroundPriorityForEditing, CXGlobalOpt_ThreadBackgroundPriorityForAll]
 -- enum CXGlobalOptFlags {
@@ -250,64 +246,50 @@ data Index = Index !(Ptr ())
 
 
 -- void clang_CXIndex_setGlobalOptions(CXIndex, unsigned options);
-%fun clang_CXIndex_setGlobalOptions :: Index -> GlobalOptFlags -> IO ()
+%fun clang_CXIndex_setGlobalOptions :: Index s -> GlobalOptFlags -> IO ()
 %call (index i) (globalOptFlags f)
 %code clang_CXIndex_setGlobalOptions(i, f);
 
 -- CXIndex clang_createIndex(int excludeDeclarationsFromPCH, int displayDiagnostics);
-%fun clang_createIndex :: Bool -> Bool -> IO UnsafeIndex
+%fun unsafe_createIndex :: Bool -> Bool -> IO (Index ())
 %call (bool a) (bool b)
 %code CXIndex r = clang_createIndex(a, b);
 %result (index r)
 
+createIndex :: ClangBase m => Bool -> Bool -> ClangT s m (Index s)
+createIndex = (registerIndex .) . unsafe_createIndex
+
 -- void clang_disposeIndex(CXIndex index);
-%fun clang_disposeIndex :: Index -> IO ()
+%fun clang_disposeIndex :: Index s -> IO ()
 %call (index i)
 %code clang_disposeIndex(i);
 
--- We deliberately don't export the constructor. The only way to unwrap this is registerIndex.
-newtype UnsafeIndex = UnsafeIndex Index
-
-registerIndex :: ClangBase m => IO UnsafeIndex -> ClangT s m Index
+registerIndex :: ClangBase m => IO (Index ()) -> ClangT s m (Index s)
 registerIndex action = do
-  (_, idx) <- clangAllocate (action >>= \(UnsafeIndex i) -> return i)
+  (_, idx) <- clangAllocate (action >>= return . unsafeCoerce)
                             (\i -> disposeIndex i)
   return idx
 {-# INLINEABLE registerIndex #-}
 
-fromIndex :: Index -> Ptr ()
-fromIndex (Index p) = p
-
-toIndex :: Ptr () -> UnsafeIndex
-toIndex p = UnsafeIndex (Index p)
-
-%dis index i = <fromIndex/toIndex> (ptr i)
+%dis index i = <unIndex/Index> (ptr i)
 
 -- typedef struct CXTranslationUnitImpl *CXTranslationUnit;
-data TranslationUnit = TranslationUnit !(Ptr ())
+data TranslationUnit s = TranslationUnit { unTranslationUnit :: !(Ptr ()) }
 
 -- void clang_disposeTranslationUnit(CXTranslationUnit);
-%fun clang_disposeTranslationUnit :: TranslationUnit -> IO ()
+%fun clang_disposeTranslationUnit :: TranslationUnit s -> IO ()
 %call (translationUnit t)
 %code clang_disposeTranslationUnit(t);
 
--- We deliberately don't export the constructor. The only way to unwrap this is registerTranslationUnit.
-newtype UnsafeTranslationUnit = UnsafeTranslationUnit TranslationUnit
-
-registerTranslationUnit :: ClangBase m => IO UnsafeTranslationUnit -> ClangT s m TranslationUnit
+registerTranslationUnit :: ClangBase m => IO (TranslationUnit ())
+                        -> ClangT s m (TranslationUnit s)
 registerTranslationUnit action = do
-  (_, tu) <- clangAllocate (action >>= \(UnsafeTranslationUnit t) -> return t)
+  (_, tu) <- clangAllocate (action >>= return . unsafeCoerce)
                            (\t -> disposeTranslationUnit t)
   return tu
 {-# INLINEABLE registerTranslationUnit #-}
 
-fromTranslationUnit :: TranslationUnit  -> Ptr ()
-fromTranslationUnit (TranslationUnit p) = p
-
-toTranslationUnit :: Ptr () -> UnsafeTranslationUnit
-toTranslationUnit p = UnsafeTranslationUnit (TranslationUnit p)
-
-%dis translationUnit t = <fromTranslationUnit/toTranslationUnit> (ptr t)
+%dis translationUnit t = <unTranslationUnit/TranslationUnit> (ptr t)
 
 -- struct CXUnsavedFile {
 --   const char* Filename;
@@ -406,7 +388,7 @@ getFileTime (File ptr) = clang_getFileTime ptr
 foreign import ccall unsafe "clang-c/Index.h clang_getFileTime" clang_getFileTime :: Ptr () -> IO CTime
 
 -- CXFile clang_getFile(CXTranslationUnit tu, const char *file_name);
-%fun clang_getFile :: TranslationUnit -> String -> IO File
+%fun clang_getFile :: TranslationUnit s -> String -> IO File
 %call (translationUnit t) (string s)
 %code CXFile r = clang_getFile(t, s);
 %result (file r)
@@ -464,7 +446,7 @@ data SourceRange = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 --                                                   CXFile file,
 --                                                   unsigned line,
 --                                                   unsigned column);
-%fun clang_getLocation :: TranslationUnit -> File -> Int -> Int -> IO SourceLocation
+%fun clang_getLocation :: TranslationUnit s -> File -> Int -> Int -> IO SourceLocation
 %call (translationUnit t) (file f) (int i) (int j)
 %code CXSourceLocation r = clang_getLocation((CXTranslationUnit)t, f, i, j);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
@@ -472,7 +454,7 @@ data SourceRange = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 -- CXSourceLocation clang_getLocationForOffset(CXTranslationUnit tu,
 --                                                            CXFile file,
 --                                                            unsigned offset);
-%fun clang_getLocationForOffset :: TranslationUnit -> File -> Int -> IO SourceLocation
+%fun clang_getLocationForOffset :: TranslationUnit s -> File -> Int -> IO SourceLocation
 %call (translationUnit t) (file f) (int i)
 %code CXSourceLocation r = clang_getLocationForOffset((CXTranslationUnit)t, f, i);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
@@ -574,13 +556,13 @@ toDiagnostic p = UnsafeDiagnostic (Diagnostic p)
 %dis diag i = <fromDiagnostic/toDiagnostic> (ptr i)
 
 -- unsigned clang_getNumDiagnostics(CXTranslationUnit Unit);
-%fun clang_getNumDiagnostics :: TranslationUnit -> IO Int
+%fun clang_getNumDiagnostics :: TranslationUnit s -> IO Int
 %call (translationUnit t)
 %code unsigned r = clang_getNumDiagnostics((CXTranslationUnit)t);
 %result (int r)
 
 -- CXDiagnostic clang_getDiagnostic(CXTranslationUnit Unit, unsigned Index);
-%fun clang_getDiagnostic :: TranslationUnit -> Int -> IO UnsafeDiagnostic
+%fun clang_getDiagnostic :: TranslationUnit s -> Int -> IO UnsafeDiagnostic
 %call (translationUnit t) (int i)
 %code CXDiagnostic r = clang_getDiagnostic((CXTranslationUnit)t, i);
 %result (diag r)
@@ -714,14 +696,14 @@ getDiagnosticFixIt d i = do
 
 -- CXString
 -- clang_getTranslationUnitSpelling(CXTranslationUnit CTUnit);
-%fun unsafe_getTranslationUnitSpelling :: TranslationUnit -> IO (CXString ())
+%fun unsafe_getTranslationUnitSpelling :: TranslationUnit s -> IO (CXString ())
 %call (translationUnit t)
 %code CXString out = clang_getTranslationUnitSpelling(t);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getTranslationUnitSpelling :: ClangBase m => TranslationUnit -> ClangT s m (CXString s)
+getTranslationUnitSpelling :: ClangBase m => TranslationUnit s -> ClangT s m (CXString s)
 getTranslationUnitSpelling = registerCXString . unsafe_getTranslationUnitSpelling
 
 -- CXTranslationUnit clang_createTranslationUnitFromSourceFile(
@@ -731,21 +713,26 @@ getTranslationUnitSpelling = registerCXString . unsafe_getTranslationUnitSpellin
 --                                    const char * const *clang_command_line_args,
 --                                          unsigned num_unsaved_files,
 --                                          struct CXUnsavedFile *unsaved_files);
-%fun clang_createTranslationUnitFromSourceFileRaw :: Index -> String -> Int -> Ptr CString -> [UnsavedFile] -> IO UnsafeTranslationUnit
+%fun unsafe_createTranslationUnitFromSourceFile :: Index s -> String -> Int -> Ptr CString -> [UnsavedFile] -> IO (TranslationUnit ())
 %call (index i) (string s) (int nas) (ptr as) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs)))
 %code r = clang_createTranslationUnitFromSourceFile(i,s,nas,as,nufs,ufs);
 %result (translationUnit r)
 
-createTranslationUnitFromSourceFile :: Index -> String -> [String] -> [UnsavedFile] -> IO UnsafeTranslationUnit
-createTranslationUnitFromSourceFile idx sf as ufs = invokeWithStringList as go
-  where go asPtr asLen = createTranslationUnitFromSourceFileRaw idx sf asLen asPtr ufs
+createTranslationUnitFromSourceFile :: ClangBase m => Index s -> String -> [String] -> [UnsavedFile] -> ClangT s m (TranslationUnit s)
+createTranslationUnitFromSourceFile idx sf as ufs =
+    registerTranslationUnit $ invokeWithStringList as go
+  where
+    go asPtr asLen = unsafe_createTranslationUnitFromSourceFile idx sf asLen asPtr ufs
 
 -- CXTranslationUnit clang_createTranslationUnit(CXIndex,
 --                                              const char *ast_filename);
-%fun clang_createTranslationUnit :: Index -> String -> IO UnsafeTranslationUnit
+%fun unsafe_createTranslationUnit :: Index s -> String -> IO (TranslationUnit ())
 %call (index i) (string s)
 %code CXTranslationUnit r = clang_createTranslationUnit(i, s);
 %result (translationUnit r)
+
+createTranslationUnit :: ClangBase m => Index s -> String -> ClangT s m (TranslationUnit s)
+createTranslationUnit = (registerTranslationUnit .) . unsafe_createTranslationUnit
 
 -- enum CXTranslationUnit_Flags {
 --   CXTranslationUnit_None = 0x0,
@@ -783,14 +770,20 @@ getTranslationUnitFlagsSum = sum . (map toVal_)
 --                                             struct CXUnsavedFile *unsaved_files,
 --                                                      unsigned num_unsaved_files,
 --                                                             unsigned options);
-%fun clang_parseTranslationUnitRaw :: Index -> Maybe String -> Ptr CString -> Int -> [UnsavedFile] -> Int -> IO (Maybe UnsafeTranslationUnit)
+%fun unsafe_parseTranslationUnit :: Index s -> Maybe String -> Ptr CString -> Int -> [UnsavedFile] -> Int -> IO (Maybe (TranslationUnit ()))
 %call (index i) (maybeT {nullPtr} (string s)) (ptr as) (int nas) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs))) (int i2)
 %code r = clang_parseTranslationUnit(i,s,as,nas,ufs,nufs,i2);
 %result (maybeT {nullPtr} (translationUnit r))
 
-parseTranslationUnit :: Index -> Maybe String -> [String] -> [UnsavedFile] -> Int -> IO (Maybe UnsafeTranslationUnit)
-parseTranslationUnit idx sf as ufs opts = invokeWithStringList as $
-  \asPtr asLen -> parseTranslationUnitRaw idx sf asPtr asLen ufs opts
+parseTranslationUnit :: ClangBase m => Index s -> Maybe String -> [String] -> [UnsavedFile]
+                     -> Int -> ClangT s m (Maybe (TranslationUnit s))
+parseTranslationUnit idx sf as ufs opts = do
+    mayTU <- liftIO $ invokeWithStringList as go
+    case mayTU of
+      Just tu -> Just <$> registerTranslationUnit (return tu)
+      Nothing -> return Nothing
+  where
+    go asPtr asLen = unsafe_parseTranslationUnit idx sf asPtr asLen ufs opts
 
 invokeWithStringList :: [String] -> (Ptr CString -> Int -> IO a) -> IO a
 invokeWithStringList [] f = f nullPtr 0
@@ -805,7 +798,7 @@ invokeWithStringList ss f = do
       go f arr len (advancePtr ptr 1) ss
 
 -- void clang_setClangResourcesPath(CXIndex CIdx, const char* path);
-%fun clang_setClangResourcesPath :: Index -> String -> IO ()
+%fun clang_setClangResourcesPath :: Index s -> String -> IO ()
 %call (index i) (string s)
 %code clang_setClangResourcesPath(i, s);
 
@@ -844,7 +837,7 @@ getSaveTranslationUnitFlagsSum = sum . (map toVal_)
     where toVal_ SaveTranslationUnit_None = 0
 
 -- unsigned clang_defaultSaveOptions(CXTranslationUnit TU);
-%fun clang_defaultSaveOptions :: TranslationUnit -> IO Int
+%fun clang_defaultSaveOptions :: TranslationUnit s -> IO Int
 %call (translationUnit t)
 %code r = clang_defaultSaveOptions(t);
 %result (int r)
@@ -852,7 +845,7 @@ getSaveTranslationUnitFlagsSum = sum . (map toVal_)
 -- int clang_saveTranslationUnit(CXTranslationUnit TU,
 --                                              const char *FileName,
 --                                              unsigned options);
-%fun clang_saveTranslationUnit :: TranslationUnit -> String -> Int -> IO Bool
+%fun clang_saveTranslationUnit :: TranslationUnit s -> String -> Int -> IO Bool
 %call (translationUnit t) (string s) (int i)
 %code unsigned r = clang_saveTranslationUnit(t, s, i);
 %result (bool {r!=0?0:1})
@@ -867,7 +860,7 @@ getReparseFlagsSum = sum . (map toVal_)
     where toVal_ Reparse_None = 0
 
 -- unsigned clang_defaultReparseOptions(CXTranslationUnit TU);
-%fun clang_defaultReparseOptions :: TranslationUnit -> IO Int
+%fun clang_defaultReparseOptions :: TranslationUnit s -> IO Int
 %call (translationUnit t)
 %code r = clang_defaultReparseOptions(t);
 %result (int r)
@@ -876,7 +869,7 @@ getReparseFlagsSum = sum . (map toVal_)
 --                                                 unsigned num_unsaved_files,
 --                                           struct CXUnsavedFile *unsaved_files,
 --                                                 unsigned options);
-%fun clang_reparseTranslationUnit :: TranslationUnit -> [UnsavedFile] -> Int -> IO Bool
+%fun clang_reparseTranslationUnit :: TranslationUnit s -> [UnsavedFile] -> Int -> IO Bool
 %call (translationUnit t) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs))) (int i)
 %code r = clang_reparseTranslationUnit(t, nufs, ufs, i);
 %result (bool r)
@@ -1607,7 +1600,7 @@ getNullCursor = Cursor Cursor_InvalidFile 0 (intPtrToPtr 0) (intPtrToPtr 0) (int
 {-# INLINE getNullCursor #-}
 
 -- CXCursor clang_getTranslationUnitCursor(CXTranslationUnit);
-%fun clang_getTranslationUnitCursor :: TranslationUnit -> IO Cursor
+%fun clang_getTranslationUnitCursor :: TranslationUnit s -> IO Cursor
 %call (translationUnit t)
 %code CXCursor r = clang_getTranslationUnitCursor(t);
 %result (cursor {r.kind}  {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
@@ -1792,7 +1785,7 @@ registerOverriddenList action = do
 %result (file {clang_getIncludedFile(a)})
   
 -- CXCursor clang_getCursor(CXTranslationUnit, CXSourceLocation);
-%fun clang_getCursor :: TranslationUnit -> SourceLocation -> IO Cursor
+%fun clang_getCursor :: TranslationUnit s -> SourceLocation -> IO Cursor
 %call (translationUnit t) (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXCursor r = clang_getCursor(t, l);
@@ -2442,7 +2435,7 @@ data Token = Token !Int !Int !Int !Int !(Ptr ())
 %result (tokenKind r)
 
 -- CXString clang_getTokenSpelling(CXTranslationUnit, CXToken);
-%fun unsafe_getTokenSpelling :: TranslationUnit -> Token -> IO (CXString ())
+%fun unsafe_getTokenSpelling :: TranslationUnit s -> Token -> IO (CXString ())
 %call (translationUnit t) (token w x y z p)
 %code CXToken a = {{w, x, y, z}, p};
 %     CXString out = clang_getTokenSpelling(t, a);
@@ -2450,19 +2443,19 @@ data Token = Token !Int !Int !Int !Int !(Ptr ())
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getTokenSpelling :: ClangBase m => TranslationUnit -> Token -> ClangT s m (CXString s)
+getTokenSpelling :: ClangBase m => TranslationUnit s -> Token -> ClangT s m (CXString s)
 getTokenSpelling = (registerCXString .) . unsafe_getTokenSpelling
 
 -- CXSourceLocation clang_getTokenLocation(CXTranslationUnit,
 --                                                        CXToken);
-%fun clang_getTokenLocation :: TranslationUnit -> Token -> IO SourceLocation
+%fun clang_getTokenLocation :: TranslationUnit s -> Token -> IO SourceLocation
 %call (translationUnit t) (token w x y z p)
 %code CXToken a = {{w, x, y, z}, p};
 %     CXSourceLocation r = clang_getTokenLocation(t, a);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
 
 -- CXSourceRange clang_getTokenExtent(CXTranslationUnit, CXToken);
-%fun clang_getTokenExtent :: TranslationUnit -> Token -> IO SourceRange
+%fun clang_getTokenExtent :: TranslationUnit s -> Token -> IO SourceRange
 %call (translationUnit t) (token w x y z p)
 %code CXToken a = {{w, x, y, z}, p};
 %     CXSourceRange r = clang_getTokenExtent(t, a);
@@ -2515,7 +2508,7 @@ marshall_tokenList ts = do
 
 -- void clang_tokenize(CXTranslationUnit TU, CXSourceRange Range,
 --                                    CXToken **Tokens, unsigned *NumTokens);
-%fun clang_tokenize :: TranslationUnit -> SourceRange -> IO TokenList
+%fun clang_tokenize :: TranslationUnit s -> SourceRange -> IO TokenList
 %call (translationUnit t) (sourceRange p1 p2 d1 d2)
 %code CXSourceRange a = {{p1, p2}, d1, d2};
 %     CXToken * tokens;unsigned numTokens;
@@ -2529,7 +2522,7 @@ marshall_tokenList ts = do
 -- void clang_annotateTokens(CXTranslationUnit TU,
 --                                          CXToken *Tokens, unsigned NumTokens,
 --                                          CXCursor *Cursors);
-%fun clang_annotateTokens :: TranslationUnit -> TokenList -> IO UnsafeCursorList
+%fun clang_annotateTokens :: TranslationUnit s -> TokenList -> IO UnsafeCursorList
 %call (translationUnit t) (tokenList ((int nts), (fptr (ptr ts))))
 %code CXCursor * cs = (CXCursor *)malloc(sizeof(CXCursor)*nts);
 %     unsigned count = nts;
@@ -2670,7 +2663,7 @@ unmarshall_codeCompleteResults = newForeignPtr clang_disposeCodeCompleteResults
 --                                             struct CXUnsavedFile *unsaved_files,
 --                                             unsigned num_unsaved_files,
 --                                             unsigned options);
-%fun clang_codeCompleteAt :: TranslationUnit -> String -> Int -> Int -> [UnsavedFile] -> Int -> IO CodeCompleteResults
+%fun clang_codeCompleteAt :: TranslationUnit s -> String -> Int -> Int -> [UnsavedFile] -> Int -> IO CodeCompleteResults
 %call (translationUnit t) (string s) (int i1) (int i2) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs))) (int i3)
 %code r = clang_codeCompleteAt(t, s, i1, i2, ufs, nufs, i3)
 %result (codeCompleteResults (ptr r))
@@ -2762,7 +2755,7 @@ toInclusionList (is, n) = UnsafeInclusionList is n
 
 -- A more efficient alternative to clang_getInclusions.
 -- void getInclusions(CXTranslationUnit tu, struct Inclusion** inclusionsOut, unsigned* countOut)
-%fun getInclusions :: TranslationUnit -> IO UnsafeInclusionList
+%fun getInclusions :: TranslationUnit s -> IO UnsafeInclusionList
 %call (translationUnit t)
 %code struct Inclusion* inclusions; unsigned count;
 %     getInclusions(t, &inclusions, &count);

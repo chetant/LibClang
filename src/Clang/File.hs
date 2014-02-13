@@ -32,5 +32,5 @@ getPOSIXTime f = liftIO $ realToFrac <$> FFI.getFileTime f
 getUTCTime :: ClangBase m => FFI.File -> ClangT s m UTCTime
 getUTCTime f = liftIO $ posixSecondsToUTCTime . realToFrac <$> FFI.getFileTime f
 
-getFile :: ClangBase m => FFI.TranslationUnit -> FilePath -> ClangT s m FFI.File
+getFile :: ClangBase m => FFI.TranslationUnit s -> FilePath -> ClangT s m FFI.File
 getFile t f = liftIO $ FFI.getFile t f

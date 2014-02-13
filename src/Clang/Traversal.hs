@@ -35,7 +35,7 @@ import Clang.Monad
 
 annotateTokens ::
      ClangBase m =>
-     FFI.TranslationUnit -- ^ The translation unit related to the tokens
+     FFI.TranslationUnit s -- ^ The translation unit related to the tokens
   -> [FFI.Token] -- ^ Token list that you want cursors for
   -> ClangT s m FFI.CursorList -- ^ Cursors corresponding to the tokens
 annotateTokens tu ts = FFI.registerCursorList $ FFI.annotateTokens tu ts
@@ -49,5 +49,5 @@ getDescendants c = FFI.registerCursorList $ FFI.getDescendants c
 getParentedDescendants :: ClangBase m => FFI.Cursor -> ClangT s m FFI.ParentedCursorList
 getParentedDescendants c = FFI.registerParentedCursorList $ FFI.getParentedDescendants c
 
-getInclusions :: ClangBase m => FFI.TranslationUnit -> ClangT s m FFI.InclusionList
+getInclusions :: ClangBase m => FFI.TranslationUnit s -> ClangT s m FFI.InclusionList
 getInclusions tu = FFI.registerInclusionList $ FFI.getInclusions tu

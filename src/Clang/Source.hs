@@ -30,13 +30,13 @@ nullLocation = liftIO FFI.getNullLocation
 isSameLocation :: ClangBase m => FFI.SourceLocation -> FFI.SourceLocation -> ClangT s m Bool
 isSameLocation a b = liftIO $ FFI.equalLocations a b
 
-getLocation :: ClangBase m => FFI.TranslationUnit -> FFI.File -> Int -> Int -> ClangT s m FFI.SourceLocation
+getLocation :: ClangBase m => FFI.TranslationUnit s -> FFI.File -> Int -> Int -> ClangT s m FFI.SourceLocation
 getLocation tu f line col = liftIO $ FFI.getLocation tu f line col
 
-getLocationForOffset :: ClangBase m => FFI.TranslationUnit -> FFI.File -> Int -> ClangT s m FFI.SourceLocation
+getLocationForOffset :: ClangBase m => FFI.TranslationUnit s -> FFI.File -> Int -> ClangT s m FFI.SourceLocation
 getLocationForOffset tu f off = liftIO $ FFI.getLocationForOffset tu f off
 
-getCursor :: ClangBase m => FFI.TranslationUnit -> FFI.SourceLocation -> ClangT s m FFI.Cursor
+getCursor :: ClangBase m => FFI.TranslationUnit s -> FFI.SourceLocation -> ClangT s m FFI.Cursor
 getCursor tu sl = liftIO $ FFI.getCursor tu sl
 
 -- Range functions

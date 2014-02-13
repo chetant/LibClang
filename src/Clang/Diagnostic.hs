@@ -30,7 +30,7 @@ import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 import Clang.String (ClangString)
 
-getDiagnostics :: ClangBase m => FFI.TranslationUnit -> ClangT s m [FFI.Diagnostic]
+getDiagnostics :: ClangBase m => FFI.TranslationUnit s -> ClangT s m [FFI.Diagnostic]
 getDiagnostics t = do
     numDiags <- liftIO $ FFI.getNumDiagnostics t
     mapM getDiag [0..(numDiags-1)]
@@ -55,7 +55,7 @@ getOptions = FFI.getDiagnosticOption
 
 defaultDisplayOptions :: ClangBase m => ClangT s m [FFI.DiagnosticDisplayOptions]
 defaultDisplayOptions = do
-  defVal <- liftIO $ FFI.defaultDiagnosticDisplayOptions
+  defVal <- liftIO FFI.defaultDiagnosticDisplayOptions
   let val1 = if (defVal .&. 0x1) == 0x1 then return FFI.Diagnostic_DisplaySourceLocation else mzero
   let val2 = if (defVal .&. 0x2) == 0x2 then return FFI.Diagnostic_DisplayColumn else mzero
   let val3 = if (defVal .&. 0x4) == 0x4 then return FFI.Diagnostic_DisplaySourceRanges else mzero
@@ -73,7 +73,7 @@ getRanges d = liftIO $ do
                 numRanges <- FFI.getDiagnosticNumRanges d
                 mapM (FFI.getDiagnosticRange d) [0..(numRanges-1)]
 
-getFixIts :: ClangBase m => FFI.Diagnostic -> ClangT s m [(FFI.SourceRange, (ClangString s))]
+getFixIts :: ClangBase m => FFI.Diagnostic -> ClangT s m [(FFI.SourceRange, ClangString s)]
 getFixIts d = do
   numFixes <- liftIO $ FFI.getDiagnosticNumFixIts d
   mapM (FFI.getDiagnosticFixIt d) [0..(numFixes - 1)]
