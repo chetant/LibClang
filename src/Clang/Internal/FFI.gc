@@ -3,6 +3,7 @@
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE TupleSections #-}
 
 module Clang.Internal.FFI
@@ -231,7 +232,11 @@ marshall_fptr :: ForeignPtr a -> IO (Ptr a)
 marshall_fptr  = return . Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr
 
 -- typedef void *CXIndex;
-data Index s = Index { unIndex :: !(Ptr ()) }
+data Index s where
+  Index :: !(Ptr ()) -> Index ()
+
+unIndex :: Index s -> Ptr ()
+unIndex (Index p) = p
 
 %enum GlobalOptFlags (Enum, Eq, Ord, Read, Show) Int [CXGlobalOpt_None, CXGlobalOpt_ThreadBackgroundPriorityForIndexing, CXGlobalOpt_ThreadBackgroundPriorityForEditing, CXGlobalOpt_ThreadBackgroundPriorityForAll]
 -- enum CXGlobalOptFlags {
@@ -271,7 +276,11 @@ registerIndex action = do
 %dis index i = <unIndex/Index> (ptr i)
 
 -- typedef struct CXTranslationUnitImpl *CXTranslationUnit;
-data TranslationUnit s = TranslationUnit { unTranslationUnit :: !(Ptr ()) }
+data TranslationUnit s where
+  TranslationUnit :: !(Ptr ()) -> TranslationUnit ()
+
+unTranslationUnit :: TranslationUnit s -> Ptr ()
+unTranslationUnit (TranslationUnit p) = p
 
 -- void clang_disposeTranslationUnit(CXTranslationUnit);
 %fun clang_disposeTranslationUnit :: TranslationUnit s -> IO ()
@@ -307,7 +316,8 @@ data UnsavedFile = UnsavedFile { unsavedFilename :: !FilePath, unsavedContents :
 --   const void *data;
 --   unsigned private_flags;
 -- } CXString;
-data CXString s = CXString !(Ptr ()) !Word32
+data CXString s where
+  CXString :: !(Ptr ()) -> !Word32 -> CXString ()
 
 registerCXString :: ClangBase m => IO (CXString ()) -> ClangT s m (CXString s)
 registerCXString action = do
@@ -533,7 +543,11 @@ getNullRange = liftIO $ unsafeCoerce <$> unsafe_getNullRange
 %enum DiagnosticSeverity (Enum, Eq, Ord, Read, Show) Int [CXDiagnostic_Ignored, CXDiagnostic_Note, CXDiagnostic_Warning, CXDiagnostic_Error, CXDiagnostic_Fatal]
 
 -- typedef void* CXDiagnostic;
-data Diagnostic s = Diagnostic { unDiagnostic :: !(Ptr ()) }
+data Diagnostic s where
+  Diagnostic :: !(Ptr ()) -> Diagnostic ()
+
+unDiagnostic :: Diagnostic s -> Ptr ()
+unDiagnostic (Diagnostic p) = p
 
 -- void clang_disposeDiagnostic(CXDiagnostic);
 %fun clang_disposeDiagnostic :: Diagnostic s -> IO ()
