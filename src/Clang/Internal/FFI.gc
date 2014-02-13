@@ -3,7 +3,6 @@
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE TupleSections #-}
 
 module Clang.Internal.FFI
@@ -233,11 +232,10 @@ marshall_fptr :: ForeignPtr a -> IO (Ptr a)
 marshall_fptr  = return . Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr
 
 -- typedef void *CXIndex;
-data Index s where
-  Index :: !(Ptr ()) -> Index ()
+newtype Index s = Index { unIndex :: Ptr () }
 
-unIndex :: Index s -> Ptr ()
-unIndex (Index p) = p
+mkIndex :: Ptr () -> Index ()
+mkIndex = Index
 
 -- CXIndex clang_createIndex(int excludeDeclarationsFromPCH, int displayDiagnostics);
 %fun unsafe_createIndex :: Bool -> Bool -> IO (Index ())
@@ -260,7 +258,7 @@ registerIndex action = do
   return idx
 {-# INLINEABLE registerIndex #-}
 
-%dis index i = <unIndex/Index> (ptr i)
+%dis index i = <unIndex/mkIndex> (ptr i)
 
 %enum GlobalOptFlags (Enum, Eq, Ord, Read, Show) Int [CXGlobalOpt_None, CXGlobalOpt_ThreadBackgroundPriorityForIndexing, CXGlobalOpt_ThreadBackgroundPriorityForEditing, CXGlobalOpt_ThreadBackgroundPriorityForAll]
 -- enum CXGlobalOptFlags {
@@ -277,11 +275,10 @@ registerIndex action = do
 %code clang_CXIndex_setGlobalOptions(i, f);
 
 -- typedef struct CXTranslationUnitImpl *CXTranslationUnit;
-data TranslationUnit s where
-  TranslationUnit :: !(Ptr ()) -> TranslationUnit ()
+newtype TranslationUnit s = TranslationUnit { unTranslationUnit :: (Ptr ()) }
 
-unTranslationUnit :: TranslationUnit s -> Ptr ()
-unTranslationUnit (TranslationUnit p) = p
+mkTranslationUnit :: Ptr () -> TranslationUnit ()
+mkTranslationUnit = TranslationUnit
 
 -- void clang_disposeTranslationUnit(CXTranslationUnit);
 %fun clang_disposeTranslationUnit :: TranslationUnit s -> IO ()
@@ -296,7 +293,7 @@ registerTranslationUnit action = do
   return tu
 {-# INLINEABLE registerTranslationUnit #-}
 
-%dis translationUnit t = <unTranslationUnit/TranslationUnit> (ptr t)
+%dis translationUnit t = <unTranslationUnit/mkTranslationUnit> (ptr t)
 
 -- struct CXUnsavedFile {
 --   const char* Filename;
@@ -317,8 +314,7 @@ data UnsavedFile = UnsavedFile { unsavedFilename :: !FilePath, unsavedContents :
 --   const void *data;
 --   unsigned private_flags;
 -- } CXString;
-data CXString s where
-  CXString :: !(Ptr ()) -> !Word32 -> CXString ()
+data CXString s = CXString !(Ptr ()) !Word32
 
 registerCXString :: ClangBase m => IO (CXString ()) -> ClangT s m (CXString s)
 registerCXString action = do
@@ -549,11 +545,10 @@ getNullRange = liftIO $ unsafeCoerce <$> unsafe_getNullRange
 %enum DiagnosticSeverity (Enum, Eq, Ord, Read, Show) Int [CXDiagnostic_Ignored, CXDiagnostic_Note, CXDiagnostic_Warning, CXDiagnostic_Error, CXDiagnostic_Fatal]
 
 -- typedef void* CXDiagnostic;
-data Diagnostic s where
-  Diagnostic :: !(Ptr ()) -> Diagnostic ()
+newtype Diagnostic s = Diagnostic { unDiagnostic :: Ptr () }
 
-unDiagnostic :: Diagnostic s -> Ptr ()
-unDiagnostic (Diagnostic p) = p
+mkDiagnostic :: Ptr () -> Diagnostic ()
+mkDiagnostic = Diagnostic
 
 -- void clang_disposeDiagnostic(CXDiagnostic);
 %fun clang_disposeDiagnostic :: Diagnostic s -> IO ()
@@ -567,7 +562,7 @@ registerDiagnostic action = do
   return idx
 {-# INLINEABLE registerDiagnostic #-}
 
-%dis diag i = <unDiagnostic/Diagnostic> (ptr i)
+%dis diag i = <unDiagnostic/mkDiagnostic> (ptr i)
 
 -- unsigned clang_getNumDiagnostics(CXTranslationUnit Unit);
 %fun clang_getNumDiagnostics :: TranslationUnit s -> IO Int
@@ -2190,8 +2185,8 @@ toCursorList (cs, n) = UnsafeCursorList cs n
 %result (cursorList children count)
 
 data ParentedCursor s = ParentedCursor
-  { parentCursor  :: !(Cursor s)
-  , childCursor :: !(Cursor s)
+  { parentCursor :: !(Cursor s)
+  , childCursor  :: !(Cursor s)
   }
 
 instance Storable (ParentedCursor s) where
