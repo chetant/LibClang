@@ -168,6 +168,7 @@ module Clang.Internal.FFI
 , getSpecializedCursorTemplate
 , TokenKind(..)
 , Token
+, TokenList
 , getTokenKind
 , getTokenSpelling
 , getTokenLocation
@@ -2454,18 +2455,42 @@ getCursorDisplayName = registerCXString . unsafe_getCursorDisplayName
 --   unsigned int_data[4];
 --   void *ptr_data;
 -- } CXToken;
-data Token = Token !Int !Int !Int !Int !(Ptr ())
+data Token s = Token !Int !Int !Int !Int !(Ptr ())
 %dis token w x y z p = Token (int w) (int x) (int y) (int z) (ptr p)
 
+instance Storable (Token s) where
+    sizeOf _ = sizeOfCXToken
+    {-# INLINE sizeOf #-}
+
+    alignment _ = 4
+    {-# INLINE alignment #-}
+
+    peek p = do
+      i1 <- peekByteOff p offsetCXTokenI1
+      i2 <- peekByteOff p offsetCXTokenI2
+      i3 <- peekByteOff p offsetCXTokenI3
+      i4 <- peekByteOff p offsetCXTokenI4
+      d <- peekByteOff p offsetCXTokenData
+      return $! Token i1 i2 i3 i4 d
+    {-# INLINE peek #-}
+
+    poke p (Token i1 i2 i3 i4 d) = do
+      pokeByteOff p offsetCXTokenI1 i1
+      pokeByteOff p offsetCXTokenI2 i2
+      pokeByteOff p offsetCXTokenI3 i3
+      pokeByteOff p offsetCXTokenI4 i4
+      pokeByteOff p offsetCXTokenData d
+    {-# INLINE poke #-}
+
 -- CXTokenKind clang_getTokenKind(CXToken);
-%fun clang_getTokenKind :: Token -> IO TokenKind
+%fun clang_getTokenKind :: Token s -> IO TokenKind
 %call (token w x y z p)
 %code CXToken a = {{w, x, y, z}, p};
 %     r = clang_getTokenKind(a);
 %result (tokenKind r)
 
 -- CXString clang_getTokenSpelling(CXTranslationUnit, CXToken);
-%fun unsafe_getTokenSpelling :: TranslationUnit s -> Token -> IO (CXString ())
+%fun unsafe_getTokenSpelling :: TranslationUnit s -> Token s -> IO (CXString ())
 %call (translationUnit t) (token w x y z p)
 %code CXToken a = {{w, x, y, z}, p};
 %     CXString out = clang_getTokenSpelling(t, a);
@@ -2473,77 +2498,68 @@ data Token = Token !Int !Int !Int !Int !(Ptr ())
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getTokenSpelling :: ClangBase m => TranslationUnit s -> Token -> ClangT s m (CXString s)
+getTokenSpelling :: ClangBase m => TranslationUnit s -> Token s -> ClangT s m (CXString s)
 getTokenSpelling = (registerCXString .) . unsafe_getTokenSpelling
 
 -- CXSourceLocation clang_getTokenLocation(CXTranslationUnit,
 --                                                        CXToken);
-%fun clang_getTokenLocation :: TranslationUnit s -> Token -> IO (SourceLocation s)
+%fun clang_getTokenLocation :: TranslationUnit s -> Token s -> IO (SourceLocation s)
 %call (translationUnit t) (token w x y z p)
 %code CXToken a = {{w, x, y, z}, p};
 %     CXSourceLocation r = clang_getTokenLocation(t, a);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
 
 -- CXSourceRange clang_getTokenExtent(CXTranslationUnit, CXToken);
-%fun clang_getTokenExtent :: TranslationUnit s -> Token -> IO (SourceRange s)
+%fun clang_getTokenExtent :: TranslationUnit s -> Token s -> IO (SourceRange s)
 %call (translationUnit t) (token w x y z p)
 %code CXToken a = {{w, x, y, z}, p};
 %     CXSourceRange r = clang_getTokenExtent(t, a);
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
 
--- data structure we make ti store token lists
-type TokenList = [Token]
+-- We deliberately don't export the constructor. The only way to unwrap this is registerCursorList.
+type TokenList s = DVS.Vector (Token s)
+data UnsafeTokenList = UnsafeTokenList !(Ptr ()) !Int
 
--- FIXME
-%C unsigned tokenListGetInt(CXToken *tlist, int i, int pi) {return tlist[i].int_data[pi];}
-%  void * tokenListGetPtr(CXToken *tlist, int i) {return tlist[i].ptr_data;}
-%  void * makeTokens(int n) { return malloc(n * sizeof(CXToken)); }
-%  void freeTokens(void * tlist) { free(tlist); }
-%  void setTokenList(CXToken *tlist,int i,int w,int x,int y,int z,void *p) {CXToken a = {{w, x, y, z}, p};tlist[i]=a;}
-
-foreign import ccall unsafe "FFI_stub_ffi.h tokenListGetInt" tokenListGetInt_ :: Ptr () -> CInt -> CInt -> IO CInt
-foreign import ccall unsafe "FFI_stub_ffi.h tokenListGetPtr" tokenListGetPtr_ :: Ptr () -> CInt -> IO (Ptr ())
-foreign import ccall unsafe "FFI_stub_ffi.h makeTokens" makeTokens_ :: CInt -> IO (Ptr ())
-foreign import ccall unsafe "FFI_stub_ffi.h &freeTokens" freeTokens_ :: FunPtr (Ptr () -> IO ())
-foreign import ccall unsafe "FFI_stub_ffi.h setTokenList" setTokenList_ :: 
-    Ptr () -> CInt -> CInt -> CInt -> CInt -> CInt -> Ptr () -> IO ()
-
--- void clang_disposeTokens(CXTranslationUnit TU, CXToken *Tokens, unsigned NumTokens);
 foreign import ccall unsafe "FFI_stub_ffi.h clang_disposeTokens" clang_disposeTokens :: Ptr () -> Ptr () -> CUInt -> IO ()
 
-unmarshall_tokenList :: Ptr () -> Int -> Ptr () -> IO TokenList
-unmarshall_tokenList tuPtr numO os = do
-  tokens <- mapM getToken_ [0..nO]
-  clang_disposeTokens tuPtr os (fromIntegral numO)
-  return tokens
-    where nO = fromIntegral (numO-1)
-          getToken_ i = do
-            i1 <- fromIntegral <$> tokenListGetInt_ os i 0
-            i2 <- fromIntegral <$> tokenListGetInt_ os i 1
-            i3 <- fromIntegral <$> tokenListGetInt_ os i 2
-            i4 <- fromIntegral <$> tokenListGetInt_ os i 3
-            p <- tokenListGetPtr_ os i
-            return $ Token i1 i2 i3 i4 p
+-- void clang_disposeTokens(CXTranslationUnit TU, CXToken *Tokens, unsigned NumTokens);
+%fun clang_disposeTokens :: TranslationUnit s -> TokenList s -> IO ()
+%call (translationUnit t) (tokenList toks n)
+%code clang_disposeTokens(t, toks, n);
 
--- FIXME
-marshall_tokenList ::  TokenList -> IO (Int, ForeignPtr ())
-marshall_tokenList ts = do
-  let numTs = length ts
-      ci = fromIntegral
-      setToken tptr ((Token w x y z p), i) = setTokenList_ tptr (ci i) (ci w) (ci x) (ci y) (ci z) p
-      fillTokens p = mapM_ (setToken p) $ zip ts [0..(numTs-1)]
-  tlist <- newForeignPtr freeTokens_ =<< makeTokens_ (ci numTs)
-  withForeignPtr tlist fillTokens
-  return (numTs, tlist)
+registerTokenList :: ClangBase m => TranslationUnit s -> IO UnsafeTokenList
+                  -> ClangT s m (TokenList s)
+registerTokenList tu action = do
+    (_, tokenList) <- clangAllocate (action >>= tokenListToVector) (disposeTokens tu)
+    return tokenList
+{-# INLINEABLE registerTokenList #-}
+
+tokenListToVector :: Storable a => UnsafeTokenList -> IO (DVS.Vector a)
+tokenListToVector (UnsafeTokenList ts n) = do
+  fptr <- newForeignPtr_ (castPtr ts)
+  return $ DVS.unsafeFromForeignPtr fptr 0 n
+{-# INLINE tokenListToVector #-}
+
+fromTokenList :: TokenList s -> (Ptr (), Int)
+fromTokenList ts = let (p, _, _) = DVS.unsafeToForeignPtr ts in
+                   (castPtr $ Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr p, DVS.length ts)
+
+toTokenList :: (Ptr (), Int) -> UnsafeTokenList
+toTokenList (ts, n) = UnsafeTokenList ts n
+
+%dis tokenList ts n = <fromTokenList/toTokenList> (ptr ts) (int n)
 
 -- void clang_tokenize(CXTranslationUnit TU, CXSourceRange Range,
 --                                    CXToken **Tokens, unsigned *NumTokens);
-%fun clang_tokenize :: TranslationUnit s -> SourceRange s -> IO TokenList
+%fun unsafe_tokenize :: TranslationUnit s -> SourceRange s -> IO UnsafeTokenList
 %call (translationUnit t) (sourceRange p1 p2 d1 d2)
 %code CXSourceRange a = {{p1, p2}, d1, d2};
-%     CXToken * tokens;unsigned numTokens;
+%     CXToken* tokens; unsigned numTokens;
 %     clang_tokenize(t, a, &tokens, &numTokens);
-%result (tokenList t (int numTokens) (ptr tokens))
+%result (tokenList tokens numTokens)
+
+tokenize :: ClangBase m => TranslationUnit s -> SourceRange s -> ClangT s m (TokenList s)
+tokenize tu = registerTokenList tu . unsafe_tokenize tu
 
 -- TODO: test me
 -- Note that registerCursorList can be used for the result of this
@@ -2552,11 +2568,11 @@ marshall_tokenList ts = do
 -- void clang_annotateTokens(CXTranslationUnit TU,
 --                                          CXToken *Tokens, unsigned NumTokens,
 --                                          CXCursor *Cursors);
-%fun clang_annotateTokens :: TranslationUnit s -> TokenList -> IO UnsafeCursorList
-%call (translationUnit t) (tokenList ((int nts), (fptr (ptr ts))))
+%fun clang_annotateTokens :: TranslationUnit s -> TokenList s -> IO UnsafeCursorList
+%call (translationUnit t) (tokenList toks nts)
 %code CXCursor * cs = (CXCursor *)malloc(sizeof(CXCursor)*nts);
 %     unsigned count = nts;
-%     clang_annotateTokens(t, ts, nts, cs);
+%     clang_annotateTokens(t, toks, nts, cs);
 %result (cursorList cs count)
 
 -- CXString clang_getCursorKindSpelling(enum CXCursorKind Kind);

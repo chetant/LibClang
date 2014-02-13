@@ -42,5 +42,14 @@ int main(int argc, char** argv)
   genConstant("offsetCXSourceLocationP2", offsetof(CXSourceLocation, ptr_data) + sizeof(void*));
   genConstant("offsetCXSourceLocationData", offsetof(CXSourceLocation, int_data));
 
+  // CXToken constants.
+  genConstant("sizeOfCXToken", sizeof(CXToken));
+  genConstant("alignOfCXToken", 4);
+  genConstant("offsetCXTokenI1", offsetof(CXToken, int_data));
+  genConstant("offsetCXTokenI2", offsetof(CXToken, int_data) + sizeof(unsigned));
+  genConstant("offsetCXTokenI3", offsetof(CXToken, int_data) + 2 * sizeof(unsigned));
+  genConstant("offsetCXTokenI4", offsetof(CXToken, int_data) + 3 * sizeof(unsigned));
+  genConstant("offsetCXTokenData", offsetof(CXToken, ptr_data));
+
   return 0;
 }

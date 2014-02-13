@@ -22,6 +22,7 @@ module Clang.Traversal (
 , getInclusions
 
 -- * Token traversals
+, FFI.TokenList
 , annotateTokens
 
 -- * Convenience reexports
@@ -36,7 +37,7 @@ import Clang.Monad
 annotateTokens ::
      ClangBase m =>
      FFI.TranslationUnit s -- ^ The translation unit related to the tokens
-  -> [FFI.Token] -- ^ Token list that you want cursors for
+  -> FFI.TokenList s -- ^ Token list that you want cursors for
   -> ClangT s m (FFI.CursorList s) -- ^ Cursors corresponding to the tokens
 annotateTokens tu ts = FFI.registerCursorList $ FFI.annotateTokens tu ts
 

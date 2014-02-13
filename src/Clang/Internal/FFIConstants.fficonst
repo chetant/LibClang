@@ -20,4 +20,11 @@ module Clang.Internal.FFIConstants
 , offsetCXSourceLocationP1
 , offsetCXSourceLocationP2
 , offsetCXSourceLocationData
+, sizeOfCXToken
+, alignOfCXToken
+, offsetCXTokenI1
+, offsetCXTokenI2
+, offsetCXTokenI3
+, offsetCXTokenI4
+, offsetCXTokenData
 ) where

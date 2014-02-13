@@ -17,18 +17,20 @@ import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 import Clang.String (ClangString)
 
-getKind :: ClangBase m => FFI.Token -> ClangT s m FFI.TokenKind
+getKind :: ClangBase m => FFI.Token s -> ClangT s m FFI.TokenKind
 getKind t = liftIO $ FFI.getTokenKind t
 
-getSpelling :: ClangBase m => FFI.TranslationUnit s -> FFI.Token -> ClangT s m (ClangString s)
+getSpelling :: ClangBase m => FFI.TranslationUnit s -> FFI.Token s -> ClangT s m (ClangString s)
 getSpelling = FFI.getTokenSpelling
 
-getLocation :: ClangBase m => FFI.TranslationUnit s -> FFI.Token
+getLocation :: ClangBase m => FFI.TranslationUnit s -> FFI.Token s
             -> ClangT s m (FFI.SourceLocation s)
 getLocation tu tk = liftIO $ FFI.getTokenLocation tu tk
 
-getExtent :: ClangBase m => FFI.TranslationUnit s -> FFI.Token -> ClangT s m (FFI.SourceRange s)
+getExtent :: ClangBase m => FFI.TranslationUnit s -> FFI.Token s
+          -> ClangT s m (FFI.SourceRange s)
 getExtent tu tk = liftIO $ FFI.getTokenExtent tu tk
 
-tokenize :: ClangBase m => FFI.TranslationUnit s -> FFI.SourceRange s -> ClangT s m [FFI.Token]
-tokenize tu sr = liftIO $ FFI.tokenize tu sr
+tokenize :: ClangBase m => FFI.TranslationUnit s -> FFI.SourceRange s
+         -> ClangT s m (FFI.TokenList s)
+tokenize = FFI.tokenize
