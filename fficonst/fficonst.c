@@ -51,5 +51,12 @@ int main(int argc, char** argv)
   genConstant("offsetCXTokenI4", offsetof(CXToken, int_data) + 3 * sizeof(unsigned));
   genConstant("offsetCXTokenData", offsetof(CXToken, ptr_data));
 
+  // CXUnsavedFile constants.
+  genConstant("sizeOfCXUnsavedFile", sizeof(struct CXUnsavedFile));
+  genConstant("alignOfCXUnsavedFile", 4);
+  genConstant("offsetCXUnsavedFileFilename", offsetof(struct CXUnsavedFile, Filename));
+  genConstant("offsetCXUnsavedFileContents", offsetof(struct CXUnsavedFile, Contents));
+  genConstant("offsetCXUnsavedFileContentsLen", offsetof(struct CXUnsavedFile, Length));
+
   return 0;
 }

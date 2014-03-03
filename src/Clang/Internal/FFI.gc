@@ -12,6 +12,10 @@ module Clang.Internal.FFI
 , cXIndex_setGlobalOptions
 , TranslationUnit
 , UnsavedFile
+, unsavedFilename
+, unsavedContents
+, newUnsavedFile
+, updateUnsavedContents
 , AvailabilityKind(..)
 , CXString
 , getString
@@ -62,8 +66,6 @@ module Clang.Internal.FFI
 , defaultEditingTranslationUnitOptions
 , parseTranslationUnit
 , setClangResourcesPath 
-, unsavedFileSize
-, setCXUnsavedFile
 , SaveTranslationUnitFlags(..)
 , getSaveTranslationUnitFlagsSum
 , defaultSaveOptions
@@ -203,10 +205,13 @@ module Clang.Internal.FFI
 import Control.Applicative ((<$>), (<*>))
 import Control.Monad (when)
 import Control.Monad.Trans
-import Data.ByteString (ByteString, packCString)
-import Data.ByteString.Unsafe (unsafePackCString)
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Unsafe as BU
 import Data.Hashable
+import qualified Data.Vector as DV
+import qualified Data.Vector.Generic as DVG
 import qualified Data.Vector.Storable as DVS
+import qualified Data.Vector.Storable.Mutable as DVSM
 import Data.Word
 import Foreign.C
 import Foreign.ForeignPtr.Unsafe (unsafeForeignPtrToPtr)
@@ -226,10 +231,6 @@ import Clang.Internal.Monad
 %prefix CX
 %prefix CX_
 %prefix clang_
-
--- FIXME
-marshall_fptr :: ForeignPtr a -> IO (Ptr a)
-marshall_fptr  = return . Foreign.ForeignPtr.Unsafe.unsafeForeignPtrToPtr
 
 -- typedef void *CXIndex;
 newtype Index s = Index { unIndex :: Ptr () }
@@ -300,7 +301,86 @@ registerTranslationUnit action = do
 --   const char* Contents;
 --   unsigned long Length;
 -- };
-data UnsavedFile = UnsavedFile { unsavedFilename :: !FilePath, unsavedContents :: !String }
+data UnsavedFile = UnsavedFile
+  { _unsavedFilename :: !B.ByteString
+  , _unsavedContents :: !B.ByteString
+  } deriving (Eq, Show)
+
+-- We maintain the invariant that _unsavedFilename is always
+-- null-terminated. That's why we don't directly expose the record fields.
+unsavedFilename :: UnsavedFile -> B.ByteString
+unsavedFilename = _unsavedFilename
+
+unsavedContents :: UnsavedFile -> B.ByteString
+unsavedContents = _unsavedContents
+
+newUnsavedFile :: B.ByteString -> B.ByteString -> UnsavedFile
+newUnsavedFile f c = UnsavedFile (nullTerminate f) c
+
+updateUnsavedContents :: UnsavedFile -> B.ByteString -> UnsavedFile
+updateUnsavedContents uf c = UnsavedFile (unsavedFilename uf) c
+
+-- TODO: Use BU.unsafeLast when we can use newer B.ByteString.
+nullTerminate :: B.ByteString -> B.ByteString
+nullTerminate bs
+  | B.null bs      = B.singleton 0
+  | B.last bs == 0 = bs
+  | otherwise      = B.snoc bs 0
+
+-- Functions which take a Vector UnsavedFile argument are implemented
+-- internally in terms of this function, which temporarily allocates a
+-- Vector CUnsavedFile holding the same data. (But does not copy the
+-- string data itself.)
+withUnsavedFiles :: DV.Vector UnsavedFile -> (Ptr CUnsavedFile -> Int -> IO a) -> IO a
+withUnsavedFiles ufs f =
+  withCUnsavedFiles ufs $ \cufs ->
+    DVS.unsafeWith cufs $ \ptr ->
+      f ptr (DVS.length cufs)
+
+data CUnsavedFile = CUnsavedFile
+  { cUnsavedFilename    :: CString
+  , cUnsavedContents    :: CString
+  , cUnsavedContentsLen :: CULong
+  }
+
+instance Storable CUnsavedFile where
+    sizeOf _ = sizeOfCXUnsavedFile
+    {-# INLINE sizeOf #-}
+
+    alignment _ = alignOfCXUnsavedFile
+    {-# INLINE alignment #-}
+
+    peek p = do
+      filename    <- peekByteOff p offsetCXUnsavedFileFilename
+      contents    <- peekByteOff p offsetCXUnsavedFileContents
+      contentsLen <- peekByteOff p offsetCXUnsavedFileContentsLen
+      return $! CUnsavedFile filename contents contentsLen
+    {-# INLINE peek #-}
+
+    poke p (CUnsavedFile filename contents contentsLen) = do
+      pokeByteOff p offsetCXUnsavedFileFilename filename
+      pokeByteOff p offsetCXUnsavedFileContents contents
+      pokeByteOff p offsetCXUnsavedFileContentsLen contentsLen
+    {-# INLINE poke #-}
+  
+
+withCUnsavedFiles :: DV.Vector UnsavedFile -> (DVS.Vector CUnsavedFile -> IO a) -> IO a
+withCUnsavedFiles ufs f = do
+    let len = DV.length ufs
+    v <- DVSM.new len
+    go f v 0 len
+  where
+    go f v i len
+      | i == len  = f =<< DVS.unsafeFreeze v
+      | otherwise = do let uf = DV.unsafeIndex ufs i
+                           ufFilename = unsavedFilename uf
+                           ufContents = unsavedContents uf
+                       BU.unsafeUseAsCString ufFilename $ \cufFilename ->
+                         BU.unsafeUseAsCString ufContents $ \cufContents -> do
+                           let contentsLen = fromIntegral $ B.length ufContents
+                               cuf = CUnsavedFile cufFilename cufContents contentsLen
+                           DVSM.write v i cuf
+                           go f v (i + 1) len
 
 %enum AvailabilityKind (Enum, Eq, Ord, Read, Show) Int [CXAvailability_Available, CXAvailability_Deprecated, CXAvailability_NotAvailable, CXAvailability_NotAccessible]
 -- enum CXAvailabilityKind {
@@ -338,11 +418,11 @@ unmarshall_cxString d f = return $ CXString d f
 getString :: ClangBase m => CXString s -> ClangT s m String
 getString (CXString d f) = liftIO $ getCStringPtr d f >>= peekCString
 
-getByteString :: ClangBase m => CXString s -> ClangT s m ByteString
-getByteString (CXString d f) = liftIO $ getCStringPtr d f >>= packCString
+getByteString :: ClangBase m => CXString s -> ClangT s m B.ByteString
+getByteString (CXString d f) = liftIO $ getCStringPtr d f >>= B.packCString
 
-unsafeGetByteString :: ClangBase m => CXString s -> ClangT s m ByteString
-unsafeGetByteString (CXString d f) = liftIO $ getCStringPtr d f >>= unsafePackCString
+unsafeGetByteString :: ClangBase m => CXString s -> ClangT s m B.ByteString
+unsafeGetByteString (CXString d f) = liftIO $ getCStringPtr d f >>= BU.unsafePackCString
 
 -- const char *clang_getCString(CXString string);
 %fun clang_getCStringPtr :: Ptr () -> Word32 -> IO CString
@@ -729,16 +809,18 @@ getTranslationUnitSpelling = registerCXString . unsafe_getTranslationUnitSpellin
 --                                    const char * const *clang_command_line_args,
 --                                          unsigned num_unsaved_files,
 --                                          struct CXUnsavedFile *unsaved_files);
-%fun unsafe_createTranslationUnitFromSourceFile :: Index s -> String -> Int -> Ptr CString -> [UnsavedFile] -> IO (TranslationUnit ())
-%call (index i) (string s) (int nas) (ptr as) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs)))
+%fun unsafe_createTranslationUnitFromSourceFile :: Index s -> String -> Int -> Ptr CString -> Int -> Ptr CUnsavedFile -> IO (TranslationUnit ())
+%call (index i) (string s) (int nas) (ptr as) (int nufs) (ptr ufs)
 %code r = clang_createTranslationUnitFromSourceFile(i,s,nas,as,nufs,ufs);
 %result (translationUnit r)
 
-createTranslationUnitFromSourceFile :: ClangBase m => Index s -> String -> [String] -> [UnsavedFile] -> ClangT s m (TranslationUnit s)
+createTranslationUnitFromSourceFile :: ClangBase m => Index s -> String -> [String]
+                                    -> DV.Vector UnsavedFile -> ClangT s m (TranslationUnit s)
 createTranslationUnitFromSourceFile idx sf as ufs =
-    registerTranslationUnit $ invokeWithStringList as go
-  where
-    go asPtr asLen = unsafe_createTranslationUnitFromSourceFile idx sf asLen asPtr ufs
+  registerTranslationUnit $
+    withStringList as $ \asPtr asLen ->
+      withUnsavedFiles ufs $ \ufsPtr ufsLen ->
+        unsafe_createTranslationUnitFromSourceFile idx sf asLen asPtr ufsLen ufsPtr
 
 -- CXTranslationUnit clang_createTranslationUnit(CXIndex,
 --                                              const char *ast_filename);
@@ -786,24 +868,25 @@ getTranslationUnitFlagsSum = sum . (map toVal_)
 --                                             struct CXUnsavedFile *unsaved_files,
 --                                                      unsigned num_unsaved_files,
 --                                                             unsigned options);
-%fun unsafe_parseTranslationUnit :: Index s -> Maybe String -> Ptr CString -> Int -> [UnsavedFile] -> Int -> IO (Maybe (TranslationUnit ()))
-%call (index i) (maybeT {nullPtr} (string s)) (ptr as) (int nas) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs))) (int i2)
+%fun unsafe_parseTranslationUnit :: Index s -> Maybe String -> Ptr CString -> Int -> Ptr CUnsavedFile -> Int -> Int -> IO (Maybe (TranslationUnit ()))
+%call (index i) (maybeT {nullPtr} (string s)) (ptr as) (int nas) (ptr ufs) (int nufs) (int i2)
 %code r = clang_parseTranslationUnit(i,s,as,nas,ufs,nufs,i2);
 %result (maybeT {nullPtr} (translationUnit r))
 
-parseTranslationUnit :: ClangBase m => Index s -> Maybe String -> [String] -> [UnsavedFile]
-                     -> Int -> ClangT s m (Maybe (TranslationUnit s))
+parseTranslationUnit :: ClangBase m => Index s -> Maybe String -> [String]
+                     -> DV.Vector UnsavedFile -> Int -> ClangT s m (Maybe (TranslationUnit s))
 parseTranslationUnit idx sf as ufs opts = do
-    mayTU <- liftIO $ invokeWithStringList as go
+    mayTU <- liftIO $
+      withStringList as $ \asPtr asLen ->
+        withUnsavedFiles ufs $ \ufsPtr ufsLen ->
+          unsafe_parseTranslationUnit idx sf asPtr asLen ufsPtr ufsLen opts
     case mayTU of
       Just tu -> Just <$> registerTranslationUnit (return tu)
       Nothing -> return Nothing
-  where
-    go asPtr asLen = unsafe_parseTranslationUnit idx sf asPtr asLen ufs opts
 
-invokeWithStringList :: [String] -> (Ptr CString -> Int -> IO a) -> IO a
-invokeWithStringList [] f = f nullPtr 0
-invokeWithStringList ss f = do
+withStringList :: [String] -> (Ptr CString -> Int -> IO a) -> IO a
+withStringList [] f = f nullPtr 0
+withStringList ss f = do
     let len = length ss
     allocaArray len $ \arr -> go f arr len arr ss
   where
@@ -817,31 +900,6 @@ invokeWithStringList ss f = do
 %fun clang_setClangResourcesPath :: Index s -> String -> IO ()
 %call (index i) (string s)
 %code clang_setClangResourcesPath(i, s);
-
-%C uint32_t unsavedFileSize() { return sizeof(struct CXUnsavedFile); }
-%  void setCXUnsavedFile(char * filename, char * contents,unsigned long length, struct CXUnsavedFile* uf, int i) {uf[i].Filename=filename;uf[i].Contents=contents;uf[i].Length=length;}
-
-foreign import ccall unsafe "FFI_stub_ffi.h unsavedFileSize" unsavedFileSize :: Word32
-foreign import ccall unsafe "FFI_stub_ffi.h setCXUnsavedFile" setCXUnsavedFile :: CString -> CString -> CULong -> Ptr () -> CInt -> IO ()
-
--- FIXME
-marshall_listLenUnsavedFile :: [UnsavedFile] -> IO (ForeignPtr (), Int)
-marshall_listLenUnsavedFile [] = do
-  arr <- newForeignPtr finalizerFree nullPtr
-  return (arr, 0)
-marshall_listLenUnsavedFile ufs = do
-  let numUFs = length ufs
-      ufsDataSize :: Int
-      ufsDataSize = fromIntegral unsavedFileSize
-  arr_ <- mallocBytes (numUFs * ufsDataSize) :: IO (Ptr ())
-  let setUF (i, uf) = do
-        fname <- newCString $ unsavedFilename uf
-        contents <- newCString $ unsavedContents uf
-        let len = (fromIntegral . length) (unsavedContents uf) :: CULong
-        setCXUnsavedFile fname contents len arr_ (fromIntegral i)
-  mapM_ setUF (zip [0..(numUFs-1)] ufs)
-  arr <- newForeignPtr finalizerFree arr_
-  return (arr, numUFs)
 
 -- enum CXSaveTranslationUnit_Flags {
 --   CXSaveTranslationUnit_None = 0x0
@@ -885,10 +943,18 @@ getReparseFlagsSum = sum . (map toVal_)
 --                                                 unsigned num_unsaved_files,
 --                                           struct CXUnsavedFile *unsaved_files,
 --                                                 unsigned options);
-%fun clang_reparseTranslationUnit :: TranslationUnit s -> [UnsavedFile] -> Int -> IO Bool
-%call (translationUnit t) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs))) (int i)
+%fun unsafe_reparseTranslationUnit :: TranslationUnit s -> Ptr CUnsavedFile -> Int -> Int -> IO Bool
+%call (translationUnit t) (ptr ufs) (int nufs) (int i)
 %code r = clang_reparseTranslationUnit(t, nufs, ufs, i);
 %result (bool r)
+
+reparseTranslationUnit :: ClangBase m => TranslationUnit s -> DV.Vector UnsavedFile -> Int
+                       -> ClangT s m Bool
+reparseTranslationUnit tu ufs opts = liftIO $
+  withUnsavedFiles ufs $ \ufsPtr ufsLen ->
+    unsafe_reparseTranslationUnit tu ufsPtr ufsLen opts
+
+
 -- enum CXCursorKind {
 --   /* Declarations */
 --   /**
@@ -2714,15 +2780,17 @@ registerCodeCompleteResults action = do
 --                                             struct CXUnsavedFile *unsaved_files,
 --                                             unsigned num_unsaved_files,
 --                                             unsigned options);
-%fun unsafe_codeCompleteAt :: TranslationUnit s -> String -> Int -> Int -> [UnsavedFile] -> Int -> IO (CodeCompleteResults ())
-%call (translationUnit t) (string s) (int i1) (int i2) (listLenUnsavedFile ((fptr (ptr ufs)), (int nufs))) (int i3)
+%fun unsafe_codeCompleteAt :: TranslationUnit s -> String -> Int -> Int -> Ptr CUnsavedFile -> Int -> Int -> IO (CodeCompleteResults ())
+%call (translationUnit t) (string s) (int i1) (int i2) (ptr ufs) (int nufs) (int i3)
 %code rs = clang_codeCompleteAt(t, s, i1, i2, ufs, nufs, i3)
 %result (codeCompleteResults rs)
 
-codeCompleteAt :: ClangBase m => TranslationUnit s -> String -> Int -> Int -> [UnsavedFile]
-               -> Int -> ClangT s m (CodeCompleteResults s)
+codeCompleteAt :: ClangBase m => TranslationUnit s -> String -> Int -> Int
+               -> DV.Vector UnsavedFile -> Int -> ClangT s m (CodeCompleteResults s)
 codeCompleteAt tu f l c ufs os =
-  registerCodeCompleteResults $ unsafe_codeCompleteAt tu f l c ufs os
+  registerCodeCompleteResults $
+    withUnsavedFiles ufs $ \ufsPtr ufsLen ->
+      unsafe_codeCompleteAt tu f l c ufsPtr ufsLen os
 
 -- void clang_sortCodeCompletionResults(CXCompletionResult *Results,
 --                                      unsigned NumResults);

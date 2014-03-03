@@ -24,6 +24,7 @@ import Control.Monad (mzero)
 import Control.Monad.IO.Class
 import Data.Bits ((.&.))
 import Data.Maybe (catMaybes)
+import qualified Data.Vector as DV
 
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
@@ -67,7 +68,7 @@ codeCompleteAt ::
   -> FilePath -- ^ Filename of the source file
   -> Int -- ^ Line in the source file
   -> Int -- ^ Column on the line
-  -> [FFI.UnsavedFile] -- ^ Unsaved files so far
+  -> DV.Vector FFI.UnsavedFile -- ^ Unsaved files so far
   -> [FFI.CodeCompleteFlags]
   -> ClangT s m (FFI.CodeCompleteResults s)
 codeCompleteAt t fname l c ufs opts =

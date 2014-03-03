@@ -27,4 +27,9 @@ module Clang.Internal.FFIConstants
 , offsetCXTokenI3
 , offsetCXTokenI4
 , offsetCXTokenData
+, sizeOfCXUnsavedFile
+, alignOfCXUnsavedFile
+, offsetCXUnsavedFileFilename
+, offsetCXUnsavedFileContents
+, offsetCXUnsavedFileContentsLen
 ) where

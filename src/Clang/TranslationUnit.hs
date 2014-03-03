@@ -22,9 +22,14 @@ module Clang.TranslationUnit
 , reparse
 , getCursor
 , setGlobalOptions
+, FFI.unsavedFilename
+, FFI.unsavedContents
+, FFI.newUnsavedFile
+, FFI.updateUnsavedContents
 ) where
 
 import Control.Monad.IO.Class
+import qualified Data.Vector as DV
 import System.FilePath ((</>))
 
 import Clang.Internal.Monad
@@ -48,7 +53,7 @@ withCreateFromSourceFile ::
      FFI.Index s -- ^ Index for the source
   -> FilePath -- ^ Source filename
   -> [String] -- ^ Command line arguments ( this can include all clang compatible flags)
-  -> [FFI.UnsavedFile] -- ^ Unsaved files
+  -> DV.Vector FFI.UnsavedFile -- ^ Unsaved files
   -> (FFI.TranslationUnit s -> ClangT s m a) -- ^ Function that will process the TranslationUnit
   -> ClangT s m a
 withCreateFromSourceFile idx fn ss ufs f = do
@@ -61,7 +66,7 @@ withParse ::
      FFI.Index s -- ^ Index for the source
   -> Maybe FilePath -- ^ Source filename
   -> [String] -- ^ Command line arguments ( this can include all clang compatible flags)
-  -> [FFI.UnsavedFile] -- ^ Unsaved files
+  -> DV.Vector FFI.UnsavedFile -- ^ Unsaved files
   -> [FFI.TranslationUnitFlags] -- ^ TranslationUnit flags
   -> (FFI.TranslationUnit s -> ClangT s m a) -- ^ Function that will process the TranslationUnit
   -> ClangT s m a -- ^ Result to be returned if source couldn't be parsed
@@ -98,10 +103,10 @@ defaultReparseOptions = return [FFI.Reparse_None]
 reparse ::
      ClangBase m =>
      FFI.TranslationUnit s -- ^ TranslationUnit to save
-  -> [FFI.UnsavedFile] -- ^ All the unsaved files
+  -> DV.Vector FFI.UnsavedFile -- ^ All the unsaved files
   -> [FFI.ReparseFlags] -- ^ reparse options
   -> ClangT s m Bool
-reparse t ufs opts = liftIO $ FFI.reparseTranslationUnit t ufs (FFI.getReparseFlagsSum opts)
+reparse t ufs opts = FFI.reparseTranslationUnit t ufs (FFI.getReparseFlagsSum opts)
 
 getCursor :: ClangBase m => FFI.TranslationUnit s -> ClangT s m (FFI.Cursor s)
 getCursor tu = liftIO $ FFI.getTranslationUnitCursor tu
