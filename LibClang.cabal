@@ -12,15 +12,13 @@ Description:
   .
   This should be enough for parsing C/C++ code, walking the AST and querying nodes and completion queries.
   .
-  * NOTE:  When configuring, please ensure llvm-config is in path or provide the location of libclang and llvm includes if not in the default locations using 
+  * NOTE: this library comes with llvm and clang included, so build times will be higher than most packages
+  To speed things up, please configure as so: 
   .
-  	@ --configure-option=-I... @
-	.
-	You can also use 
-	.
-  	@--configure-option=--enable-llvm-shared=LLVMSHAREDLIB@
-	.
-  	if you'd like to link to the shared library
+  @runhaskell Setup.hs configure --make-option=-j*n* --user@ 
+  .
+  where *n* specifies the number of cores to use for make (equivalent to @make -j*n*@).
+  Drop the @--user@ if you'd like to install globally.
   .
   Also use <https://github.com/chetant/LibClang/issues> to report bugs
 
@@ -28,7 +26,8 @@ Category: Language
 Build-type: Custom
 Data-Files: build/out/lib/clang/3.4/include/*.h ,
             build/out/lib/clang/3.4/include/*.map
-Extra-Source-Files: configure, LibClang.buildinfo.in, test/Makefile.in, test/*.hs, test/*.c, test/runTest.sh
+Extra-Source-Files: test/*.hs, test/*.c, test/runTest.sh
+                    -- @INSERT_SRC llvm
 Source-Repository head
   type: git
   location: git://github.com/chetant/LibClang.git
