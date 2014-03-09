@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <clang-c/Index.h>
 
 enum CXChildVisitResult visitor(CXCursor cursor, CXCursor parent, CXClientData data)

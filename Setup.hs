@@ -192,7 +192,8 @@ libClangBuildHook pkg lbi usrHooks flags = do
     hsObjs <- getHaskellObjects lib lbi' bdir objExtension (splitObjs lbi')
     -- relink the objs into the package libraries
     let staticObjs = cObjs ++ hsObjs ++ 
-                      [bdir </> "src" </> "Clang" </> "Internal" </> mkObject "FFI_stub_ffi"]
+                      [bdir </> "src" </> "Clang" </> "Internal" </> mkObject "FFI_stub_ffi"
+                      ,bdir </> "cbits" </> mkObject "visitors"]
         libFile = getLibraryName bdir lbi'
     removeFile libFile
     createArLibArchive verbosity arProg libFile staticObjs

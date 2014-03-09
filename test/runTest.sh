@@ -4,8 +4,11 @@ TEST=$1
 CTEST=${TEST}_c
 HSTEST=${TEST}_hs
 
-TMPFILE_C=`mktemp -t libclangtest`
-TMPFILE_HS=`mktemp -t libclangtest`
+shift
+
+TMPFILE=`mktemp -t libclangtest_XXX`
+TMPFILE_C=$TMPFILE.ref
+TMPFILE_HS=$TMPFILE.test
 ./$CTEST $* | grep -v "'linker' input unused" > $TMPFILE_C
 ./$HSTEST $* | grep -v "'linker' input unused" > $TMPFILE_HS
 if [ -n "`diff $TMPFILE_C $TMPFILE_HS`" ]

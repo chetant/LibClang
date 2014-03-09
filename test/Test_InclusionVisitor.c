@@ -1,13 +1,16 @@
+#include <stdio.h>
 #include <clang-c/Index.h>
 
 void inclusionVisitor(CXFile file, CXSourceLocation * srcLocs, unsigned numSrcLocs, CXClientData data)
 {
+  if(0 == numSrcLocs)
+    return;
   CXString fname = clang_getFileName(file);
   printf("Included:%s\n",clang_getCString(fname));
   clang_disposeString(fname);
 }
 
-int main(int argc, char * argv[])
+int main(int argc, const char * argv[])
 {
   CXIndex index = clang_createIndex(0, 0);
   CXTranslationUnit txUnit = clang_parseTranslationUnit(index, 0, argv, argc, 0, 0, CXTranslationUnit_None);

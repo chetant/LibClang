@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <clang-c/Index.h>
 
 int main(int argc, const char * argv[])
