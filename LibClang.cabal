@@ -8,19 +8,13 @@ License: BSD3
 License-file: LICENSE
 Synopsis: Haskell bindings for libclang (a C++ parsing library)
 Description:
-  LibClang package provides direct bindings to libclang.
+  LibClang package provides direct to libclang.
   .
   This should be enough for parsing C/C++ code, walking the AST and querying nodes and completion queries.
   .
   * NOTE: this library comes with llvm and clang included, so build times will be higher than most packages
-  To speed things up, please configure as so: 
   .
-  @runhaskell Setup.hs configure --make-option=-j*n* --user@ 
-  .
-  where *n* specifies the number of cores to use for make (equivalent to @make -j*n*@).
-  Drop the @--user@ if you'd like to install globally.
-  .
-  Also use <https://github.com/chetant/LibClang/issues> to report bugs
+  Please use <https://github.com/chetant/LibClang/issues> to report bugs
 
 Category: Language
 Build-type: Custom

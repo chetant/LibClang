@@ -20,25 +20,25 @@ import System.Posix.Files(createSymbolicLink)
 import System.Directory
 import System.FilePath
 
-import System.Cmd (system)
+import Control.Concurrent
 
 main :: IO ()
 main = do
-     curDir <- getCurrentDirectory
-     let cfgPrg = (simpleProgram "configure") { programFindLocation = findCfgPrg }
-         findCfgPrg v _ = findProgramOnSearchPath v 
-                          [ProgramSearchPathDir $ curDir </> "llvm"] "configure"
-     defaultMainWithHooks simpleUserHooks
-         { confHook = libClangConfHook
-         , cleanHook = libClangCleanHook
-         , buildHook = libClangBuildHook
-         , instHook = libClangInstallHook
+  curDir <- getCurrentDirectory
+  let cfgPrg = (simpleProgram "configure") { programFindLocation = findCfgPrg }
+      findCfgPrg v _ = findProgramOnSearchPath v
+                       [ProgramSearchPathDir $ curDir </> "llvm"] "configure"
+  defaultMainWithHooks simpleUserHooks
+      { confHook = libClangConfHook
+      , cleanHook = libClangCleanHook
+      , buildHook = libClangBuildHook
+      , instHook = libClangInstallHook
 
-         , hookedPrograms = hookedPrograms simpleUserHooks ++ 
-                            [ simpleProgram "make"
-                            , cfgPrg
-                            ]
-         }
+      , hookedPrograms = hookedPrograms simpleUserHooks ++
+                         [ simpleProgram "make"
+                         , cfgPrg
+                         ]
+      }
 
 libclangLibraries :: [String]
 libclangLibraries =
@@ -154,7 +154,11 @@ libClangBuildHook pkg lbi usrHooks flags = do
     notice verbosity "Building llvm and clang..."
     (makeCmd, _) <- requireProgram verbosity makeProg pdb
     setCurrentDirectory (curDir </> "build")
-    runProgram verbosity makeCmd ["install"]
+    -- FIXME: We hardcode -j4 here because of a bug in cabal that wont let us pass cmd specific flags
+    --        would ideally like to use the -j option given to cabal-install itself
+    --        alternatively use the cmd specific option: 'cabal install --make-option=-j4', 
+    --        but see https://github.com/haskell/cabal/issues/1380 for why this doesn't work
+    runProgram verbosity makeCmd ["-j4", "install"]
     setCurrentDirectory curDir
 
     -- OS X's linker _really_ wants to link dynamically, and it doesn't support
@@ -265,6 +269,3 @@ mkObject = (<.> objExtension)
 isObject :: String -> Bool
 isObject = (== objExtWithDot) . takeExtension
 objExtWithDot = "." ++ objExtension
-
-escape :: FilePath -> String
-escape p = "\"" ++ p ++ "\""
