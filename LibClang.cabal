@@ -8,7 +8,7 @@ License: BSD3
 License-file: LICENSE
 Synopsis: Haskell bindings for libclang (a C++ parsing library)
 Description:
-  LibClang package provides direct to libclang.
+  LibClang package provides bindings to libclang.
   .
   This should be enough for parsing C/C++ code, walking the AST and querying nodes and completion queries.
   .

@@ -20,8 +20,6 @@ import System.Posix.Files(createSymbolicLink)
 import System.Directory
 import System.FilePath
 
-import Control.Concurrent
-
 main :: IO ()
 main = do
   curDir <- getCurrentDirectory
