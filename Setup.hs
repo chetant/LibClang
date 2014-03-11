@@ -19,6 +19,7 @@ import qualified Distribution.ModuleName as ModuleName
 import System.Posix.Files(createSymbolicLink)
 import System.Directory
 import System.FilePath
+import System.Info(os)
 
 main :: IO ()
 main = do
@@ -144,8 +145,17 @@ libClangBuildHook pkg lbi usrHooks flags = do
                                                   (libdir $ absoluteInstallDirs pkg lbi NoCopyDest)
                                                  ]
                          }
+        Just hsc2hsPrg = lookupProgram hsc2hsProgram pdb
+        hsc2hsPrg' = hsc2hsPrg { programOverrideArgs = programOverrideArgs hsc2hsPrg ++
+                                                       ["--lflag=-Xlinker"
+                                                       ,"--lflag=-rpath"
+                                                       ,"--lflag=-Xlinker"
+                                                       ,"--lflag=@executable_path/../../../../build/out/lib"
+                                                       ]
+                               }
         makeProg = maybe (error "'make' not found!") id (lookupKnownProgram "make" pdb)
-        pdb' = updateProgram ghcPrg' pdb
+        pdb' = foldr updateProgram pdb [ghcPrg'
+                                       ,if os == "darwin" then hsc2hsPrg' else hsc2hsPrg]
         lbi' = lbi { localPkgDescr = lpd', withPrograms = pdb' }
         bdir = buildDir lbi'
 
