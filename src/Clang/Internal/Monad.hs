@@ -1,4 +1,5 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -9,6 +10,7 @@
 module Clang.Internal.Monad
 ( ClangT
 , ClangBase
+, Proxy
 , runClangT
 , clangAllocate
 ) where
@@ -26,6 +28,8 @@ instance MonadBase b m => MonadBase b (ClangT s m) where
   liftBase = lift . liftBase
 
 type ClangBase m = MonadResourceBase m
+
+data Proxy s
 
 runClangT :: ClangBase m => (forall s. ClangT s m a) -> m a
 runClangT f = runResourceT . unClangT $ f

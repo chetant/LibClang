@@ -38,58 +38,58 @@ import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 import Clang.String (ClangString)
 
-isSameType :: ClangBase m => FFI.Type s -> FFI.Type s -> ClangT s m Bool
+isSameType :: ClangBase m => FFI.Type s' -> FFI.Type s'' -> ClangT s m Bool
 isSameType a b = liftIO $ FFI.equalTypes a b
 
-getTypeSpelling :: ClangBase m => FFI.Type s -> ClangT s m (ClangString s)
+getTypeSpelling :: ClangBase m => FFI.Type s' -> ClangT s m (ClangString s)
 getTypeSpelling = FFI.getTypeSpelling
 
-getTypedefDeclUnderlyingType :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.Type s)
-getTypedefDeclUnderlyingType c = liftIO $ FFI.getTypedefDeclUnderlyingType c
+getTypedefDeclUnderlyingType :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.Type s)
+getTypedefDeclUnderlyingType c = liftIO $ FFI.getTypedefDeclUnderlyingType mkProxy c
 
-getEnumDeclIntegerType :: ClangBase m => FFI.Cursor s -> ClangT s m (FFI.Type s)
-getEnumDeclIntegerType c = liftIO $ FFI.getEnumDeclIntegerType c
+getEnumDeclIntegerType :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.Type s)
+getEnumDeclIntegerType c = liftIO $ FFI.getEnumDeclIntegerType mkProxy c
 
-getEnumConstantDeclValue :: ClangBase m => FFI.Cursor s -> ClangT s m Int64
+getEnumConstantDeclValue :: ClangBase m => FFI.Cursor s' -> ClangT s m Int64
 getEnumConstantDeclValue c = liftIO $ FFI.getEnumConstantDeclValue c
 
-getEnumConstantDeclUnsignedValue :: ClangBase m => FFI.Cursor s -> ClangT s m Word64
+getEnumConstantDeclUnsignedValue :: ClangBase m => FFI.Cursor s' -> ClangT s m Word64
 getEnumConstantDeclUnsignedValue c = liftIO $ FFI.getEnumConstantDeclUnsignedValue c
 
-getKind :: ClangBase m => FFI.Type s -> ClangT s m FFI.TypeKind
+getKind :: ClangBase m => FFI.Type s' -> ClangT s m FFI.TypeKind
 getKind = return . FFI.getTypeKind
 
-getCanonicalType :: ClangBase m => FFI.Type s -> ClangT s m (FFI.Type s)
-getCanonicalType t = liftIO $ FFI.getCanonicalType t
+getCanonicalType :: ClangBase m => FFI.Type s' -> ClangT s m (FFI.Type s)
+getCanonicalType t = liftIO $ FFI.getCanonicalType mkProxy t
 
-getPointeeType :: ClangBase m => FFI.Type s -> ClangT s m (FFI.Type s)
-getPointeeType t = liftIO $ FFI.getPointeeType t
+getPointeeType :: ClangBase m => FFI.Type s' -> ClangT s m (FFI.Type s)
+getPointeeType t = liftIO $ FFI.getPointeeType mkProxy t
 
-getResultType :: ClangBase m => FFI.Type s -> ClangT s m (FFI.Type s)
-getResultType t = liftIO $ FFI.getResultType t
+getResultType :: ClangBase m => FFI.Type s' -> ClangT s m (FFI.Type s)
+getResultType t = liftIO $ FFI.getResultType mkProxy t
 
-getNumArgTypes :: ClangBase m => FFI.Type s -> ClangT s m Int
+getNumArgTypes :: ClangBase m => FFI.Type s' -> ClangT s m Int
 getNumArgTypes t = liftIO $ FFI.getNumArgTypes t
 
-getArgType :: ClangBase m => FFI.Type s -> Int -> ClangT s m (FFI.Type s)
-getArgType t i = liftIO $ FFI.getArgType t i
+getArgType :: ClangBase m => FFI.Type s' -> Int -> ClangT s m (FFI.Type s)
+getArgType t i = liftIO $ FFI.getArgType mkProxy t i
 
-isFunctionTypeVariadic :: ClangBase m => FFI.Type s -> ClangT s m Bool
+isFunctionTypeVariadic :: ClangBase m => FFI.Type s' -> ClangT s m Bool
 isFunctionTypeVariadic t = liftIO $ FFI.isFunctionTypeVariadic t
 
-isConstQualifiedType :: ClangBase m => FFI.Type s -> ClangT s m Bool
+isConstQualifiedType :: ClangBase m => FFI.Type s' -> ClangT s m Bool
 isConstQualifiedType t = liftIO $ FFI.isConstQualifiedType t
 
-isVolatileQualifiedType :: ClangBase m => FFI.Type s -> ClangT s m Bool
+isVolatileQualifiedType :: ClangBase m => FFI.Type s' -> ClangT s m Bool
 isVolatileQualifiedType t = liftIO $ FFI.isVolatileQualifiedType t
 
-isRestrictQualifiedType :: ClangBase m => FFI.Type s -> ClangT s m Bool
+isRestrictQualifiedType :: ClangBase m => FFI.Type s' -> ClangT s m Bool
 isRestrictQualifiedType t = liftIO $ FFI.isRestrictQualifiedType t
 
-isPODType :: ClangBase m => FFI.Type s -> ClangT s m Bool
+isPODType :: ClangBase m => FFI.Type s' -> ClangT s m Bool
 isPODType t = liftIO $ FFI.isPODType t
 
-isVirtualBase :: ClangBase m => FFI.Cursor s -> ClangT s m Bool
+isVirtualBase :: ClangBase m => FFI.Cursor s' -> ClangT s m Bool
 isVirtualBase c = liftIO $ FFI.isVirtualBase c
 
 

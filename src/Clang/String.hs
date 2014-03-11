@@ -20,21 +20,21 @@ import Clang.Monad
 
 type ClangString = FFI.CXString
 
-unpack :: ClangBase m => ClangString s -> ClangT s m String
+unpack :: ClangBase m => ClangString s' -> ClangT s m String
 unpack = FFI.getString
 
-unpackByteString :: ClangBase m => ClangString s -> ClangT s m B.ByteString
+unpackByteString :: ClangBase m => ClangString s' -> ClangT s m B.ByteString
 unpackByteString = FFI.getByteString
 
-unsafeUnpackByteString :: ClangBase m => ClangString s -> ClangT s m B.ByteString
+unsafeUnpackByteString :: ClangBase m => ClangString s' -> ClangT s m B.ByteString
 unsafeUnpackByteString = FFI.unsafeGetByteString
 
-unpackText :: ClangBase m => ClangString s -> ClangT s m T.Text
+unpackText :: ClangBase m => ClangString s' -> ClangT s m T.Text
 unpackText s = do
   -- Since unsafeGetByteString does not make a copy, this doesn't actually
   -- require the two copies that it appears to employ.
   str <- FFI.unsafeGetByteString s
   return $! TE.decodeUtf8With TEE.lenientDecode str
 
-hashString :: ClangBase m => ClangString s -> ClangT s m Int
+hashString :: ClangBase m => ClangString s' -> ClangT s m Int
 hashString s = return $! fromIntegral $ FFI.getStringHash s

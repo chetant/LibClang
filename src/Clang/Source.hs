@@ -25,45 +25,45 @@ import Clang.Monad
 
 -- Location functions
 nullLocation :: ClangBase m => ClangT s m (FFI.SourceLocation s)
-nullLocation = FFI.getNullLocation
+nullLocation = liftIO $ FFI.getNullLocation mkProxy
 
-isSameLocation :: ClangBase m => FFI.SourceLocation s -> FFI.SourceLocation s -> ClangT s m Bool
+isSameLocation :: ClangBase m => FFI.SourceLocation s' -> FFI.SourceLocation s'' -> ClangT s m Bool
 isSameLocation a b = liftIO $ FFI.equalLocations a b
 
-getLocation :: ClangBase m => FFI.TranslationUnit s -> FFI.File s -> Int -> Int
+getLocation :: ClangBase m => FFI.TranslationUnit s' -> FFI.File s'' -> Int -> Int
             -> ClangT s m (FFI.SourceLocation s)
-getLocation tu f line col = liftIO $ FFI.getLocation tu f line col
+getLocation tu f line col = liftIO $ FFI.getLocation mkProxy tu f line col
 
-getLocationForOffset :: ClangBase m => FFI.TranslationUnit s -> FFI.File s -> Int
+getLocationForOffset :: ClangBase m => FFI.TranslationUnit s' -> FFI.File s'' -> Int
                      -> ClangT s m (FFI.SourceLocation s)
-getLocationForOffset tu f off = liftIO $ FFI.getLocationForOffset tu f off
+getLocationForOffset tu f off = liftIO $ FFI.getLocationForOffset mkProxy tu f off
 
-getCursor :: ClangBase m => FFI.TranslationUnit s -> FFI.SourceLocation s
+getCursor :: ClangBase m => FFI.TranslationUnit s' -> FFI.SourceLocation s''
           -> ClangT s m (FFI.Cursor s)
-getCursor tu sl = liftIO $ FFI.getCursor tu sl
+getCursor tu sl = liftIO $ FFI.getCursor mkProxy tu sl
 
 -- Range functions
 nullRange :: ClangBase m => ClangT s m (FFI.SourceRange s)
-nullRange = FFI.getNullRange
+nullRange = liftIO $ FFI.getNullRange mkProxy
 
-getRange :: ClangBase m => FFI.SourceLocation s -> FFI.SourceLocation s
+getRange :: ClangBase m => FFI.SourceLocation s' -> FFI.SourceLocation s''
          -> ClangT s m (FFI.SourceRange s)
-getRange from to = liftIO $ FFI.getRange from to
+getRange from to = liftIO $ FFI.getRange mkProxy from to
 
-getExpansionLocation :: ClangBase m => FFI.SourceLocation s
+getExpansionLocation :: ClangBase m => FFI.SourceLocation s'
                      -> ClangT s m (Maybe (FFI.File s), Int, Int, Int)
-getExpansionLocation l = liftIO $ FFI.getExpansionLocation l
+getExpansionLocation l = liftIO $ FFI.getExpansionLocation mkProxy l
 
-getInstantiationLocation :: ClangBase m => FFI.SourceLocation s
+getInstantiationLocation :: ClangBase m => FFI.SourceLocation s'
                          -> ClangT s m (Maybe (FFI.File s), Int, Int, Int)
-getInstantiationLocation l = liftIO $ FFI.getInstantiationLocation l
+getInstantiationLocation l = liftIO $ FFI.getInstantiationLocation mkProxy l
 
-getSpellingLocation :: ClangBase m => FFI.SourceLocation s
+getSpellingLocation :: ClangBase m => FFI.SourceLocation s'
                     -> ClangT s m (Maybe (FFI.File s), Int, Int, Int)
-getSpellingLocation l = liftIO $ FFI.getSpellingLocation l
+getSpellingLocation l = liftIO $ FFI.getSpellingLocation mkProxy l
 
-getStart :: ClangBase m => FFI.SourceRange s -> ClangT s m (FFI.SourceLocation s)
-getStart sr = liftIO $ FFI.getRangeStart sr
+getStart :: ClangBase m => FFI.SourceRange s' -> ClangT s m (FFI.SourceLocation s)
+getStart sr = liftIO $ FFI.getRangeStart mkProxy sr
 
-getEnd :: ClangBase m => FFI.SourceRange s -> ClangT s m (FFI.SourceLocation s)
-getEnd sr = liftIO $ FFI.getRangeEnd sr
+getEnd :: ClangBase m => FFI.SourceRange s' -> ClangT s m (FFI.SourceLocation s)
+getEnd sr = liftIO $ FFI.getRangeEnd mkProxy sr

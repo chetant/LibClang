@@ -100,7 +100,6 @@ module Clang.Internal.FFI
 , cXCursorSet_insert
 , getCursorSemanticParent
 , getCursorLexicalParent
-, registerOverriddenList
 , getOverriddenCursors
 , getIncludedFile
 , getCursor
@@ -141,12 +140,10 @@ module Clang.Internal.FFI
 , getOverloadedDecl
 , getIBOutletCollectionType
 , CursorList
-, registerCursorList
 , getChildren
 , getDescendants
 , ParentedCursor(..)
 , ParentedCursorList
-, registerParentedCursorList
 , getParentedDescendants
 , getCursorUSR
 , constructUSR_ObjCClass
@@ -231,6 +228,65 @@ import Clang.Internal.Monad
 %prefix CX
 %prefix CX_
 %prefix clang_
+
+{-
+LibClang uses two strategies to create safe, deterministic
+bindings.
+
+First, all types that either represent resources managed on the C side
+(for example, TranslationUnit and CXString) or contain pointers into
+those resources (for example, Cursor) are tagged with an ST-like
+universally quantified phantom type parameter. This prevents them from
+being used outside of the scope in which they were allocated. This is
+particularly important for libclang, which uses an arena allocator to
+store much of its data; preventing resources from leaking outside
+their proper scope is critical to making this safe.
+
+Second, all operations that allocate a resource that later
+needs to be freed are wrapped in a type-specific 'register'
+function. An example is registerCXString. This function registers a
+cleanup action with the underlying ClangT monad, which is essentially
+just ResourceT in disguise. This not only provides safety, but it also
+enforces prompt finalization of resources which can significantly
+increase performance by keeping the working set of user programs down.
+
+There are a few different patterns for the FFI code, depending on what
+kind of value the libclang function we want to wrap returns.
+
+If it returns a pure value (say an Int), then we don't need to do
+anything special. The greencard-generated function will have a return
+type of IO Int, and the user-facing wrapper function will use liftIO
+to call it.
+
+If it returns a value that doesn't represent a newly allocated
+resource, but does need the phantom type parameter (because it
+contains a pointer into some other resource, generally), then we
+generally pass a Proxy value with a type parameter that we'll use to
+tag the return type. This has no runtime cost. The user-facing wrapper
+function still needs to call liftIO.
+
+For values that DO represent a newly allocated resource, we need to
+call the appropriate 'register' function. This function will return a
+value in the ClangT monad, so user-facing wrapper functions don't need
+to use liftIO or Proxy in this case. It's the convention to use '()' for the
+phantom type parameter returned from the greencard-generated function,
+and allow the 'register' function to coerce the value to the correct
+type. This way we can distinguish values that need to be registered
+from other values: if a value's phantom type parameter is '()', it
+needs to be registered, and it won't typecheck as the return value of
+a user-facing wrapper function.
+
+It's important to keep in mind that it should be legal to use values
+from enclosing scopes in an inner scope created by clangScope. In
+practice, this means that the phantom type parameters used by each
+argument to a function should be distinct, and they should all be
+distinct from the phantom type parameter used in the return value.
+Of course, this doesn't apply to the Proxy parameter, which must
+always have the same phantom type parameter as the return value.
+-}
+
+-- Used with the Proxy type in Clang.Internal.Monad.
+%dis proxy = <id/id>
 
 -- typedef void *CXIndex;
 newtype Index s = Index { unIndex :: Ptr () }
@@ -415,13 +471,13 @@ foreign import ccall unsafe "FFI_stub_ffi.h freeCXString" freeCXString :: Ptr ()
 unmarshall_cxString :: Ptr () -> Word32 -> IO (CXString ())
 unmarshall_cxString d f = return $ CXString d f
 
-getString :: ClangBase m => CXString s -> ClangT s m String
+getString :: ClangBase m => CXString s' -> ClangT s m String
 getString (CXString d f) = liftIO $ getCStringPtr d f >>= peekCString
 
-getByteString :: ClangBase m => CXString s -> ClangT s m B.ByteString
+getByteString :: ClangBase m => CXString s' -> ClangT s m B.ByteString
 getByteString (CXString d f) = liftIO $ getCStringPtr d f >>= B.packCString
 
-unsafeGetByteString :: ClangBase m => CXString s -> ClangT s m B.ByteString
+unsafeGetByteString :: ClangBase m => CXString s' -> ClangT s m B.ByteString
 unsafeGetByteString (CXString d f) = liftIO $ getCStringPtr d f >>= BU.unsafePackCString
 
 -- const char *clang_getCString(CXString string);
@@ -439,13 +495,13 @@ unsafeGetByteString (CXString d f) = liftIO $ getCStringPtr d f >>= BU.unsafePac
 getStringHash :: CXString s -> WordPtr
 getStringHash (CXString p _) = ptrToWordPtr p
 
-from_Maybe_File :: Maybe (File s) -> File s
-from_Maybe_File (Just f) = f
+from_Maybe_File :: Maybe (File s') -> File s
+from_Maybe_File (Just f) = unsafeCoerce f
 from_Maybe_File Nothing  = File nullPtr
 
-to_Maybe_File :: File s -> Maybe (File s)
+to_Maybe_File :: File s' -> Maybe (File s)
 to_Maybe_File (File p) | p == nullPtr = Nothing
-to_Maybe_File f                       = Just f
+to_Maybe_File f                       = Just (unsafeCoerce f)
 
 -- typedef void *CXFile;
 newtype File s = File (Ptr ())
@@ -467,7 +523,7 @@ getFileHash (File p) = ptrToWordPtr p
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getFileName :: ClangBase m => File s -> ClangT s m (CXString s)
+getFileName :: ClangBase m => File s' -> ClangT s m (CXString s)
 getFileName = registerCXString . unsafe_getFileName
 
 -- time_t clang_getFileTime(CXFile SFile);
@@ -477,8 +533,8 @@ getFileTime :: File s -> IO CTime
 getFileTime (File ptr) = clang_getFileTime ptr
 
 -- CXFile clang_getFile(CXTranslationUnit tu, const char *file_name);
-%fun clang_getFile :: TranslationUnit s -> String -> IO (File s)
-%call (translationUnit t) (string s)
+%fun clang_getFile :: Proxy s -> TranslationUnit s' -> String -> IO (File s)
+%call (proxy) (translationUnit t) (string s)
 %code CXFile r = clang_getFile(t, s);
 %result (file r)
 
@@ -520,15 +576,13 @@ data SourceRange s = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 %dis sourceRange p1 p2 d1 d2 = SourceRange (ptr p1) (ptr p2) (int d1) (int d2)
 
 -- CXSourceLocation clang_getNullLocation();
-%fun unsafe_getNullLocation :: IO (SourceLocation ())
+%fun clang_getNullLocation :: Proxy s -> IO (SourceLocation s)
+%call (proxy)
 %code CXSourceLocation r = clang_getNullLocation();
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
 
-getNullLocation :: ClangBase m => ClangT s m (SourceLocation s)
-getNullLocation = liftIO (unsafeCoerce <$> unsafe_getNullLocation)
-
 -- unsigned clang_equalLocations(CXSourceLocation loc1, CXSourceLocation loc2);
-%fun clang_equalLocations :: SourceLocation s -> SourceLocation s -> IO Bool
+%fun clang_equalLocations :: SourceLocation s -> SourceLocation s' -> IO Bool
 %call (sourceLocation p1 p2 d) (sourceLocation p12 p22 d2)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXSourceLocation m = {{p12, p22}, d2};
@@ -538,31 +592,29 @@ getNullLocation = liftIO (unsafeCoerce <$> unsafe_getNullLocation)
 --                                                   CXFile file,
 --                                                   unsigned line,
 --                                                   unsigned column);
-%fun clang_getLocation :: TranslationUnit s -> File s -> Int -> Int -> IO (SourceLocation s)
-%call (translationUnit t) (file f) (int i) (int j)
+%fun clang_getLocation :: Proxy s -> TranslationUnit s' -> File s'' -> Int -> Int -> IO (SourceLocation s)
+%call (proxy) (translationUnit t) (file f) (int i) (int j)
 %code CXSourceLocation r = clang_getLocation((CXTranslationUnit)t, f, i, j);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
 
 -- CXSourceLocation clang_getLocationForOffset(CXTranslationUnit tu,
 --                                                            CXFile file,
 --                                                            unsigned offset);
-%fun clang_getLocationForOffset :: TranslationUnit s -> File s -> Int -> IO (SourceLocation s)
-%call (translationUnit t) (file f) (int i)
+%fun clang_getLocationForOffset :: Proxy s -> TranslationUnit s' -> File s'' -> Int -> IO (SourceLocation s)
+%call (proxy) (translationUnit t) (file f) (int i)
 %code CXSourceLocation r = clang_getLocationForOffset((CXTranslationUnit)t, f, i);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
 
 -- CXSourceRange clang_getNullRange();
-%fun unsafe_getNullRange :: IO (SourceRange ())
+%fun clang_getNullRange :: Proxy s -> IO (SourceRange s)
+%call (proxy)
 %code CXSourceRange r = clang_getNullRange();
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
 
-getNullRange :: ClangBase m => ClangT s m (SourceRange s)
-getNullRange = liftIO $ unsafeCoerce <$> unsafe_getNullRange
-
 -- CXSourceRange clang_getRange(CXSourceLocation begin,
 --                                             CXSourceLocation end);
-%fun clang_getRange :: SourceLocation s -> SourceLocation s -> IO (SourceRange s)
-%call (sourceLocation p1 p2 d) (sourceLocation p12 p22 d2)
+%fun clang_getRange :: Proxy s -> SourceLocation s' -> SourceLocation s'' -> IO (SourceRange s)
+%call (proxy) (sourceLocation p1 p2 d) (sourceLocation p12 p22 d2)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXSourceLocation m = {{p12, p22}, d2};
 %     CXSourceRange r = clang_getRange(l, m);
@@ -573,8 +625,8 @@ getNullRange = liftIO $ unsafeCoerce <$> unsafe_getNullRange
 --                                                unsigned *line,
 --                                                unsigned *column,
 --                                                unsigned *offset);
-%fun clang_getExpansionLocation :: SourceLocation s -> IO (Maybe (File s), Int, Int, Int)
-%call (sourceLocation p1 p2 d)
+%fun clang_getExpansionLocation :: Proxy s -> SourceLocation s' -> IO (Maybe (File s), Int, Int, Int)
+%call (proxy) (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXFile f;unsigned ln,c,o;clang_getExpansionLocation(l,&f,&ln,&c,&o);
 %result (<from_Maybe_File/to_Maybe_File> (file f), (int ln), (int c), (int o))
@@ -584,8 +636,8 @@ getNullRange = liftIO $ unsafeCoerce <$> unsafe_getNullRange
 --                                                    unsigned *line,
 --                                                    unsigned *column,
 --                                                    unsigned *offset);
-%fun clang_getInstantiationLocation :: SourceLocation s -> IO (Maybe (File s), Int, Int, Int)
-%call (sourceLocation p1 p2 d)
+%fun clang_getInstantiationLocation :: Proxy s -> SourceLocation s' -> IO (Maybe (File s), Int, Int, Int)
+%call (proxy) (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXFile f;unsigned ln,c,o;clang_getInstantiationLocation(l,&f,&ln,&c,&o);
 %result (<from_Maybe_File/to_Maybe_File> (file f), (int ln), (int c), (int o))
@@ -595,22 +647,22 @@ getNullRange = liftIO $ unsafeCoerce <$> unsafe_getNullRange
 --                                               unsigned *line,
 --                                               unsigned *column,
 --                                               unsigned *offset);
-%fun clang_getSpellingLocation :: SourceLocation s -> IO (Maybe (File s), Int, Int, Int)
-%call (sourceLocation p1 p2 d)
+%fun clang_getSpellingLocation :: Proxy s -> SourceLocation s' -> IO (Maybe (File s), Int, Int, Int)
+%call (proxy) (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXFile f;unsigned ln,c,o;clang_getSpellingLocation(l,&f,&ln,&c,&o);
 %result (<from_Maybe_File/to_Maybe_File> (file f), (int ln), (int c), (int o))
 
 -- CXSourceLocation clang_getRangeStart(CXSourceRange range);
-%fun clang_getRangeStart :: SourceRange s -> IO (SourceLocation s)
-%call (sourceRange p1 p2 d1 d2)
+%fun clang_getRangeStart :: Proxy s -> SourceRange s' -> IO (SourceLocation s)
+%call (proxy) (sourceRange p1 p2 d1 d2)
 %code CXSourceRange a = {{p1, p2}, d1, d2};
 %     CXSourceLocation r = clang_getRangeStart(a);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
 
 -- CXSourceLocation clang_getRangeEnd(CXSourceRange range);
-%fun clang_getRangeEnd :: SourceRange s -> IO (SourceLocation s)
-%call (sourceRange p1 p2 d1 d2)
+%fun clang_getRangeEnd :: Proxy s -> SourceRange s' -> IO (SourceLocation s)
+%call (proxy) (sourceRange p1 p2 d1 d2)
 %code CXSourceRange a = {{p1, p2}, d1, d2};
 %     CXSourceLocation r = clang_getRangeEnd(a);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
@@ -656,7 +708,7 @@ registerDiagnostic action = do
 %code CXDiagnostic r = clang_getDiagnostic((CXTranslationUnit)t, i);
 %result (diag r)
 
-getDiagnostic :: ClangBase m => TranslationUnit s -> Int -> ClangT s m (Diagnostic s)
+getDiagnostic :: ClangBase m => TranslationUnit s' -> Int -> ClangT s m (Diagnostic s)
 getDiagnostic = (registerDiagnostic .) . unsafe_getDiagnostic
 
 -- enum CXDiagnosticDisplayOptions {
@@ -688,7 +740,7 @@ getDiagnosticDispOptSum = sum . (map toVal_)
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-formatDiagnostic :: ClangBase m => Diagnostic s -> Int -> ClangT s m (CXString s)
+formatDiagnostic :: ClangBase m => Diagnostic s' -> Int -> ClangT s m (CXString s)
 formatDiagnostic = (registerCXString .) . unsafe_formatDiagnostic
 
 -- unsigned clang_defaultDiagnosticDisplayOptions(void);
@@ -701,13 +753,10 @@ formatDiagnostic = (registerCXString .) . unsafe_formatDiagnostic
 %result (diagnosticSeverity s)
 
 -- CXSourceLocation clang_getDiagnosticLocation(CXDiagnostic);
-%fun unsafe_getDiagnosticLocation :: Diagnostic s -> IO (SourceLocation ())
-%call (diag d)
+%fun clang_getDiagnosticLocation :: Proxy s -> Diagnostic s' -> IO (SourceLocation s)
+%call (proxy) (diag d)
 %code CXSourceLocation r = clang_getDiagnosticLocation(d);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
-
-getDiagnosticLocation :: ClangBase m => Diagnostic s -> ClangT s m (SourceLocation s)
-getDiagnosticLocation d = liftIO $ unsafeCoerce <$> unsafe_getDiagnosticLocation d
 
 -- CXString clang_getDiagnosticSpelling(CXDiagnostic);
 %fun unsafe_getDiagnosticSpelling :: Diagnostic s -> IO (CXString ())
@@ -717,7 +766,7 @@ getDiagnosticLocation d = liftIO $ unsafeCoerce <$> unsafe_getDiagnosticLocation
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getDiagnosticSpelling :: ClangBase m => Diagnostic s -> ClangT s m (CXString s)
+getDiagnosticSpelling :: ClangBase m => Diagnostic s' -> ClangT s m (CXString s)
 getDiagnosticSpelling = registerCXString . unsafe_getDiagnosticSpelling
 
 -- CXString clang_getDiagnosticOption(CXDiagnostic Diag,
@@ -732,7 +781,7 @@ getDiagnosticSpelling = registerCXString . unsafe_getDiagnosticSpelling
 %     unsigned outFlags = out.private_flags;
 %result ((cxString (ptr outData) (word32 outFlags)), (cxString (ptr aData) (word32 aFlags)))
 
-getDiagnosticOption :: ClangBase m => Diagnostic s -> ClangT s m (CXString s, CXString s)
+getDiagnosticOption :: ClangBase m => Diagnostic s' -> ClangT s m (CXString s, CXString s)
 getDiagnosticOption d = do
   (a, b) <- liftIO $ unsafe_getDiagnosticOption d
   (,) <$> registerCXString (return a) <*> registerCXString (return b)
@@ -751,7 +800,7 @@ getDiagnosticOption d = do
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getDiagnosticCategoryText :: ClangBase m => Diagnostic s -> ClangT s m (CXString s)
+getDiagnosticCategoryText :: ClangBase m => Diagnostic s' -> ClangT s m (CXString s)
 getDiagnosticCategoryText = registerCXString . unsafe_getDiagnosticCategoryText
 
 -- unsigned clang_getDiagnosticNumRanges(CXDiagnostic);
@@ -762,7 +811,7 @@ getDiagnosticCategoryText = registerCXString . unsafe_getDiagnosticCategoryText
 
 -- CXSourceRange clang_getDiagnosticRange(CXDiagnostic Diagnostic,
 --                                                       unsigned Range);
-%fun clang_getDiagnosticRange :: Diagnostic s -> Int -> IO (SourceRange s)
+%fun clang_getDiagnosticRange :: Diagnostic s' -> Int -> IO (SourceRange s)
 %call (diag d) (int i)
 %code CXSourceRange r = clang_getDiagnosticRange(d, i);
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
@@ -776,7 +825,7 @@ getDiagnosticCategoryText = registerCXString . unsafe_getDiagnosticCategoryText
 -- CXString clang_getDiagnosticFixIt(CXDiagnostic Diagnostic,
 --                                                  unsigned FixIt,
 --                                                CXSourceRange *ReplacementRange);
-%fun unsafe_getDiagnosticFixIt :: Diagnostic s -> Int -> IO (SourceRange s, CXString ())
+%fun unsafe_getDiagnosticFixIt :: Diagnostic s' -> Int -> IO (SourceRange s, CXString ())
 %call (diag d) (int i)
 %code CXSourceRange a;
 %     CXString out = clang_getDiagnosticFixIt(d, i, &a);
@@ -784,7 +833,7 @@ getDiagnosticCategoryText = registerCXString . unsafe_getDiagnosticCategoryText
 %     unsigned outFlags = out.private_flags;
 %result ((sourceRange {a.ptr_data[0]} {a.ptr_data[1]} {a.begin_int_data} {a.end_int_data}), (cxString (ptr outData) (word32 outFlags)))
 
-getDiagnosticFixIt :: ClangBase m => Diagnostic s -> Int
+getDiagnosticFixIt :: ClangBase m => Diagnostic s' -> Int
                    -> ClangT s m (SourceRange s, CXString s)
 getDiagnosticFixIt d i = do
   (r, s) <- liftIO $ unsafe_getDiagnosticFixIt d i
@@ -799,7 +848,7 @@ getDiagnosticFixIt d i = do
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getTranslationUnitSpelling :: ClangBase m => TranslationUnit s -> ClangT s m (CXString s)
+getTranslationUnitSpelling :: ClangBase m => TranslationUnit s' -> ClangT s m (CXString s)
 getTranslationUnitSpelling = registerCXString . unsafe_getTranslationUnitSpelling
 
 -- CXTranslationUnit clang_createTranslationUnitFromSourceFile(
@@ -814,7 +863,7 @@ getTranslationUnitSpelling = registerCXString . unsafe_getTranslationUnitSpellin
 %code r = clang_createTranslationUnitFromSourceFile(i,s,nas,as,nufs,ufs);
 %result (translationUnit r)
 
-createTranslationUnitFromSourceFile :: ClangBase m => Index s -> String -> [String]
+createTranslationUnitFromSourceFile :: ClangBase m => Index s' -> String -> [String]
                                     -> DV.Vector UnsavedFile -> ClangT s m (TranslationUnit s)
 createTranslationUnitFromSourceFile idx sf as ufs =
   registerTranslationUnit $
@@ -829,7 +878,7 @@ createTranslationUnitFromSourceFile idx sf as ufs =
 %code CXTranslationUnit r = clang_createTranslationUnit(i, s);
 %result (translationUnit r)
 
-createTranslationUnit :: ClangBase m => Index s -> String -> ClangT s m (TranslationUnit s)
+createTranslationUnit :: ClangBase m => Index s' -> String -> ClangT s m (TranslationUnit s)
 createTranslationUnit = (registerTranslationUnit .) . unsafe_createTranslationUnit
 
 -- enum CXTranslationUnit_Flags {
@@ -846,6 +895,7 @@ createTranslationUnit = (registerTranslationUnit .) . unsafe_createTranslationUn
 
 %enum TranslationUnitFlags (Enum, Eq, Ord, Read, Show) Int [CXTranslationUnit_None, CXTranslationUnit_DetailedPreprocessingRecord, CXTranslationUnit_Incomplete, CXTranslationUnit_PrecompiledPreamble, CXTranslationUnit_CacheCompletionResults, CXTranslationUnit_ForSerialization, CXTranslationUnit_CXXChainedPCH, CXTranslationUnit_SkipFunctionBodies, CXTranslationUnit_IncludeBriefCommentsInCodeCompletion]
 
+-- FIXME: This breaks if values are repeated.
 getTranslationUnitFlagsSum :: [TranslationUnitFlags] -> Int
 getTranslationUnitFlagsSum = sum . (map toVal_)
     where toVal_ TranslationUnit_None = 0x0
@@ -873,7 +923,7 @@ getTranslationUnitFlagsSum = sum . (map toVal_)
 %code r = clang_parseTranslationUnit(i,s,as,nas,ufs,nufs,i2);
 %result (maybeT {nullPtr} (translationUnit r))
 
-parseTranslationUnit :: ClangBase m => Index s -> Maybe String -> [String]
+parseTranslationUnit :: ClangBase m => Index s' -> Maybe String -> [String]
                      -> DV.Vector UnsavedFile -> Int -> ClangT s m (Maybe (TranslationUnit s))
 parseTranslationUnit idx sf as ufs opts = do
     mayTU <- liftIO $
@@ -948,7 +998,7 @@ getReparseFlagsSum = sum . (map toVal_)
 %code r = clang_reparseTranslationUnit(t, nufs, ufs, i);
 %result (bool r)
 
-reparseTranslationUnit :: ClangBase m => TranslationUnit s -> DV.Vector UnsavedFile -> Int
+reparseTranslationUnit :: ClangBase m => TranslationUnit s' -> DV.Vector UnsavedFile -> Int
                        -> ClangT s m Bool
 reparseTranslationUnit tu ufs opts = liftIO $
   withUnsavedFiles ufs $ \ufsPtr ufsLen ->
@@ -1683,8 +1733,8 @@ getNullCursor =
 {-# INLINE getNullCursor #-}
 
 -- CXCursor clang_getTranslationUnitCursor(CXTranslationUnit);
-%fun clang_getTranslationUnitCursor :: TranslationUnit s -> IO (Cursor s)
-%call (translationUnit t)
+%fun clang_getTranslationUnitCursor :: Proxy s -> TranslationUnit s' -> IO (Cursor s)
+%call (proxy) (translationUnit t)
 %code CXCursor r = clang_getTranslationUnitCursor(t);
 %result (cursor {r.kind}  {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
@@ -1826,27 +1876,27 @@ createCXCursorSet :: ClangBase m => ClangT s m (CursorSet s)
 createCXCursorSet = registerCursorSet unsafe_createCXCursorSet
 
 -- unsigned clang_CXCursorSet_contains(CXCursorSet cset, CXCursor cursor);
-%fun clang_CXCursorSet_contains :: CursorSet s -> Cursor s -> IO Bool
+%fun clang_CXCursorSet_contains :: CursorSet s -> Cursor s' -> IO Bool
 %call (cursorSet cs) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %result (bool {clang_CXCursorSet_contains(cs, a)})
 
 -- unsigned clang_CXCursorSet_insert(CXCursorSet cset, CXCursor cursor);
-%fun clang_CXCursorSet_insert :: CursorSet s -> Cursor s -> IO Bool
+%fun clang_CXCursorSet_insert :: CursorSet s -> Cursor s' -> IO Bool
 %call (cursorSet cs) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %result (bool {clang_CXCursorSet_insert(cs, a)})
 
 -- CXCursor clang_getCursorSemanticParent(CXCursor cursor);
-%fun clang_getCursorSemanticParent :: Cursor s -> IO (Cursor s)
-%call (cursor k xdata p1 p2 p3)
+%fun clang_getCursorSemanticParent :: Proxy s -> Cursor s' -> IO (Cursor s)
+%call (proxy) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCursorSemanticParent(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXCursor clang_getCursorLexicalParent(CXCursor cursor);
-%fun clang_getCursorLexicalParent :: Cursor s -> IO (Cursor s)
-%call (cursor k xdata p1 p2 p3)
+%fun clang_getCursorLexicalParent :: Proxy s -> Cursor s' -> IO (Cursor s)
+%call (proxy) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCursorLexicalParent(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
@@ -1863,37 +1913,40 @@ registerOverriddenList action = do
 {-# INLINEABLE registerOverriddenList #-}
 
 -- void clang_getOverriddenCursors(CXCursor cursor, CXCursor **overridden, unsigned *num_overridden);
-%fun clang_getOverriddenCursors :: Cursor s -> IO UnsafeCursorList
+%fun unsafe_getOverriddenCursors :: Cursor s -> IO UnsafeCursorList
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k , xdata, {p1, p2, p3}};
 %     CXCursor* overrides; unsigned count;
 %     clang_getOverriddenCursors(a, &overrides, &count);
 %result (cursorList overrides count)
 
+getOverriddenCursors :: ClangBase m => Cursor s' -> ClangT s m (CursorList s)
+getOverriddenCursors = registerOverriddenList . unsafe_getOverriddenCursors
+
 -- CXFile clang_getIncludedFile(CXCursor cursor);
-%fun clang_getIncludedFile :: Cursor s -> IO (File s)
-%call (cursor k xdata p1 p2 p3)
+%fun clang_getIncludedFile :: Proxy s -> Cursor s' -> IO (File s)
+%call (proxy) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %result (file {clang_getIncludedFile(a)})
 
 -- CXCursor clang_getCursor(CXTranslationUnit, CXSourceLocation);
-%fun clang_getCursor :: TranslationUnit s -> SourceLocation s -> IO (Cursor s)
-%call (translationUnit t) (sourceLocation p1 p2 d)
+%fun clang_getCursor :: Proxy s -> TranslationUnit s' -> SourceLocation s'' -> IO (Cursor s)
+%call (proxy) (translationUnit t) (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXCursor r = clang_getCursor(t, l);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXSourceLocation clang_getCursorLocation(CXCursor);
-%fun clang_getCursorLocation :: Cursor s -> IO (SourceLocation s)
-%call (cursor k xdata p1 p2 p3)
+%fun clang_getCursorLocation :: Proxy s -> Cursor s' -> IO (SourceLocation s)
+%call (proxy) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXSourceLocation r = clang_getCursorLocation(a);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
 {-# INLINEABLE getCursorLocation #-}
 
 -- Variant of clang_getCursorLocation that fuses a call to clang_getSpellingLocation.
-%fun clang_getCursorSpellingLocation :: Cursor s -> IO (Maybe (File s), Int, Int, Int)
-%call (cursor k xdata p1 p2 p3)
+%fun clang_getCursorSpellingLocation :: Proxy s -> Cursor s' -> IO (Maybe (File s), Int, Int, Int)
+%call (proxy) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXSourceLocation l = clang_getCursorLocation(a);
 %     CXFile f; unsigned ln, c, o;
@@ -1902,8 +1955,8 @@ registerOverriddenList action = do
 {-# INLINEABLE getCursorSpellingLocation #-}
 
 -- CXSourceRange clang_getCursorExtent(CXCursor);
-%fun clang_getCursorExtent :: Cursor s -> IO (SourceRange s)
-%call (cursor k xdata p1 p2 p3)
+%fun clang_getCursorExtent :: Proxy s -> Cursor s' -> IO (SourceRange s)
+%call (proxy) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXSourceRange r = clang_getCursorExtent(a);
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
@@ -1974,8 +2027,8 @@ data Type s = Type !TypeKind !(Ptr ()) !(Ptr ())
 getTypeKind (Type k _ _) = k
 
 -- CXType clang_getCursorType(CXCursor C);
-%fun clang_getCursorType :: Cursor s -> IO (Type s)
-%call (cursor k xdata p1 p2 p3)
+%fun clang_getCursorType :: Proxy s -> Cursor s' -> IO (Type s)
+%call (proxy) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getCursorType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
@@ -1989,19 +2042,19 @@ getTypeKind (Type k _ _) = k
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getTypeSpelling :: ClangBase m => (Type s) -> ClangT s m (CXString s)
+getTypeSpelling :: ClangBase m => (Type s') -> ClangT s m (CXString s)
 getTypeSpelling = registerCXString . unsafe_getTypeSpelling
 
 -- CXType clang_getTypedefDeclUnderlyingType(CXCursor C);
-%fun clang_getTypedefDeclUnderlyingType :: Cursor s -> IO (Type s)
-%call (cursor k xdata p1 p2 p3)
+%fun clang_getTypedefDeclUnderlyingType :: Proxy s -> Cursor s' -> IO (Type s)
+%call (proxy) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getTypedefDeclUnderlyingType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
 -- CXType clang_getEnumDeclIntegerType(CXCursor C);
-%fun clang_getEnumDeclIntegerType :: Cursor s -> IO (Type s)
-%call (cursor k xdata p1 p2 p3)
+%fun clang_getEnumDeclIntegerType :: Proxy s -> Cursor s' -> IO (Type s)
+%call (proxy) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getEnumDeclIntegerType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
@@ -2030,21 +2083,21 @@ getTypeSpelling = registerCXString . unsafe_getTypeSpelling
 %result (int r)
 
 -- CXCursor clang_Cursor_getArgument(CXCursor C, unsigned i);
-%fun clang_cursor_getArgument :: Cursor s -> Int -> IO (Cursor s)
-%call (cursor k xdata p1 p2 p3) (int i)
+%fun clang_cursor_getArgument :: Proxy s -> Cursor s' -> Int -> IO (Cursor s)
+%call (proxy) (cursor k xdata p1 p2 p3) (int i)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_Cursor_getArgument(a, i);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXCursor clang_Cursor_getBaseExpression(CXCursor C);
-%fun clang_cursor_getBaseExpression :: Cursor s -> IO (Cursor s)
-%call (cursor k xdata p1 p2 p3)
+%fun clang_cursor_getBaseExpression :: Proxy s -> Cursor s' -> IO (Cursor s)
+%call (proxy) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_Cursor_getBaseExpression(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- unsigned clang_equalTypes(CXType A, CXType B);
-%fun clang_equalTypes :: Type s -> Type s -> IO Bool
+%fun clang_equalTypes :: Type s -> Type s' -> IO Bool
 %call (type k p1 p2) (type k2 p12 p22)
 %code CXType a = {k, {p1, p2}};
 %     CXType b = {k2, {p12, p22}};
@@ -2052,8 +2105,8 @@ getTypeSpelling = registerCXString . unsafe_getTypeSpelling
 %result (bool r)
 
 -- CXType clang_getCanonicalType(CXType T);
-%fun clang_getCanonicalType :: Type s -> IO (Type s)
-%call (type k p1 p2)
+%fun clang_getCanonicalType :: Proxy s -> Type s' -> IO (Type s)
+%call (proxy) (type k p1 p2)
 %code CXType a = {k, {p1, p2}};
 %     CXType r = clang_getCanonicalType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
@@ -2080,15 +2133,15 @@ getTypeSpelling = registerCXString . unsafe_getTypeSpelling
 %result (bool r)
 
 -- CXType clang_getPointeeType(CXType T);
-%fun clang_getPointeeType :: Type s -> IO (Type s)
-%call (type k p1 p2)
+%fun clang_getPointeeType :: Proxy s -> Type s' -> IO (Type s)
+%call (proxy) (type k p1 p2)
 %code CXType a = {k, {p1, p2}};
 %     CXType r = clang_getPointeeType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
 -- CXCursor clang_getTypeDeclaration(CXType T);
-%fun clang_getTypeDeclaration :: Type s -> IO (Cursor s)
-%call (type k p1 p2)
+%fun clang_getTypeDeclaration :: Proxy s -> Type s' -> IO (Cursor s)
+%call (proxy) (type k p1 p2)
 %code CXType a = {k, {p1, p2}};
 %     CXCursor r = clang_getTypeDeclaration(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
@@ -2102,7 +2155,7 @@ getTypeSpelling = registerCXString . unsafe_getTypeSpelling
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getDeclObjCTypeEncoding :: ClangBase m => Cursor s -> ClangT s m (CXString s)
+getDeclObjCTypeEncoding :: ClangBase m => Cursor s' -> ClangT s m (CXString s)
 getDeclObjCTypeEncoding = registerCXString . unsafe_getDeclObjCTypeEncoding
 
 -- CXString clang_getTypeKindSpelling(enum CXTypeKind K);
@@ -2117,8 +2170,8 @@ getTypeKindSpelling :: ClangBase m => TypeKind -> ClangT s m (CXString s)
 getTypeKindSpelling = registerCXString . unsafe_getTypeKindSpelling
 
 -- CXType clang_getResultType(CXType T);
-%fun clang_getResultType :: Type s -> IO (Type s)
-%call (type k p1 p2)
+%fun clang_getResultType :: Proxy s -> Type s' -> IO (Type s)
+%call (proxy) (type k p1 p2)
 %code CXType a = {k, {p1, p2}};
 %     CXType r = clang_getResultType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
@@ -2131,8 +2184,8 @@ getTypeKindSpelling = registerCXString . unsafe_getTypeKindSpelling
 %result (int r)
 
 -- CXType clang_getArgType(CXType T, int i);
-%fun clang_getArgType :: Type s -> Int -> IO (Type s)
-%call (type k p1 p2) (int i)
+%fun clang_getArgType :: Proxy s -> Type s' -> Int -> IO (Type s)
+%call (proxy) (type k p1 p2) (int i)
 %code CXType a = {k, {p1, p2}};
 %     CXType r = clang_getArgType(a, i);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
@@ -2145,8 +2198,8 @@ getTypeKindSpelling = registerCXString . unsafe_getTypeKindSpelling
 %result (bool r)
 
 -- CXType clang_getCursorResultType(CXCursor C);
-%fun clang_getCursorResultType :: Cursor s -> IO (Type s)
-%call (cursor k xdata p1 p2 p3)
+%fun clang_getCursorResultType :: Proxy s -> Cursor s' -> IO (Type s)
+%call (proxy) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getCursorResultType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
@@ -2189,15 +2242,15 @@ getTypeKindSpelling = registerCXString . unsafe_getTypeKindSpelling
 
 -- CXCursor clang_getOverloadedDecl(CXCursor cursor, 
 --                                                 unsigned index);
-%fun clang_getOverloadedDecl :: Cursor s -> Int -> IO (Cursor s)
-%call (cursor k xdata p1 p2 p3) (int i)
+%fun clang_getOverloadedDecl :: Proxy s -> Cursor s' -> Int -> IO (Cursor s)
+%call (proxy) (cursor k xdata p1 p2 p3) (int i)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getOverloadedDecl(a, i);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXType clang_getIBOutletCollectionType(CXCursor);
-%fun clang_getIBOutletCollectionType :: Cursor s -> IO (Type s)
-%call (cursor k xdata p1 p2 p3)
+%fun clang_getIBOutletCollectionType :: Proxy s -> Cursor s' -> IO (Type s)
+%call (proxy) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getIBOutletCollectionType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
@@ -2234,21 +2287,27 @@ toCursorList (cs, n) = UnsafeCursorList cs n
 
 -- A more efficient alternative to clang_visitChildren.
 -- void getChildren(CXCursor parent, CXCursor** childrenOut, unsigned* countOut)
-%fun getChildren :: Cursor s -> IO UnsafeCursorList
+%fun unsafe_getChildren :: Cursor s -> IO UnsafeCursorList
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor c = {k, xdata, {p1, p2, p3}};
 %     CXCursor* children; unsigned count;
 %     getChildren(c, &children, &count);
 %result (cursorList children count)
 
+getChildren :: ClangBase m => Cursor s' -> ClangT s m (CursorList s)
+getChildren = registerCursorList . unsafe_getChildren
+
 -- Like getChildren, but gets all transitive descendants.
 -- void getDescendants(CXCursor parent, CXCursor** childrenOut, unsigned* countOut)
-%fun getDescendants :: Cursor s -> IO UnsafeCursorList
+%fun unsafe_getDescendants :: Cursor s -> IO UnsafeCursorList
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor c = {k, xdata, {p1, p2, p3}};
 %     CXCursor* children; unsigned count;
 %     getDescendants(c, &children, &count);
 %result (cursorList children count)
+
+getDescendants :: ClangBase m => Cursor s' -> ClangT s m (CursorList s)
+getDescendants = registerCursorList . unsafe_getDescendants
 
 data ParentedCursor s = ParentedCursor
   { parentCursor :: !(Cursor s)
@@ -2306,12 +2365,15 @@ toParentedCursorList (cs, n) = UnsafeParentedCursorList cs n
 -- Like getParentedDescendants, but pairs each descendant with its parent.
 -- void getParentedDescendants(CXCursor parent, struct ParentedCursor** descendantsOut,
 --                             unsigned* countOut)
-%fun getParentedDescendants :: Cursor s -> IO UnsafeParentedCursorList
+%fun unsafe_getParentedDescendants :: Cursor s -> IO UnsafeParentedCursorList
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor c = {k, xdata, {p1, p2, p3}};
 %     struct ParentedCursor* descendants; unsigned count;
 %     getParentedDescendants(c, &descendants, &count);
 %result (parentedCursorList descendants count)
+
+getParentedDescendants :: ClangBase m => Cursor s' -> ClangT s m (ParentedCursorList s)
+getParentedDescendants = registerParentedCursorList . unsafe_getParentedDescendants
 
 -- CXString clang_getCursorUSR(CXCursor);
 %fun unsafe_getCursorUSR :: Cursor s -> IO (CXString ())
@@ -2322,7 +2384,7 @@ toParentedCursorList (cs, n) = UnsafeParentedCursorList cs n
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getCursorUSR :: ClangBase m => Cursor s -> ClangT s m (CXString s)
+getCursorUSR :: ClangBase m => Cursor s' -> ClangT s m (CXString s)
 getCursorUSR = registerCXString . unsafe_getCursorUSR
 
 -- CXString clang_constructUSR_ObjCClass(const char *class_name);
@@ -2373,7 +2435,7 @@ constructUSR_ObjCProtocol = registerCXString . unsafe_constructUSR_ObjCProtocol
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-constructUSR_ObjCIvar :: ClangBase m => String -> CXString s -> ClangT s m (CXString s)
+constructUSR_ObjCIvar :: ClangBase m => String -> CXString s' -> ClangT s m (CXString s)
 constructUSR_ObjCIvar s (CXString d f) = registerCXString $ unsafe_constructUSR_ObjCIvar s d f
 
 -- CXString clang_constructUSR_ObjCMethod(const char *name,
@@ -2389,7 +2451,7 @@ constructUSR_ObjCIvar s (CXString d f) = registerCXString $ unsafe_constructUSR_
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-constructUSR_ObjCMethod :: ClangBase m => String -> Bool -> CXString s -> ClangT s m (CXString s)
+constructUSR_ObjCMethod :: ClangBase m => String -> Bool -> CXString s' -> ClangT s m (CXString s)
 constructUSR_ObjCMethod s b (CXString d f) =
   registerCXString $ unsafe_constructUSR_ObjCMethod s b d f
 
@@ -2405,7 +2467,7 @@ constructUSR_ObjCMethod s b (CXString d f) =
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-constructUSR_ObjCProperty :: ClangBase m => String -> CXString s -> ClangT s m (CXString s)
+constructUSR_ObjCProperty :: ClangBase m => String -> CXString s' -> ClangT s m (CXString s)
 constructUSR_ObjCProperty s (CXString d f) =
   registerCXString $ unsafe_constructUSR_ObjCProperty s d f
 
@@ -2418,7 +2480,7 @@ constructUSR_ObjCProperty s (CXString d f) =
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getCursorSpelling :: ClangBase m => Cursor s -> ClangT s m (CXString s)
+getCursorSpelling :: ClangBase m => Cursor s' -> ClangT s m (CXString s)
 getCursorSpelling = registerCXString . unsafe_getCursorSpelling
 
 -- CXString clang_getCursorDisplayName(CXCursor);
@@ -2430,19 +2492,19 @@ getCursorSpelling = registerCXString . unsafe_getCursorSpelling
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getCursorDisplayName :: ClangBase m => Cursor s -> ClangT s m (CXString s)
+getCursorDisplayName :: ClangBase m => Cursor s' -> ClangT s m (CXString s)
 getCursorDisplayName = registerCXString . unsafe_getCursorDisplayName
   
 -- CXCursor clang_getCursorReferenced(CXCursor);
-%fun clang_getCursorReferenced :: Cursor s -> IO (Cursor s)
-%call (cursor k xdata p1 p2 p3)
+%fun clang_getCursorReferenced :: Proxy s -> Cursor s' -> IO (Cursor s)
+%call (proxy) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCursorReferenced(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXCursor clang_getCursorDefinition(CXCursor);
-%fun clang_getCursorDefinition :: Cursor s -> IO (Cursor s)
-%call (cursor k xdata p1 p2 p3)
+%fun clang_getCursorDefinition :: Proxy s -> Cursor s' -> IO (Cursor s)
+%call (proxy) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCursorDefinition(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
@@ -2462,8 +2524,8 @@ getCursorDisplayName = registerCXString . unsafe_getCursorDisplayName
 %result (bool r)
 
 -- CXCursor clang_getCanonicalCursor(CXCursor);
-%fun clang_getCanonicalCursor :: Cursor s -> IO (Cursor s)
-%call (cursor k xdata p1 p2 p3)
+%fun clang_getCanonicalCursor :: Proxy s -> Cursor s' -> IO (Cursor s)
+%call (proxy) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCanonicalCursor(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
@@ -2497,8 +2559,8 @@ getCursorDisplayName = registerCXString . unsafe_getCursorDisplayName
 %result (cursorKind r)
 
 -- CXCursor clang_getSpecializedCursorTemplate(CXCursor C);
-%fun clang_getSpecializedCursorTemplate :: Cursor s -> IO (Cursor s)
-%call (cursor k xdata p1 p2 p3)
+%fun clang_getSpecializedCursorTemplate :: Proxy s -> Cursor s' -> IO (Cursor s)
+%call (proxy) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getSpecializedCursorTemplate(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
@@ -2551,7 +2613,7 @@ instance Storable (Token s) where
 %result (tokenKind r)
 
 -- CXString clang_getTokenSpelling(CXTranslationUnit, CXToken);
-%fun unsafe_getTokenSpelling :: TranslationUnit s -> Token s -> IO (CXString ())
+%fun unsafe_getTokenSpelling :: TranslationUnit s -> Token s' -> IO (CXString ())
 %call (translationUnit t) (token w x y z p)
 %code CXToken a = {{w, x, y, z}, p};
 %     CXString out = clang_getTokenSpelling(t, a);
@@ -2559,20 +2621,20 @@ instance Storable (Token s) where
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getTokenSpelling :: ClangBase m => TranslationUnit s -> Token s -> ClangT s m (CXString s)
+getTokenSpelling :: ClangBase m => TranslationUnit s' -> Token s'' -> ClangT s m (CXString s)
 getTokenSpelling = (registerCXString .) . unsafe_getTokenSpelling
 
 -- CXSourceLocation clang_getTokenLocation(CXTranslationUnit,
 --                                                        CXToken);
-%fun clang_getTokenLocation :: TranslationUnit s -> Token s -> IO (SourceLocation s)
-%call (translationUnit t) (token w x y z p)
+%fun clang_getTokenLocation :: Proxy s -> TranslationUnit s' -> Token s'' -> IO (SourceLocation s)
+%call (proxy) (translationUnit t) (token w x y z p)
 %code CXToken a = {{w, x, y, z}, p};
 %     CXSourceLocation r = clang_getTokenLocation(t, a);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
 
 -- CXSourceRange clang_getTokenExtent(CXTranslationUnit, CXToken);
-%fun clang_getTokenExtent :: TranslationUnit s -> Token s -> IO (SourceRange s)
-%call (translationUnit t) (token w x y z p)
+%fun clang_getTokenExtent :: Proxy s -> TranslationUnit s' -> Token s'' -> IO (SourceRange s)
+%call (proxy) (translationUnit t) (token w x y z p)
 %code CXToken a = {{w, x, y, z}, p};
 %     CXSourceRange r = clang_getTokenExtent(t, a);
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
@@ -2584,11 +2646,11 @@ data UnsafeTokenList = UnsafeTokenList !(Ptr ()) !Int
 foreign import ccall unsafe "FFI_stub_ffi.h clang_disposeTokens" clang_disposeTokens :: Ptr () -> Ptr () -> CUInt -> IO ()
 
 -- void clang_disposeTokens(CXTranslationUnit TU, CXToken *Tokens, unsigned NumTokens);
-%fun clang_disposeTokens :: TranslationUnit s -> TokenList s -> IO ()
+%fun clang_disposeTokens :: TranslationUnit s -> TokenList s' -> IO ()
 %call (translationUnit t) (tokenList toks n)
 %code clang_disposeTokens(t, toks, n);
 
-registerTokenList :: ClangBase m => TranslationUnit s -> IO UnsafeTokenList
+registerTokenList :: ClangBase m => TranslationUnit s' -> IO UnsafeTokenList
                   -> ClangT s m (TokenList s)
 registerTokenList tu action = do
     (_, tokenList) <- clangAllocate (action >>= tokenListToVector) (disposeTokens tu)
@@ -2612,14 +2674,14 @@ toTokenList (ts, n) = UnsafeTokenList ts n
 
 -- void clang_tokenize(CXTranslationUnit TU, CXSourceRange Range,
 --                                    CXToken **Tokens, unsigned *NumTokens);
-%fun unsafe_tokenize :: TranslationUnit s -> SourceRange s -> IO UnsafeTokenList
+%fun unsafe_tokenize :: TranslationUnit s -> SourceRange s' -> IO UnsafeTokenList
 %call (translationUnit t) (sourceRange p1 p2 d1 d2)
 %code CXSourceRange a = {{p1, p2}, d1, d2};
 %     CXToken* tokens; unsigned numTokens;
 %     clang_tokenize(t, a, &tokens, &numTokens);
 %result (tokenList tokens numTokens)
 
-tokenize :: ClangBase m => TranslationUnit s -> SourceRange s -> ClangT s m (TokenList s)
+tokenize :: ClangBase m => TranslationUnit s' -> SourceRange s'' -> ClangT s m (TokenList s)
 tokenize tu = registerTokenList tu . unsafe_tokenize tu
 
 -- TODO: test me
@@ -2629,12 +2691,15 @@ tokenize tu = registerTokenList tu . unsafe_tokenize tu
 -- void clang_annotateTokens(CXTranslationUnit TU,
 --                                          CXToken *Tokens, unsigned NumTokens,
 --                                          CXCursor *Cursors);
-%fun clang_annotateTokens :: TranslationUnit s -> TokenList s -> IO UnsafeCursorList
+%fun unsafe_annotateTokens :: TranslationUnit s -> TokenList s' -> IO UnsafeCursorList
 %call (translationUnit t) (tokenList toks nts)
 %code CXCursor * cs = (CXCursor *)malloc(sizeof(CXCursor)*nts);
 %     unsigned count = nts;
 %     clang_annotateTokens(t, toks, nts, cs);
 %result (cursorList cs count)
+
+annotateTokens :: ClangBase m => TranslationUnit s' -> TokenList s'' -> ClangT s m (CursorList s)
+annotateTokens = (registerCursorList .) . unsafe_annotateTokens
 
 -- CXString clang_getCursorKindSpelling(enum CXCursorKind Kind);
 %fun unsafe_getCursorKindSpelling :: CursorKind -> IO (CXString ())
@@ -2646,15 +2711,6 @@ tokenize tu = registerTokenList tu . unsafe_tokenize tu
 
 getCursorKindSpelling :: ClangBase m => CursorKind -> ClangT s m (CXString s)
 getCursorKindSpelling = registerCXString . unsafe_getCursorKindSpelling
-
--- TODO: implement me
--- void clang_getDefinitionSpellingAndExtent(CXCursor,
---                                           const char **startBuf,
---                                           const char **endBuf,
---                                           unsigned *startLine,
---                                           unsigned *startColumn,
---                                           unsigned *endLine,
---                                           unsigned *endColumn);
 
 -- void clang_enableStackTraces(void);
 foreign import ccall unsafe "clang-c/Index.h clang_enableStackTraces" enableStackTraces :: IO ()
@@ -2714,13 +2770,13 @@ data CompletionResult s = CompletionResult !CursorKind !(CompletionString s)
 %     unsigned outFlags = out.private_flags;
 %result (cxString (ptr outData) (word32 outFlags))
 
-getCompletionChunkText :: ClangBase m => CompletionString s -> Int -> ClangT s m (CXString s)
+getCompletionChunkText :: ClangBase m => CompletionString s' -> Int -> ClangT s m (CXString s)
 getCompletionChunkText = (registerCXString .) . unsafe_getCompletionChunkText
 
 -- CXCompletionString
 -- clang_getCompletionChunkCompletionString(CXCompletionString completion_string,
 --                                          unsigned chunk_number);
-%fun clang_getCompletionChunkCompletionString :: CompletionString s -> Int -> IO (CompletionString s)
+%fun clang_getCompletionChunkCompletionString :: CompletionString s' -> Int -> IO (CompletionString s)
 
 -- unsigned
 -- clang_getNumCompletionChunks(CXCompletionString completion_string);
@@ -2785,7 +2841,7 @@ registerCodeCompleteResults action = do
 %code rs = clang_codeCompleteAt(t, s, i1, i2, ufs, nufs, i3)
 %result (codeCompleteResults rs)
 
-codeCompleteAt :: ClangBase m => TranslationUnit s -> String -> Int -> Int
+codeCompleteAt :: ClangBase m => TranslationUnit s' -> String -> Int -> Int
                -> DV.Vector UnsavedFile -> Int -> ClangT s m (CodeCompleteResults s)
 codeCompleteAt tu f l c ufs os =
   registerCodeCompleteResults $
@@ -2811,7 +2867,7 @@ codeCompleteAt tu f l c ufs os =
 %code CXDiagnostic r = clang_codeCompleteGetDiagnostic(rs, i);
 %result (diag r)
 
-codeCompleteGetDiagnostic :: ClangBase m => CodeCompleteResults s -> Int
+codeCompleteGetDiagnostic :: ClangBase m => CodeCompleteResults s' -> Int
                           -> ClangT s m (Diagnostic s)
 codeCompleteGetDiagnostic = (registerDiagnostic .) . unsafe_codeCompleteGetDiagnostic
 
@@ -2888,5 +2944,5 @@ toInclusionList (is, n) = UnsafeInclusionList is n
 %     getInclusions(t, &inclusions, &count);
 %result (inclusionList inclusions count)
 
-getInclusions :: ClangBase m => TranslationUnit s -> ClangT s m (InclusionList s)
+getInclusions :: ClangBase m => TranslationUnit s' -> ClangT s m (InclusionList s)
 getInclusions = registerInclusionList . unsafe_getInclusions
