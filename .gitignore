@@ -4,7 +4,6 @@ test/*.hi
 test/*.o
 test/*_hs
 test/*_c
-test/Makefile
 src/Clang/Internal/FFI_stub_ffi.c
 src/Clang/Internal/FFI_stub_ffi.h
 cabal-dev
