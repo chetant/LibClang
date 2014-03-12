@@ -32,6 +32,7 @@ import Control.Monad.IO.Class
 import qualified Data.Vector as DV
 import System.FilePath ((</>))
 
+import Clang.Internal.BitFlags
 import Clang.Internal.Monad
 import Clang.Monad (mkProxy)
 import qualified Clang.Internal.FFI as FFI
@@ -45,8 +46,7 @@ withCreate :: ClangBase m => FFI.Index s' -> String
            -> (FFI.TranslationUnit s -> ClangT s m a)
            -> ClangT s m a
 withCreate idx str f = do
-  liftIO $ do resourcePath <- clangResourcesPath
-              FFI.setClangResourcesPath idx resourcePath
+  liftIO $ FFI.setClangResourcesPath idx =<< clangResourcesPath
   f =<< FFI.createTranslationUnit idx str
 
 withCreateFromSourceFile ::
@@ -58,8 +58,7 @@ withCreateFromSourceFile ::
   -> (FFI.TranslationUnit s -> ClangT s m a) -- ^ Function that will process the TranslationUnit
   -> ClangT s m a
 withCreateFromSourceFile idx fn ss ufs f = do
-  liftIO $ do resourcePath <- clangResourcesPath
-              FFI.setClangResourcesPath idx resourcePath
+  liftIO $ FFI.setClangResourcesPath idx =<< clangResourcesPath
   f =<< FFI.createTranslationUnitFromSourceFile idx fn ss ufs
 
 withParse ::
@@ -73,12 +72,9 @@ withParse ::
   -> ClangT s m a -- ^ Result to be returned if source couldn't be parsed
   -> ClangT s m a
 withParse idx ms ss ufs opts f nr = do
-    liftIO $ do resourcePath <- clangResourcesPath
-                FFI.setClangResourcesPath idx resourcePath
-    tu <- FFI.parseTranslationUnit idx ms ss ufs flags
-    maybe nr f tu
-  where
-    flags = FFI.getTranslationUnitFlagsSum opts
+  liftIO $ FFI.setClangResourcesPath idx =<< clangResourcesPath
+  tu <- FFI.parseTranslationUnit idx ms ss ufs (orFlags opts)
+  maybe nr f tu
 
 clangResourcesPath :: IO FilePath
 clangResourcesPath =
@@ -94,8 +90,7 @@ save ::
   -> FilePath -- ^ Filename to save to
   -> [FFI.SaveTranslationUnitFlags] -- ^ Saving Flags
   -> ClangT s m Bool
-save t fname opts = liftIO $
-  FFI.saveTranslationUnit t fname (FFI.getSaveTranslationUnitFlagsSum opts)
+save t fname opts = liftIO $ FFI.saveTranslationUnit t fname (orFlags opts)
 
 -- No other option right now
 defaultReparseOptions :: ClangBase m => ClangT s m [FFI.ReparseFlags]
@@ -107,7 +102,7 @@ reparse ::
   -> DV.Vector FFI.UnsavedFile -- ^ All the unsaved files
   -> [FFI.ReparseFlags] -- ^ reparse options
   -> ClangT s m Bool
-reparse t ufs opts = FFI.reparseTranslationUnit t ufs (FFI.getReparseFlagsSum opts)
+reparse t ufs opts = FFI.reparseTranslationUnit t ufs (orFlags opts)
 
 getCursor :: ClangBase m => FFI.TranslationUnit s' -> ClangT s m (FFI.Cursor s)
 getCursor tu = liftIO $ FFI.getTranslationUnitCursor mkProxy tu

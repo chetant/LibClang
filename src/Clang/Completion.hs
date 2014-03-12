@@ -20,12 +20,11 @@ module Clang.Completion
 , sortResults
 ) where
 
-import Control.Monad (mzero)
+import Control.Applicative
 import Control.Monad.IO.Class
-import Data.Bits ((.&.))
-import Data.Maybe (catMaybes)
 import qualified Data.Vector as DV
 
+import Clang.Internal.BitFlags
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 import Clang.String (ClangString)
@@ -51,16 +50,7 @@ getAvailability :: ClangBase m => FFI.CompletionString s' -> ClangT s m FFI.Avai
 getAvailability cs = liftIO $ FFI.getCompletionAvailability cs
 
 defaultCodeCompleteOptions :: ClangBase m => ClangT s m [FFI.CodeCompleteFlags]
-defaultCodeCompleteOptions = do
-  defVal <- liftIO FFI.defaultCodeCompleteOptions
-  let val1 = if (defVal .&. 0x01) == 0x01
-                then return FFI.CodeComplete_IncludeMacros
-                else mzero
-  let val2 = if (defVal .&. 0x02) == 0x02
-                then return FFI.CodeComplete_IncludeCodePatterns
-                else mzero
-  return $ catMaybes [val1, val2]
-  
+defaultCodeCompleteOptions = unFlags <$> liftIO FFI.defaultCodeCompleteOptions
 
 codeCompleteAt ::
      ClangBase m =>
@@ -71,8 +61,7 @@ codeCompleteAt ::
   -> DV.Vector FFI.UnsavedFile -- ^ Unsaved files so far
   -> [FFI.CodeCompleteFlags]
   -> ClangT s m (FFI.CodeCompleteResults s)
-codeCompleteAt t fname l c ufs opts =
-  FFI.codeCompleteAt t fname l c ufs (FFI.getCodeCompleteFlagsSum opts)
+codeCompleteAt t fname l c ufs opts = FFI.codeCompleteAt t fname l c ufs (orFlags opts)
 
 sortResults :: ClangBase m => FFI.CodeCompleteResults s' -> Int -> ClangT s m ()
 sortResults c i = liftIO $ FFI.sortCodeCompletionResults c i

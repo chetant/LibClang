@@ -21,11 +21,10 @@ module Clang.Diagnostic
 , getCategoryName
 ) where
 
-import Control.Monad
+import Control.Applicative
 import Control.Monad.IO.Class
-import Data.Bits ((.&.))
-import Data.Maybe (catMaybes)
 
+import Clang.Internal.BitFlags
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 import Clang.String (ClangString)
@@ -35,12 +34,11 @@ getDiagnostics t = do
   numDiags <- liftIO $ FFI.getNumDiagnostics t
   mapM (FFI.getDiagnostic t) [0..(numDiags-1)]
 
-formatDiagnostic :: ClangBase m => [FFI.DiagnosticDisplayOptions] -> FFI.Diagnostic s'
+formatDiagnostic :: ClangBase m => Maybe [FFI.DiagnosticDisplayOptions] -> FFI.Diagnostic s'
                  -> ClangT s m (ClangString s)
-formatDiagnostic [] diag =
-  FFI.formatDiagnostic diag =<< liftIO FFI.defaultDiagnosticDisplayOptions
-formatDiagnostic opts diag =
-  FFI.formatDiagnostic diag (FFI.getDiagnosticDispOptSum opts)
+formatDiagnostic Nothing diag     = FFI.formatDiagnostic diag =<<
+                                    liftIO FFI.defaultDiagnosticDisplayOptions
+formatDiagnostic (Just opts) diag = FFI.formatDiagnostic diag (orFlags opts)
 
 getSeverity :: ClangBase m => FFI.Diagnostic s' -> ClangT s m FFI.DiagnosticSeverity
 getSeverity d = liftIO $ FFI.getDiagnosticSeverity d
@@ -52,16 +50,7 @@ getOptions :: ClangBase m => FFI.Diagnostic s' -> ClangT s m (ClangString s, Cla
 getOptions = FFI.getDiagnosticOption
 
 defaultDisplayOptions :: ClangBase m => ClangT s m [FFI.DiagnosticDisplayOptions]
-defaultDisplayOptions = do
-  defVal <- liftIO FFI.defaultDiagnosticDisplayOptions
-  let val1 = if (defVal .&. 0x1) == 0x1 then return FFI.Diagnostic_DisplaySourceLocation else mzero
-  let val2 = if (defVal .&. 0x2) == 0x2 then return FFI.Diagnostic_DisplayColumn else mzero
-  let val3 = if (defVal .&. 0x4) == 0x4 then return FFI.Diagnostic_DisplaySourceRanges else mzero
-  let val4 = if (defVal .&. 0x8) == 0x8 then return FFI.Diagnostic_DisplayOption else mzero
-  let val5 = if (defVal .&. 0x10) == 0x10 then return FFI.Diagnostic_DisplayCategoryId else mzero
-  let val6 = if (defVal .&. 0x20) == 0x20 then return FFI.Diagnostic_DisplayCategoryName else mzero
-  return $ catMaybes [val1, val2, val3, val4, val5, val6]
-
+defaultDisplayOptions = unFlags <$> liftIO FFI.defaultDiagnosticDisplayOptions
 
 getCategory :: ClangBase m => FFI.Diagnostic s' -> ClangT s m Int
 getCategory d = liftIO $ FFI.getDiagnosticCategory d

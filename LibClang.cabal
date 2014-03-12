@@ -65,7 +65,8 @@ Library
                    Clang.TranslationUnit,
                    Clang.Traversal,
                    Clang.Type
-  other-modules: Clang.Internal.Monad,
+  other-modules: Clang.Internal.BitFlags,
+                 Clang.Internal.Monad,
                  Clang.Internal.FFI,
                  Clang.Internal.FFIConstants,
                  Paths_LibClang
