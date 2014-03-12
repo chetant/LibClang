@@ -7,6 +7,24 @@
 -}
 module Clang.Cursor
 ( FFI.CursorKind(..)
+, FFI.cursor_FirstDecl
+, FFI.cursor_LastDecl
+, FFI.cursor_FirstRef
+, FFI.cursor_LastRef
+, FFI.cursor_FirstInvalid
+, FFI.cursor_LastInvalid
+, FFI.cursor_FirstExpr
+, FFI.cursor_LastExpr
+, FFI.cursor_FirstStmt
+, FFI.cursor_LastStmt
+, FFI.cursor_FirstAttr
+, FFI.cursor_LastAttr
+, FFI.cursor_FirstPreprocessing
+, FFI.cursor_LastPreprocessing
+, FFI.cursor_FirstExtraDecl
+, FFI.cursor_LastExtraDecl
+, FFI.cursor_GCCAsmStmt
+, FFI.cursor_MacroInstantiation
 , FFI.LinkageKind(..)
 , FFI.LanguageKind(..)
 , FFI.Cursor

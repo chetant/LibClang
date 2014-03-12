@@ -4,6 +4,8 @@
 module Clang.Type
 ( FFI.Type
 , FFI.TypeKind(..)
+, FFI.type_FirstBuiltin
+, FFI.type_LastBuiltin
 , FFI.CXXAccessSpecifier(..)
 
 , isSameType
