@@ -49,6 +49,7 @@ module Clang.Cursor
 , Clang.Cursor.getResultType
 , getDeclObjCTypeEncoding
 , getSpelling
+, getSpellingNameRange
 , getDisplayName
 , getReferenced
 , getDefinition
@@ -166,6 +167,9 @@ getDeclObjCTypeEncoding = FFI.getDeclObjCTypeEncoding
 
 getSpelling :: ClangBase m => FFI.Cursor s' -> ClangT s m (ClangString s)
 getSpelling = FFI.getCursorSpelling
+
+getSpellingNameRange :: ClangBase m => FFI.Cursor s' -> Int -> ClangT s m (FFI.SourceRange s)
+getSpellingNameRange c idx = liftIO $ FFI.cursor_getSpellingNameRange mkProxy c idx
 
 getDisplayName :: ClangBase m => FFI.Cursor s' -> ClangT s m (ClangString s)
 getDisplayName = FFI.getCursorDisplayName

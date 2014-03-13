@@ -171,6 +171,7 @@ module Clang.Internal.FFI
 , constructUSR_ObjCMethod
 , constructUSR_ObjCProperty
 , getCursorSpelling
+, cursor_getSpellingNameRange
 , getCursorDisplayName
 , getCursorReferenced
 , getCursorDefinition
@@ -2555,6 +2556,15 @@ constructUSR_ObjCProperty s (CXString d f) =
 
 getCursorSpelling :: ClangBase m => Cursor s' -> ClangT s m (CXString s)
 getCursorSpelling = registerCXString . unsafe_getCursorSpelling
+
+-- CXSourceRange clang_Cursor_getSpellingNameRange(CXCursor,
+--                                                 unsigned pieceIndex,
+--                                                 unsigned options);
+%fun clang_Cursor_getSpellingNameRange :: Proxy s -> Cursor s' -> Int -> IO (SourceRange s)
+%call (proxy) (cursor k xdata p1 p2 p3) (int idx)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     CXSourceRange r = clang_Cursor_getSpellingNameRange(a, idx, 0);
+%result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
 
 -- CXString clang_getCursorDisplayName(CXCursor);
 %fun unsafe_getCursorDisplayName :: Cursor s -> IO (CXString ())
