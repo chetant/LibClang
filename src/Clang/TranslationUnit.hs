@@ -23,12 +23,14 @@ module Clang.TranslationUnit
 , reparse
 , getCursor
 , setGlobalOptions
+, getGlobalOptions
 , FFI.unsavedFilename
 , FFI.unsavedContents
 , FFI.newUnsavedFile
 , FFI.updateUnsavedContents
 ) where
 
+import Control.Applicative
 import Control.Monad.IO.Class
 import qualified Data.Vector as DV
 import System.FilePath ((</>))
@@ -114,3 +116,6 @@ withCreateIndex i1 i2 f = runClangT (FFI.createIndex i1 i2 >>= f)
 
 setGlobalOptions :: ClangBase m => FFI.Index s' -> [FFI.GlobalOptFlags] -> ClangT s m ()
 setGlobalOptions i opts = liftIO $ FFI.cXIndex_setGlobalOptions i (orFlags opts)
+
+getGlobalOptions :: ClangBase m => FFI.Index s' -> ClangT s m [FFI.GlobalOptFlags]
+getGlobalOptions i = unFlags <$> liftIO (FFI.cXIndex_getGlobalOptions i)

@@ -11,6 +11,7 @@ module Clang.Internal.FFI
 , GlobalOptFlags(..)
 , globalOpt_ThreadBackgroundPriorityForAll
 , cXIndex_setGlobalOptions
+, cXIndex_getGlobalOptions
 , TranslationUnit
 , UnsavedFile
 , unsavedFilename
@@ -359,6 +360,12 @@ globalOpt_ThreadBackgroundPriorityForAll = [GlobalOpt_ThreadBackgroundPriorityFo
 %fun clang_CXIndex_setGlobalOptions :: Index s -> Int -> IO ()
 %call (index i) (int f)
 %code clang_CXIndex_setGlobalOptions(i, f);
+
+-- unsigned clang_CXIndex_getGlobalOptions(CXIndex);
+%fun clang_CXIndex_getGlobalOptions :: Index s -> IO Int
+%call (index i)
+%code r = clang_CXIndex_getGlobalOptions(i);
+%result (int r)
 
 -- typedef struct CXTranslationUnitImpl *CXTranslationUnit;
 newtype TranslationUnit s = TranslationUnit { unTranslationUnit :: (Ptr ()) }
