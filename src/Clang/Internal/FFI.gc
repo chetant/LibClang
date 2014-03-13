@@ -177,6 +177,14 @@ module Clang.Internal.FFI
 , isCursorDefinition
 , cursor_isDynamicCall
 , getCanonicalCursor
+, cursor_getObjCSelectorIndex
+, cursor_getReceiverType
+, ObjCPropertyAttrKind(..)
+, cursor_getObjCPropertyAttributes
+, ObjCDeclQualifierKind(..)
+, cursor_getObjCDeclQualifiers
+, cursor_isObjCOptional
+, cursor_isVariadic
 , cursor_getCommentRange
 , cursor_getRawCommentText
 , cursor_getBriefCommentText
@@ -754,9 +762,7 @@ getDiagnostic = (registerDiagnostic .) . unsafe_getDiagnostic
 --   CXDiagnostic_DisplaySourceLocation = 0x01,
 --   CXDiagnostic_DisplayColumn = 0x02,
 --   CXDiagnostic_DisplaySourceRanges = 0x04,
-  
 --   CXDiagnostic_DisplayOption = 0x08,
-  
 --   CXDiagnostic_DisplayCategoryId = 0x10,
 --   CXDiagnostic_DisplayCategoryName = 0x20
 -- };
@@ -2596,6 +2602,102 @@ getCursorDisplayName = registerCXString . unsafe_getCursorDisplayName
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCanonicalCursor(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
+
+-- int clang_Cursor_getObjCSelectorIndex(CXCursor);
+%fun clang_Cursor_getObjCSelectorIndex :: Cursor s -> IO Int
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     int r = clang_Cursor_getObjCSelectorIndex(a);
+%result (int r)
+
+-- CXType clang_Cursor_getReceiverType(CXCursor C);
+%fun clang_Cursor_getReceiverType :: Proxy s -> Cursor s' -> IO (Type s)
+%call (proxy) (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     CXType r = clang_Cursor_getReceiverType(a);
+%result (type {r.kind} {r.data[0]} {r.data[1]})
+
+-- typedef enum {
+--   CXObjCPropertyAttr_noattr    = 0x00,
+--   CXObjCPropertyAttr_readonly  = 0x01,
+--   CXObjCPropertyAttr_getter    = 0x02,
+--   CXObjCPropertyAttr_assign    = 0x04,
+--   CXObjCPropertyAttr_readwrite = 0x08,
+--   CXObjCPropertyAttr_retain    = 0x10,
+--   CXObjCPropertyAttr_copy      = 0x20,
+--   CXObjCPropertyAttr_nonatomic = 0x40,
+--   CXObjCPropertyAttr_setter    = 0x80,
+--   CXObjCPropertyAttr_atomic    = 0x100,
+--   CXObjCPropertyAttr_weak      = 0x200,
+--   CXObjCPropertyAttr_strong    = 0x400,
+--   CXObjCPropertyAttr_unsafe_unretained = 0x800
+-- } CXObjCPropertyAttrKind;
+
+%enum ObjCPropertyAttrKind (Bounded, Enum, Eq, Ord, Read, Show) Int [CXObjCPropertyAttr_noattr,CXObjCPropertyAttr_readonly,CXObjCPropertyAttr_getter,CXObjCPropertyAttr_assign,CXObjCPropertyAttr_readwrite,CXObjCPropertyAttr_retain,CXObjCPropertyAttr_copy,CXObjCPropertyAttr_nonatomic,CXObjCPropertyAttr_setter,CXObjCPropertyAttr_atomic,CXObjCPropertyAttr_weak,CXObjCPropertyAttr_strong,CXObjCPropertyAttr_unsafe_unretained]
+
+instance BitFlags ObjCPropertyAttrKind where
+  toBit ObjCPropertyAttr_noattr            = 0x0
+  toBit ObjCPropertyAttr_readonly          = 0x1
+  toBit ObjCPropertyAttr_getter            = 0x2
+  toBit ObjCPropertyAttr_assign            = 0x4
+  toBit ObjCPropertyAttr_readwrite         = 0x8
+  toBit ObjCPropertyAttr_retain            = 0x10
+  toBit ObjCPropertyAttr_copy              = 0x20
+  toBit ObjCPropertyAttr_nonatomic         = 0x40
+  toBit ObjCPropertyAttr_setter            = 0x80
+  toBit ObjCPropertyAttr_atomic            = 0x100
+  toBit ObjCPropertyAttr_weak              = 0x200
+  toBit ObjCPropertyAttr_strong            = 0x400
+  toBit ObjCPropertyAttr_unsafe_unretained = 0x800
+
+-- unsigned clang_Cursor_getObjCPropertyAttributes(CXCursor C, unsigned reserved);
+%fun clang_Cursor_getObjCPropertyAttributes :: Cursor s -> IO Int
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     unsigned r = clang_Cursor_getObjCPropertyAttributes(a, 0);
+%result (int r)
+
+-- typedef enum {
+--   CXObjCDeclQualifier_None = 0x0,
+--   CXObjCDeclQualifier_In = 0x1,
+--   CXObjCDeclQualifier_Inout = 0x2,
+--   CXObjCDeclQualifier_Out = 0x4,
+--   CXObjCDeclQualifier_Bycopy = 0x8,
+--   CXObjCDeclQualifier_Byref = 0x10,
+--   CXObjCDeclQualifier_Oneway = 0x20
+-- } CXObjCDeclQualifierKind;
+
+%enum ObjCDeclQualifierKind (Bounded, Enum, Eq, Ord, Read, Show) Int [CXObjCDeclQualifier_None, CXObjCDeclQualifier_In, CXObjCDeclQualifier_Inout, CXObjCDeclQualifier_Out, CXObjCDeclQualifier_Bycopy, CXObjCDeclQualifier_Byref, CXObjCDeclQualifier_Oneway]
+
+instance BitFlags ObjCDeclQualifierKind where
+  toBit ObjCDeclQualifier_None   = 0x0
+  toBit ObjCDeclQualifier_In     = 0x1
+  toBit ObjCDeclQualifier_Inout  = 0x2
+  toBit ObjCDeclQualifier_Out    = 0x4
+  toBit ObjCDeclQualifier_Bycopy = 0x8
+  toBit ObjCDeclQualifier_Byref  = 0x10
+  toBit ObjCDeclQualifier_Oneway = 0x20
+
+-- unsigned clang_Cursor_getObjCDeclQualifiers(CXCursor C);
+%fun clang_Cursor_getObjCDeclQualifiers :: Cursor s -> IO Int
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     unsigned r = clang_Cursor_getObjCDeclQualifiers(a);
+%result (int r)
+
+-- unsigned clang_Cursor_isObjCOptional(CXCursor);
+%fun clang_cursor_isObjCOptional :: Cursor s -> IO Bool
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     r = clang_Cursor_isObjCOptional(a);
+%result (bool r)
+
+-- unsigned clang_Cursor_isVariadic(CXCursor);
+%fun clang_cursor_isVariadic :: Cursor s -> IO Bool
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     r = clang_Cursor_isVariadic(a);
+%result (bool r)
 
 -- CXSourceRange clang_Cursor_getCommentRange(CXCursor C);
 %fun clang_Cursor_getCommentRange :: Proxy s -> Cursor s' -> IO (SourceRange s)

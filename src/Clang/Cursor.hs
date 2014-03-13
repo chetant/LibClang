@@ -53,6 +53,14 @@ module Clang.Cursor
 , getReferenced
 , getDefinition
 , getCanonicalCursor
+, getObjCSelectorIndex
+, getReceiverType
+, FFI.ObjCPropertyAttrKind(..)
+, getObjCPropertyAttributes
+, FFI.ObjCDeclQualifierKind(..)
+, getObjCDeclQualifiers
+, isObjCOptional
+, isVariadic
 , getTemplateKind
 , getSpecializedTemplate
 , getTypeDeclaration
@@ -92,9 +100,11 @@ module Clang.Cursor
 , getCursorKindSpelling
 ) where
 
+import Control.Applicative
 import Control.Monad.IO.Class
 import GHC.Word
 
+import Clang.Internal.BitFlags
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
 import Clang.String (ClangString)
@@ -168,6 +178,25 @@ getDefinition c = liftIO $ FFI.getCursorDefinition mkProxy c
 
 getCanonicalCursor :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.Cursor s)
 getCanonicalCursor c = liftIO $ FFI.getCanonicalCursor mkProxy c
+
+getObjCSelectorIndex :: ClangBase m => FFI.Cursor s' -> ClangT s m Int
+getObjCSelectorIndex c = liftIO $ FFI.cursor_getObjCSelectorIndex c
+
+getReceiverType :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.Type s)
+getReceiverType c = liftIO $ FFI.cursor_getReceiverType mkProxy c
+
+getObjCPropertyAttributes :: ClangBase m => FFI.Cursor s'
+                          -> ClangT s m [FFI.ObjCPropertyAttrKind]
+getObjCPropertyAttributes c = unFlags <$> liftIO (FFI.cursor_getObjCPropertyAttributes c)
+
+getObjCDeclQualifiers :: ClangBase m => FFI.Cursor s' -> ClangT s m [FFI.ObjCDeclQualifierKind]
+getObjCDeclQualifiers c = unFlags <$> liftIO (FFI.cursor_getObjCDeclQualifiers c)
+
+isObjCOptional :: ClangBase m => FFI.Cursor s' -> ClangT s m Bool
+isObjCOptional c = liftIO $ FFI.cursor_isObjCOptional c
+
+isVariadic :: ClangBase m => FFI.Cursor s' -> ClangT s m Bool
+isVariadic c = liftIO $ FFI.cursor_isVariadic c
 
 getTemplateKind :: ClangBase m => FFI.Cursor s' -> ClangT s m FFI.CursorKind
 getTemplateKind c = liftIO $ FFI.getTemplateCursorKind c
