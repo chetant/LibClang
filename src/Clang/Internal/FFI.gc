@@ -177,6 +177,9 @@ module Clang.Internal.FFI
 , isCursorDefinition
 , cursor_isDynamicCall
 , getCanonicalCursor
+, cursor_getCommentRange
+, cursor_getRawCommentText
+, cursor_getBriefCommentText
 , cXXMethod_isPureVirtual
 , cXXMethod_isStatic
 , cXXMethod_isVirtual
@@ -2593,6 +2596,40 @@ getCursorDisplayName = registerCXString . unsafe_getCursorDisplayName
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getCanonicalCursor(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
+
+-- CXSourceRange clang_Cursor_getCommentRange(CXCursor C);
+%fun clang_Cursor_getCommentRange :: Proxy s -> Cursor s' -> IO (SourceRange s)
+%call (proxy) (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     CXSourceRange r = clang_Cursor_getCommentRange(a);
+%result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
+
+-- CXString clang_Cursor_getRawCommentText(CXCursor C);
+%fun unsafe_Cursor_getRawCommentText :: Cursor s' -> IO (CXString ())
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     CXString out = clang_Cursor_getRawCommentText(a);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+cursor_getRawCommentText :: ClangBase m => Cursor s' -> ClangT s m (CXString s)
+cursor_getRawCommentText = registerCXString . unsafe_Cursor_getRawCommentText
+
+-- CXString clang_Cursor_getBriefCommentText(CXCursor C);
+%fun unsafe_Cursor_getBriefCommentText :: Cursor s' -> IO (CXString ())
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     CXString out = clang_Cursor_getBriefCommentText(a);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+cursor_getBriefCommentText :: ClangBase m => Cursor s' -> ClangT s m (CXString s)
+cursor_getBriefCommentText = registerCXString . unsafe_Cursor_getBriefCommentText
+
+-- CXComment clang_Cursor_getParsedComment(CXCursor C);
+-- TODO
 
 -- unsigned clang_CXXMethod_isPureVirtual(CXCursor C);
 %fun clang_CXXMethod_isPureVirtual :: Cursor s -> IO Bool

@@ -77,6 +77,9 @@ module Clang.Cursor
 , isStaticCppMethod
 , isVirtualCppMethod
 , isDynamicCall
+, getCommentRange
+, getRawCommentText
+, getBriefCommentText
 , getCXXAccessSpecifier
 , getOverloadedDecls
 
@@ -238,6 +241,15 @@ isVirtualCppMethod c = liftIO $ FFI.cXXMethod_isVirtual c
 
 isDynamicCall :: ClangBase m => FFI.Cursor s' -> ClangT s m Bool
 isDynamicCall c = liftIO $ FFI.cursor_isDynamicCall c
+
+getCommentRange :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.SourceRange s)
+getCommentRange c = liftIO $ FFI.cursor_getCommentRange mkProxy c
+
+getRawCommentText :: ClangBase m => FFI.Cursor s' -> ClangT s m (ClangString s)
+getRawCommentText = FFI.cursor_getRawCommentText
+
+getBriefCommentText :: ClangBase m => FFI.Cursor s' -> ClangT s m (ClangString s)
+getBriefCommentText = FFI.cursor_getBriefCommentText
 
 getCXXAccessSpecifier :: ClangBase m => FFI.Cursor s' -> ClangT s m FFI.CXXAccessSpecifier
 getCXXAccessSpecifier c = liftIO $ FFI.getCXXAccessSpecifier c
