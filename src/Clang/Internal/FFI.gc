@@ -9,6 +9,7 @@ module Clang.Internal.FFI
 ( Index
 , createIndex
 , GlobalOptFlags(..)
+, globalOpt_ThreadBackgroundPriorityForAll
 , cXIndex_setGlobalOptions
 , TranslationUnit
 , UnsavedFile
@@ -333,18 +334,30 @@ registerIndex action = do
 
 %dis index i = <unIndex/mkIndex> (ptr i)
 
-%enum GlobalOptFlags (Bounded, Enum, Eq, Ord, Read, Show) Int [CXGlobalOpt_None, CXGlobalOpt_ThreadBackgroundPriorityForIndexing, CXGlobalOpt_ThreadBackgroundPriorityForEditing, CXGlobalOpt_ThreadBackgroundPriorityForAll]
--- enum CXGlobalOptFlags {
---   CXGlobalOpt_None,
---   CXGlobalOpt_ThreadBackgroundPriorityForIndexing,
---   CXGlobalOpt_ThreadBackgroundPriorityForEditing,
---   CXGlobalOpt_ThreadBackgroundPriorityForAll
--- };
+-- typedef enum {
+--   CXGlobalOpt_None = 0x0,
+--   CXGlobalOpt_ThreadBackgroundPriorityForIndexing = 0x1,
+--   CXGlobalOpt_ThreadBackgroundPriorityForEditing = 0x2,
+--   CXGlobalOpt_ThreadBackgroundPriorityForAll =
+--       CXGlobalOpt_ThreadBackgroundPriorityForIndexing |
+--       CXGlobalOpt_ThreadBackgroundPriorityForEditing
+-- 
+-- } CXGlobalOptFlags;
 
+%enum GlobalOptFlags (Bounded, Enum, Eq, Ord, Read, Show) Int [CXGlobalOpt_None, CXGlobalOpt_ThreadBackgroundPriorityForIndexing, CXGlobalOpt_ThreadBackgroundPriorityForEditing]
+
+instance BitFlags GlobalOptFlags where
+  toBit GlobalOpt_None                                = 0x0
+  toBit GlobalOpt_ThreadBackgroundPriorityForIndexing = 0x1
+  toBit GlobalOpt_ThreadBackgroundPriorityForEditing  = 0x2
+
+globalOpt_ThreadBackgroundPriorityForAll :: [GlobalOptFlags]
+globalOpt_ThreadBackgroundPriorityForAll = [GlobalOpt_ThreadBackgroundPriorityForEditing,
+                                            GlobalOpt_ThreadBackgroundPriorityForIndexing]
 
 -- void clang_CXIndex_setGlobalOptions(CXIndex, unsigned options);
-%fun clang_CXIndex_setGlobalOptions :: Index s -> GlobalOptFlags -> IO ()
-%call (index i) (globalOptFlags f)
+%fun clang_CXIndex_setGlobalOptions :: Index s -> Int -> IO ()
+%call (index i) (int f)
 %code clang_CXIndex_setGlobalOptions(i, f);
 
 -- typedef struct CXTranslationUnitImpl *CXTranslationUnit;

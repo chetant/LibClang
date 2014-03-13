@@ -11,6 +11,7 @@ module Clang.TranslationUnit
 , FFI.TranslationUnitFlags(..)
 , FFI.UnsavedFile
 , FFI.GlobalOptFlags(..)
+, FFI.globalOpt_ThreadBackgroundPriorityForAll
 , getSpelling
 , withCreateIndex
 , withCreate
@@ -111,5 +112,5 @@ getCursor tu = liftIO $ FFI.getTranslationUnitCursor mkProxy tu
 withCreateIndex :: ClangBase m => Bool -> Bool -> (forall s. FFI.Index s -> ClangT s m a) -> m a
 withCreateIndex i1 i2 f = runClangT (FFI.createIndex i1 i2 >>= f)
 
-setGlobalOptions :: ClangBase m => FFI.Index s' -> FFI.GlobalOptFlags -> ClangT s m ()
-setGlobalOptions i fs = liftIO $ FFI.cXIndex_setGlobalOptions i fs
+setGlobalOptions :: ClangBase m => FFI.Index s' -> [FFI.GlobalOptFlags] -> ClangT s m ()
+setGlobalOptions i opts = liftIO $ FFI.cXIndex_setGlobalOptions i (orFlags opts)
