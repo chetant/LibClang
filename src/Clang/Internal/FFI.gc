@@ -111,6 +111,7 @@ module Clang.Internal.FFI
 , getCursorAvailability
 , LanguageKind(..)
 , getCursorLanguage
+, cursor_getTranslationUnit
 , CursorSet
 , createCXCursorSet
 , cXCursorSet_contains
@@ -244,7 +245,7 @@ import Data.Word
 import Foreign.C
 import Foreign.ForeignPtr.Unsafe (unsafeForeignPtrToPtr)
 import Foreign.GreenCard
-import Unsafe.Coerce (unsafeCoerce)
+import Unsafe.Coerce (unsafeCoerce)  -- With GHC 7.8 we can use the safer 'coerce'.
 
 import Clang.Internal.BitFlags
 import Clang.Internal.FFIConstants
@@ -1952,6 +1953,20 @@ isUnexposed k =
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     enum CXLanguageKind r = clang_getCursorLanguage(a);
 %result (languageKind r)
+
+-- CXTranslationUnit clang_Cursor_getTranslationUnit(CXCursor);
+%fun unsafe_Cursor_getTranslationUnit :: Cursor s -> IO (TranslationUnit ())
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     CXTranslationUnit r = clang_Cursor_getTranslationUnit(a);
+%result (translationUnit r)
+
+-- Note that we do not register the translation unit! This function
+-- never creates a 'new' translation unit, so we don't need to dispose
+-- it. Moreover, since translation units aren't reference counted doing
+-- so will lead to crashes.
+cursor_getTranslationUnit :: ClangBase m => Cursor s' -> ClangT s m (TranslationUnit s)
+cursor_getTranslationUnit c = liftIO $ unsafeCoerce <$> unsafe_Cursor_getTranslationUnit c
 
 -- typedef struct CXCursorSetImpl *CXCursorSet;
 newtype CursorSet s = CursorSet { unCursorSet :: Ptr () }

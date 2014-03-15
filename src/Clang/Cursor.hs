@@ -38,6 +38,7 @@ module Clang.Cursor
 , getLinkage
 , getAvailability
 , getLanguage
+, getTranslationUnit
 , getSemanticParent
 , getLexicalParent
 , getOverriddenCursors
@@ -134,6 +135,9 @@ getAvailability c = liftIO $ FFI.getCursorAvailability c
 
 getLanguage :: ClangBase m => FFI.Cursor s' -> ClangT s m FFI.LanguageKind
 getLanguage c = liftIO $ FFI.getCursorLanguage c
+
+getTranslationUnit :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.TranslationUnit s)
+getTranslationUnit = FFI.cursor_getTranslationUnit
 
 getSemanticParent :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.Cursor s)
 getSemanticParent c = liftIO $ FFI.getCursorSemanticParent mkProxy c
