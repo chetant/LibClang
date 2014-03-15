@@ -34,6 +34,10 @@ module Clang.Internal.FFIConstants
 , offsetCXUnsavedFileFilename
 , offsetCXUnsavedFileContents
 , offsetCXUnsavedFileContentsLen
+, sizeOfCXComment
+, alignOfCXComment
+, offsetCXCommentASTNode
+, offsetCXCommentTranslationUnit
 ) where
 
 #include <stddef.h>
@@ -84,3 +88,9 @@ alignOfCXUnsavedFile = (#const 4) :: Int
 offsetCXUnsavedFileFilename = (#const offsetof(struct CXUnsavedFile, Filename)) :: Int
 offsetCXUnsavedFileContents = (#const offsetof(struct CXUnsavedFile, Contents)) :: Int
 offsetCXUnsavedFileContentsLen = (#const offsetof(struct CXUnsavedFile, Length)) :: Int
+
+-- CXComment constants.
+sizeOfCXComment = (#const sizeof(CXComment)) :: Int
+alignOfCXComment = (#const 4) :: Int
+offsetCXCommentASTNode = (#const offsetof(CXComment, ASTNode)) :: Int
+offsetCXCommentTranslationUnit = (#const offsetof(CXComment, TranslationUnit)) :: Int

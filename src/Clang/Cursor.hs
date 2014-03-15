@@ -89,6 +89,7 @@ module Clang.Cursor
 , getCommentRange
 , getRawCommentText
 , getBriefCommentText
+, getParsedComment
 , getCXXAccessSpecifier
 , getOverloadedDecls
 
@@ -283,6 +284,9 @@ getRawCommentText = FFI.cursor_getRawCommentText
 
 getBriefCommentText :: ClangBase m => FFI.Cursor s' -> ClangT s m (ClangString s)
 getBriefCommentText = FFI.cursor_getBriefCommentText
+
+getParsedComment :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.Comment s)
+getParsedComment c = liftIO $ FFI.cursor_getParsedComment mkProxy c
 
 getCXXAccessSpecifier :: ClangBase m => FFI.Cursor s' -> ClangT s m FFI.CXXAccessSpecifier
 getCXXAccessSpecifier c = liftIO $ FFI.getCXXAccessSpecifier c

@@ -91,6 +91,7 @@ module Clang.Internal.FFI
 , cursor_LastExtraDecl
 , cursor_GCCAsmStmt
 , cursor_MacroInstantiation
+, Comment(..)
 , Cursor
 , getNullCursor
 , getTranslationUnitCursor
@@ -189,6 +190,7 @@ module Clang.Internal.FFI
 , cursor_getCommentRange
 , cursor_getRawCommentText
 , cursor_getBriefCommentText
+, cursor_getParsedComment
 , cXXMethod_isPureVirtual
 , cXXMethod_isStatic
 , cXXMethod_isVirtual
@@ -317,6 +319,13 @@ always have the same phantom type parameter as the return value.
 
 -- Used with the Proxy type in Clang.Internal.Monad.
 %dis proxy = <id/id>
+
+-- Marshalling utility functions.
+fromCInt :: Num b => CInt -> b
+fromCInt = fromIntegral
+
+toCInt :: Integral a => a -> CInt
+toCInt = fromIntegral
 
 -- typedef void *CXIndex;
 newtype Index s = Index { unIndex :: Ptr () }
@@ -1742,6 +1751,32 @@ cursor_GCCAsmStmt         = Cursor_AsmStmt
 cursor_MacroInstantiation = Cursor_MacroExpansion
 
 -- typedef struct {
+--   const void *ASTNode;
+--   CXTranslationUnit TranslationUnit;
+-- } CXComment;
+data Comment s = Comment !(Ptr ()) !(Ptr ())
+                 deriving (Eq)
+%dis comment p1 p2 = Comment (ptr p1) (ptr p2)
+
+instance Storable (Comment s) where
+    sizeOf _ = sizeOfCXComment
+    {-# INLINE sizeOf #-}
+
+    alignment _ = alignOfCXComment
+    {-# INLINE alignment #-}
+
+    peek p = do
+      p1 <- peekByteOff p offsetCXCommentASTNode
+      p2 <- peekByteOff p offsetCXCommentTranslationUnit
+      return $! Comment p1 p2
+    {-# INLINE peek #-}
+
+    poke p (Comment p1 p2) = do
+      pokeByteOff p offsetCXCommentASTNode p1
+      pokeByteOff p offsetCXCommentTranslationUnit p2
+    {-# INLINE poke #-}
+
+-- typedef struct {
 --   enum CXCursorKind kind;
 --   int xdata;
 --   const void* data[3];
@@ -1757,7 +1792,6 @@ instance Storable (Cursor s) where
     {-# INLINE alignment #-}
 
     peek p = do
-      let fromCInt = fromIntegral :: Num b => CInt -> b
       k <- (unmarshall_CursorKind . fromCInt) <$> peekByteOff p offsetCXCursorKind
       xdata <- fromCInt <$> peekByteOff p offsetCXCursorXData
       p1 <- peekByteOff p offsetCXCursorP1
@@ -1767,7 +1801,6 @@ instance Storable (Cursor s) where
     {-# INLINE peek #-}
 
     poke p (Cursor k xdata p1 p2 p3) = do
-      let toCInt = fromIntegral :: Integral a => a -> CInt
       pokeByteOff p offsetCXCursorKind $ (toCInt . marshall_CursorKind) k
       pokeByteOff p offsetCXCursorXData $ toCInt xdata
       pokeByteOff p offsetCXCursorP1 p1
@@ -2741,7 +2774,11 @@ cursor_getBriefCommentText :: ClangBase m => Cursor s' -> ClangT s m (CXString s
 cursor_getBriefCommentText = registerCXString . unsafe_Cursor_getBriefCommentText
 
 -- CXComment clang_Cursor_getParsedComment(CXCursor C);
--- TODO
+%fun clang_Cursor_getParsedComment :: Proxy s -> Cursor s' -> IO (Comment s)
+%call (proxy) (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     CXComment r = clang_Cursor_getParsedComment(a);
+%result (comment {r.ASTNode} {r.TranslationUnit})
 
 -- unsigned clang_CXXMethod_isPureVirtual(CXCursor C);
 %fun clang_CXXMethod_isPureVirtual :: Cursor s -> IO Bool
