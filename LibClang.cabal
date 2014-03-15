@@ -53,6 +53,7 @@ Library
                    cbits/visitors.c
   include-dirs:    cbits
   exposed-modules: Clang,
+                   Clang.Comment,
                    Clang.Completion,
                    Clang.CrossReference,
                    Clang.Cursor,
