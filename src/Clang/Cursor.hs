@@ -82,6 +82,7 @@ module Clang.Cursor
 , isTranslationUnit
 , isPreprocessing
 , isUnexposed
+, isBitField
 , Clang.Cursor.isVirtualBase
 , isPureVirtualCppMethod
 , isStaticCppMethod
@@ -264,6 +265,9 @@ isPreprocessing = FFI.isPreprocessing
 isUnexposed :: FFI.CursorKind -> Bool
 isUnexposed = FFI.isUnexposed
 {-# INLINE isUnexposed #-}
+
+isBitField :: ClangBase m => FFI.Cursor s' -> ClangT s m Bool
+isBitField c = liftIO $ FFI.isBitField c
 
 isVirtualBase :: ClangBase m => FFI.Cursor s' -> ClangT s m Bool
 isVirtualBase c = liftIO $ FFI.isVirtualBase c

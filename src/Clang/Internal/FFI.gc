@@ -153,6 +153,7 @@ module Clang.Internal.FFI
 , isFunctionTypeVariadic
 , getCursorResultType
 , isPODType
+, isBitField
 , isVirtualBase
 , CXXAccessSpecifier(..)
 , getCXXAccessSpecifier
@@ -2331,6 +2332,13 @@ getTypeKindSpelling = registerCXString . unsafe_getTypeKindSpelling
 %call (type k p1 p2)
 %code CXType a = {k, {p1, p2}};
 %     r = clang_isPODType(a);
+%result (bool r)
+
+-- unsigned clang_Cursor_isBitField(CXCursor C);
+%fun clang_isBitField :: Cursor s -> IO Bool
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     r = clang_Cursor_isBitField(a);
 %result (bool r)
 
 -- unsigned clang_isVirtualBase(CXCursor);
