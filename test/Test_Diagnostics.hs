@@ -8,7 +8,7 @@ import qualified Data.Vector as DV(empty)
 test tu = do
   diags <- getDiagnostics tu
   diagDispOpts <- defaultDisplayOptions
-  let printDiag d = formatDiagnostic diagDispOpts d >>= 
+  let printDiag d = formatDiagnostic (Just diagDispOpts) d >>= 
                     unpack >>= 
                     (liftIO . putStrLn . ("Diag:" ++))
   -- putStrLn $ "numDiags:" ++ show (length diags)

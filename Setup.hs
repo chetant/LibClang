@@ -87,7 +87,7 @@ libClangConfHook (pkg, pbi) flags = do
       lpd    = localPkgDescr lbi
       lib    = fromJust (library lpd)
       libbi  = libBuildInfo lib
-      libbi' = libbi { ldOptions = ldOptions libbi ++ ["-lpthread", "-lstdc++"] }
+      libbi' = libbi { ldOptions = ldOptions libbi ++ ["-lpthread", "-lstdc++",  "-lncurses"] }
       lib'   = lib { libBuildInfo = libbi' }
       lpd'   = lpd { library = Just lib' }
       pdb  = withPrograms lbi 
@@ -122,7 +122,8 @@ libClangBuildHook pkg lbi usrHooks flags = do
     let verbosity = fromFlag (buildVerbosity flags)
         clangRepoDir = curDir </> "clang"
         llvmPrefixDir = curDir </> "build" </> "out"
-        llvmPrefixTmpDir = llvmPrefixDir </> "tmp"
+        llvmLibDir = llvmPrefixDir </> "lib"
+        llvmTmpDir = llvmPrefixDir </> "tmp"
         libclangLibrariesFiles = map mkStaticLib libclangLibraries
 
         -- setup local build info with clang and llvm provided as libs
@@ -131,7 +132,7 @@ libClangBuildHook pkg lbi usrHooks flags = do
         libbi = libBuildInfo lib
 
         libbi' = libbi
-                 { extraLibDirs = extraLibDirs libbi ++ [llvmPrefixDir </> "lib"]
+                 { extraLibDirs = extraLibDirs libbi ++ [llvmLibDir]
                  , extraLibs    = extraLibs    libbi ++ libclangSharedLibraries
                  , includeDirs  = includeDirs  libbi ++ [".", llvmPrefixDir </> "include"]
                  }
@@ -150,7 +151,7 @@ libClangBuildHook pkg lbi usrHooks flags = do
                                                        ["--lflag=-Xlinker"
                                                        ,"--lflag=-rpath"
                                                        ,"--lflag=-Xlinker"
-                                                       ,"--lflag=@executable_path/../../../../build/out/lib"
+                                                       ,"--lflag="++llvmLibDir
                                                        ]
                                }
         makeProg = maybe (error "'make' not found!") id (lookupKnownProgram "make" pdb)
@@ -172,21 +173,21 @@ libClangBuildHook pkg lbi usrHooks flags = do
     -- OS X's linker _really_ wants to link dynamically, and it doesn't support
     -- the options you'd usually use to control that on Linux. We rename the
     -- libclang library to make sure the linker does what we intend.
-    copyFileVerbose verbosity (llvmPrefixDir </> "lib" </> mkStaticLib "clang") 
-                              (llvmPrefixDir </> "lib" </> mkStaticLib "clang_static")
+    copyFileVerbose verbosity (llvmLibDir </> mkStaticLib "clang") 
+                              (llvmLibDir </> mkStaticLib "clang_static")
 
     -- build the library with the new lbi and pkgDesc
     (buildHook simpleUserHooks) lpd' lbi' usrHooks flags
 
     (arProg, _) <- requireProgram verbosity arProgram (withPrograms lbi')
-    let mkDumpPath l = llvmPrefixTmpDir </> l <.> "dump"
+    let mkDumpPath l = llvmTmpDir </> l <.> "dump"
 
     -- extract the llvm+clang libs we care about into a tmp folder
     notice verbosity "extracting llvm+clang libs.."
-    copyFiles verbosity llvmPrefixTmpDir $ map (\l -> (llvmPrefixDir </> "lib", l)) libclangLibrariesFiles
+    copyFiles verbosity llvmTmpDir $ map (\l -> (llvmLibDir, l)) libclangLibrariesFiles
     forM_ libclangLibrariesFiles $ \l -> do
       -- extract each library in its own folder
-      let libPath = llvmPrefixDir </> "lib" </> l
+      let libPath = llvmLibDir </> l
           dumpPath = mkDumpPath l
       createDirectoryIfMissingVerbose verbosity True dumpPath
       copyFileVerbose verbosity libPath (dumpPath </> l)
