@@ -1,3 +1,4 @@
+import Data.List (isPrefixOf)
 import Data.Maybe (fromJust)
 import Control.Monad
 import Control.Applicative
@@ -11,6 +12,7 @@ import Distribution.Simple.PreProcess
 import Distribution.Simple.Setup
 import Distribution.Simple.Utils
 import Distribution.Simple.Program
+import Distribution.Simple.Program.Db
 import Distribution.Simple.Program.Find
 import Distribution.Simple.Program.Types
 import Distribution.Simple.Program.Run
@@ -35,6 +37,7 @@ main = do
 
       , hookedPrograms = hookedPrograms simpleUserHooks ++
                          [ simpleProgram "make"
+                         , simpleProgram "sw_vers"
                          , cfgPrg
                          ]
       }
@@ -84,14 +87,22 @@ libClangConfHook (pkg, pbi) flags = do
       llvmBuildDir  = curDir </> "build"
       llvmPrefixDir = llvmBuildDir </> "out"
 
+      pdb       = withPrograms lbi 
+      confPrg   = maybe (error "'configure' not found!") id (lookupKnownProgram "configure" pdb)
+
+  cppStdLib <- preferredStdLib pdb flags
+
+  let (linkCPPStdLib, confCPPStdLib) =
+        case cppStdLib of
+          LibStdCPP -> ("-lstdc++", "no")
+          LibCPP    -> ("-lc++", "yes")
+
       lpd    = localPkgDescr lbi
       lib    = fromJust (library lpd)
       libbi  = libBuildInfo lib
-      libbi' = libbi { ldOptions = ldOptions libbi ++ ["-lpthread", "-lstdc++",  "-lncurses"] }
+      libbi' = libbi { ldOptions = ldOptions libbi ++ ["-lpthread", linkCPPStdLib,  "-lncurses"] }
       lib'   = lib { libBuildInfo = libbi' }
       lpd'   = lpd { library = Just lib' }
-      pdb  = withPrograms lbi 
-      confPrg = maybe (error "'configure' not found!") id (lookupKnownProgram "configure" pdb)
 
   createDirectoryIfMissingVerbose verbosity True llvmPrefixDir
   let clangLinkPath = llvmRepoDir </> "tools" </> "clang"
@@ -110,6 +121,7 @@ libClangConfHook (pkg, pbi) flags = do
            , "--disable-docs"
            , "--enable-shared"
            , "--enable-bindings=none"
+           , "--enable-libcpp=" ++ confCPPStdLib
            , "--prefix=" ++ llvmPrefixDir
            ]
   setCurrentDirectory curDir
@@ -278,3 +290,31 @@ mkObject = (<.> objExtension)
 isObject :: String -> Bool
 isObject = (== objExtWithDot) . takeExtension
 objExtWithDot = "." ++ objExtension
+
+data CPPStdLib = LibStdCPP
+               | LibCPP
+                 deriving (Eq, Show)
+
+preferredStdLib :: ProgramDb -> ConfigFlags -> IO CPPStdLib
+preferredStdLib pdb flags =
+  case (preferLibStdCPP, preferLibCPP, os) of
+    (Just True, _, _)     -> return LibStdCPP
+    (_, Just True, _)     -> return LibCPP
+    (_, _, "darwin")      -> darwinPreferredStdLib pdb flags
+    _                     -> return LibStdCPP
+  where
+    preferLibCPP    = lookup (FlagName "preferlibcpp") $ configConfigurationsFlags flags
+    preferLibStdCPP = lookup (FlagName "preferlibstdcpp") $ configConfigurationsFlags flags
+
+darwinPreferredStdLib :: ProgramDb -> ConfigFlags -> IO CPPStdLib
+darwinPreferredStdLib pdb flags = do
+  let verbosity = fromFlag (configVerbosity flags)
+      swVersPrg = maybe (error "'sw_vers' not found!") id (lookupKnownProgram "sw_vers" pdb)
+  (swVersCmd, _) <- requireProgram verbosity swVersPrg pdb
+  darwinVer <- getProgramOutput verbosity swVersCmd ["-productVersion"]
+
+  -- We want LibStdCPP for 10.8 and below, but LibCPP for anything newer.
+  let libStdCPPVers = ["10.0", "10.1", "10.2", "10.3", "10.4", "10.5", "10.6", "10.7", "10.8"]
+  return $ if any (`isPrefixOf` darwinVer) libStdCPPVers
+             then LibStdCPP
+             else LibCPP
