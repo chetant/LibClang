@@ -198,6 +198,42 @@ module Clang.Internal.FFI
 , cXXMethod_isVirtual
 , getTemplateCursorKind
 , getSpecializedCursorTemplate
+, CommentKind(..)
+, CommentInlineCommandRenderKind(..)
+, CommentParamPassDirection(..)
+, comment_getKind
+, comment_getNumChildren
+, comment_getChild
+, comment_isWhitespace
+, inlineContentComment_hasTrailingNewline
+, textComment_getText
+, inlineCommandComment_getCommandName
+, inlineCommandComment_getRenderKind 
+, inlineCommandComment_getNumArgs 
+, inlineCommandComment_getArgText 
+, hTMLTagComment_getTagName
+, hTMLStartTagComment_isSelfClosing
+, hTMLStartTag_getNumAttrs
+, hTMLStartTag_getAttrName
+, hTMLStartTag_getAttrValue
+, blockCommandComment_getCommandName
+, blockCommandComment_getNumArgs
+, blockCommandComment_getArgText
+, blockCommandComment_getParagraph
+, paramCommandComment_getParamName
+, paramCommandComment_isParamIndexValid
+, paramCommandComment_getParamIndex
+, paramCommandComment_isDirectionExplicit
+, paramCommandComment_getDirection
+, tParamCommandComment_getParamName
+, tParamCommandComment_isParamPositionValid
+, tParamCommandComment_getDepth
+, tParamCommandComment_getIndex
+, verbatimBlockLineComment_getText
+, verbatimLineComment_getText
+, hTMLTagComment_getAsString
+, fullComment_getAsHTML
+, fullComment_getAsXML 
 , TokenKind(..)
 , Token
 , TokenList
@@ -2837,6 +2873,344 @@ cursor_getBriefCommentText = registerCXString . unsafe_Cursor_getBriefCommentTex
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getSpecializedCursorTemplate(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
+
+-- enum CXCommentKind {
+--   CXComment_Null = 0,
+--   CXComment_Text = 1,
+--   CXComment_InlineCommand = 2,
+--   CXComment_HTMLStartTag = 3,
+--   CXComment_HTMLEndTag = 4,
+--   CXComment_Paragraph = 5,
+--   CXComment_BlockCommand = 6,
+--   CXComment_ParamCommand = 7,
+--   CXComment_TParamCommand = 8,
+--   CXComment_VerbatimBlockCommand = 9,
+--   CXComment_VerbatimBlockLine = 10,
+--   CXComment_VerbatimLine = 11,
+--   CXComment_FullComment = 12
+-- };
+%enum CommentKind (Bounded, Enum, Eq, Ord, Read, Show) Int [CXComment_Null, CXComment_Text, CXComment_InlineCommand, CXComment_HTMLStartTag, CXComment_HTMLEndTag, CXComment_Paragraph, CXComment_BlockCommand, CXComment_ParamCommand, CXComment_TParamCommand, CXComment_VerbatimBlockCommand, CXComment_VerbatimBlockLine, CXComment_VerbatimLine, CXComment_FullComment]
+
+-- enum CXCommentInlineCommandRenderKind {
+--   CXCommentInlineCommandRenderKind_Normal,
+--   CXCommentInlineCommandRenderKind_Bold,
+--   CXCommentInlineCommandRenderKind_Monospaced,
+--   CXCommentInlineCommandRenderKind_Emphasized
+-- };
+%enum CommentInlineCommandRenderKind (Bounded, Enum, Eq, Ord, Read, Show) Int [CXCommentInlineCommandRenderKind_Normal, CXCommentInlineCommandRenderKind_Bold, CXCommentInlineCommandRenderKind_Monospaced, CXCommentInlineCommandRenderKind_Emphasized]
+
+-- enum CXCommentParamPassDirection {
+--   CXCommentParamPassDirection_In,
+--   CXCommentParamPassDirection_Out,
+--   CXCommentParamPassDirection_InOut
+-- };
+%enum CommentParamPassDirection (Bounded, Enum, Eq, Ord, Read, Show) Int [CXCommentParamPassDirection_In, CXCommentParamPassDirection_Out, CXCommentParamPassDirection_InOut]
+
+-- enum CXCommentKind clang_Comment_getKind(CXComment Comment);
+%fun clang_Comment_getKind :: Comment s -> IO CommentKind
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     enum CXCommentKind r = clang_Comment_getKind(a);
+%result (commentKind r)
+
+-- unsigned clang_Comment_getNumChildren(CXComment Comment);
+%fun clang_Comment_getNumChildren :: Comment s -> IO Int
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     unsigned r = clang_Comment_getNumChildren(a);
+%result (int r)
+
+-- CXComment clang_Comment_getChild(CXComment Comment, unsigned ChildIdx);
+%fun clang_Comment_getChild :: Proxy s -> Comment s' -> Int -> IO (Comment s)
+%call (proxy) (comment p1 p2) (int idx)
+%code CXComment a = {p1, p2};
+%     CXComment r = clang_Comment_getChild(a, idx);
+%result (comment {r.ASTNode} {r.TranslationUnit})
+
+-- unsigned clang_Comment_isWhitespace(CXComment Comment);
+%fun clang_Comment_isWhitespace :: Comment s -> IO Bool
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     unsigned r = clang_Comment_isWhitespace(a);
+%result (bool r)
+
+-- unsigned clang_InlineContentComment_hasTrailingNewline(CXComment Comment);
+%fun clang_InlineContentComment_hasTrailingNewline :: Comment s -> IO Bool
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     unsigned r = clang_InlineContentComment_hasTrailingNewline(a);
+%result (bool r)
+
+-- CXString clang_TextComment_getText(CXComment Comment);
+%fun unsafe_TextComment_getText :: Comment s -> IO (CXString ())
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     CXString out = clang_TextComment_getText(a);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+textComment_getText :: ClangBase m => Comment s' -> ClangT s m (CXString s)
+textComment_getText = registerCXString . unsafe_TextComment_getText
+
+-- CXString clang_InlineCommandComment_getCommandName(CXComment Comment);
+%fun unsafe_InlineCommandComment_getCommandName :: Comment s -> IO (CXString ())
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     CXString out = clang_InlineCommandComment_getCommandName(a);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+inlineCommandComment_getCommandName :: ClangBase m => Comment s' -> ClangT s m (CXString s)
+inlineCommandComment_getCommandName = registerCXString . unsafe_InlineCommandComment_getCommandName
+
+-- enum CXCommentInlineCommandRenderKind clang_InlineCommandComment_getRenderKind(CXComment Comment);
+%fun clang_InlineCommandComment_getRenderKind :: Comment s -> IO CommentInlineCommandRenderKind
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     enum CXCommentInlineCommandRenderKind r = clang_InlineCommandComment_getRenderKind(a);
+%result (commentInlineCommandRenderKind r)
+
+-- unsigned clang_InlineCommandComment_getNumArgs(CXComment Comment);
+%fun clang_InlineCommandComment_getNumArgs :: Comment s -> IO Int
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     unsigned r = clang_InlineCommandComment_getNumArgs(a);
+%result (int r)
+
+-- CXString clang_InlineCommandComment_getArgText(CXComment Comment, unsigned ArgIdx);
+%fun unsafe_InlineCommandComment_getArgText :: Comment s -> Int -> IO (CXString ())
+%call (comment p1 p2) (int idx)
+%code CXComment a = {p1, p2};
+%     CXString out = clang_InlineCommandComment_getArgText(a, idx);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+inlineCommandComment_getArgText :: ClangBase m => Comment s' -> Int -> ClangT s m (CXString s)
+inlineCommandComment_getArgText = (registerCXString .) . unsafe_InlineCommandComment_getArgText
+
+-- CXString clang_HTMLTagComment_getTagName(CXComment Comment);
+%fun unsafe_HTMLTagComment_getTagName :: Comment s -> IO (CXString ())
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     CXString out = clang_HTMLTagComment_getTagName(a);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+hTMLTagComment_getTagName :: ClangBase m => Comment s' -> ClangT s m (CXString s)
+hTMLTagComment_getTagName = registerCXString . unsafe_HTMLTagComment_getTagName
+
+-- unsigned clang_HTMLStartTagComment_isSelfClosing(CXComment Comment);
+%fun clang_HTMLStartTagComment_isSelfClosing :: Comment s -> IO Bool
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     unsigned r = clang_HTMLStartTagComment_isSelfClosing(a);
+%result (bool r)
+
+-- unsigned clang_HTMLStartTag_getNumAttrs(CXComment Comment);
+%fun clang_HTMLStartTag_getNumAttrs :: Comment s -> IO Int
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     unsigned r = clang_HTMLStartTag_getNumAttrs(a);
+%result (int r)
+
+-- CXString clang_HTMLStartTag_getAttrName(CXComment Comment, unsigned AttrIdx);
+%fun unsafe_HTMLStartTag_getAttrName :: Comment s -> Int -> IO (CXString ())
+%call (comment p1 p2) (int idx)
+%code CXComment a = {p1, p2};
+%     CXString out = clang_HTMLStartTag_getAttrName(a, idx);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+hTMLStartTag_getAttrName :: ClangBase m => Comment s' -> Int -> ClangT s m (CXString s)
+hTMLStartTag_getAttrName = (registerCXString .) . unsafe_HTMLStartTag_getAttrName
+
+-- CXString clang_HTMLStartTag_getAttrValue(CXComment Comment, unsigned AttrIdx);
+%fun unsafe_HTMLStartTag_getAttrValue :: Comment s -> Int -> IO (CXString ())
+%call (comment p1 p2) (int idx)
+%code CXComment a = {p1, p2};
+%     CXString out = clang_HTMLStartTag_getAttrValue(a, idx);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+hTMLStartTag_getAttrValue :: ClangBase m => Comment s' -> Int -> ClangT s m (CXString s)
+hTMLStartTag_getAttrValue = (registerCXString .) . unsafe_HTMLStartTag_getAttrValue
+
+-- CXString clang_BlockCommandComment_getCommandName(CXComment Comment);
+%fun unsafe_BlockCommandComment_getCommandName :: Comment s -> IO (CXString ())
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     CXString out = clang_BlockCommandComment_getCommandName(a);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+blockCommandComment_getCommandName :: ClangBase m => Comment s' -> ClangT s m (CXString s)
+blockCommandComment_getCommandName = registerCXString . unsafe_BlockCommandComment_getCommandName
+
+-- unsigned clang_BlockCommandComment_getNumArgs(CXComment Comment);
+%fun clang_BlockCommandComment_getNumArgs :: Comment s -> IO Int
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     unsigned r = clang_BlockCommandComment_getNumArgs(a);
+%result (int r)
+
+-- CXString clang_BlockCommandComment_getArgText(CXComment Comment, unsigned ArgIdx);
+%fun unsafe_BlockCommandComment_getArgText :: Comment s -> Int -> IO (CXString ())
+%call (comment p1 p2) (int idx)
+%code CXComment a = {p1, p2};
+%     CXString out = clang_BlockCommandComment_getArgText(a, idx);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+blockCommandComment_getArgText :: ClangBase m => Comment s' -> Int -> ClangT s m (CXString s)
+blockCommandComment_getArgText = (registerCXString .) . unsafe_BlockCommandComment_getArgText
+
+-- CXComment clang_BlockCommandComment_getParagraph(CXComment Comment);
+%fun clang_BlockCommandComment_getParagraph :: Proxy s -> Comment s' -> IO (Comment s)
+%call (proxy) (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     CXComment r = clang_BlockCommandComment_getParagraph(a);
+%result (comment {r.ASTNode} {r.TranslationUnit})
+
+-- CXString clang_ParamCommandComment_getParamName(CXComment Comment);
+%fun unsafe_ParamCommandComment_getParamName :: Comment s -> IO (CXString ())
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     CXString out = clang_ParamCommandComment_getParamName(a);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+paramCommandComment_getParamName :: ClangBase m => Comment s' -> ClangT s m (CXString s)
+paramCommandComment_getParamName = registerCXString . unsafe_ParamCommandComment_getParamName
+
+-- unsigned clang_ParamCommandComment_isParamIndexValid(CXComment Comment);
+%fun clang_ParamCommandComment_isParamIndexValid :: Comment s -> IO Bool
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     unsigned r = clang_ParamCommandComment_isParamIndexValid(a);
+%result (bool r)
+
+-- unsigned clang_ParamCommandComment_getParamIndex(CXComment Comment);
+%fun clang_ParamCommandComment_getParamIndex :: Comment s -> IO Int
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     unsigned r = clang_ParamCommandComment_getParamIndex(a);
+%result (int r)
+
+-- unsigned clang_ParamCommandComment_isDirectionExplicit(CXComment Comment);
+%fun clang_ParamCommandComment_isDirectionExplicit :: Comment s -> IO Bool
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     unsigned r = clang_ParamCommandComment_isDirectionExplicit(a);
+%result (bool r)
+
+-- enum CXCommentParamPassDirection clang_ParamCommandComment_getDirection(CXComment Comment);
+%fun clang_ParamCommandComment_getDirection :: Comment s -> IO CommentParamPassDirection
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     enum CXCommentParamPassDirection r = clang_ParamCommandComment_getDirection(a);
+%result (commentParamPassDirection r)
+
+-- CXString clang_TParamCommandComment_getParamName(CXComment Comment);
+%fun unsafe_TParamCommandComment_getParamName :: Comment s -> IO (CXString ())
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     CXString out = clang_TParamCommandComment_getParamName(a);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+tParamCommandComment_getParamName :: ClangBase m => Comment s' -> ClangT s m (CXString s)
+tParamCommandComment_getParamName = registerCXString . unsafe_TParamCommandComment_getParamName
+
+-- unsigned clang_TParamCommandComment_isParamPositionValid(CXComment Comment);
+%fun clang_TParamCommandComment_isParamPositionValid :: Comment s -> IO Bool
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     unsigned r = clang_TParamCommandComment_isParamPositionValid(a);
+%result (bool r)
+
+-- unsigned clang_TParamCommandComment_getDepth(CXComment Comment);
+%fun clang_TParamCommandComment_getDepth :: Comment s -> IO Int
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     unsigned r = clang_TParamCommandComment_getDepth(a);
+%result (int r)
+
+-- unsigned clang_TParamCommandComment_getIndex(CXComment Comment, unsigned Depth);
+%fun clang_TParamCommandComment_getIndex :: Comment s -> Int -> IO Int
+%call (comment p1 p2) (int depth)
+%code CXComment a = {p1, p2};
+%     unsigned r = clang_TParamCommandComment_getIndex(a, depth);
+%result (int r)
+
+-- CXString clang_VerbatimBlockLineComment_getText(CXComment Comment);
+%fun unsafe_VerbatimBlockLineComment_getText :: Comment s -> IO (CXString ())
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     CXString out = clang_VerbatimBlockLineComment_getText(a);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+verbatimBlockLineComment_getText :: ClangBase m => Comment s' -> ClangT s m (CXString s)
+verbatimBlockLineComment_getText = registerCXString . unsafe_VerbatimBlockLineComment_getText
+
+-- CXString clang_VerbatimLineComment_getText(CXComment Comment);
+%fun unsafe_VerbatimLineComment_getText :: Comment s -> IO (CXString ())
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     CXString out = clang_VerbatimLineComment_getText(a);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+verbatimLineComment_getText :: ClangBase m => Comment s' -> ClangT s m (CXString s)
+verbatimLineComment_getText = registerCXString . unsafe_VerbatimLineComment_getText
+
+-- CXString clang_HTMLTagComment_getAsString(CXComment Comment);
+%fun unsafe_HTMLTagComment_getAsString :: Comment s -> IO (CXString ())
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     CXString out = clang_HTMLTagComment_getAsString(a);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+hTMLTagComment_getAsString :: ClangBase m => Comment s' -> ClangT s m (CXString s)
+hTMLTagComment_getAsString = registerCXString . unsafe_HTMLTagComment_getAsString
+
+-- CXString clang_FullComment_getAsHTML(CXComment Comment);
+%fun unsafe_FullComment_getAsHTML :: Comment s -> IO (CXString ())
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     CXString out = clang_FullComment_getAsHTML(a);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+fullComment_getAsHTML :: ClangBase m => Comment s' -> ClangT s m (CXString s)
+fullComment_getAsHTML = registerCXString . unsafe_FullComment_getAsHTML
+
+-- CXString clang_FullComment_getAsXML(CXComment Comment);
+%fun unsafe_FullComment_getAsXML :: Comment s -> IO (CXString ())
+%call (comment p1 p2)
+%code CXComment a = {p1, p2};
+%     CXString out = clang_FullComment_getAsXML(a);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+fullComment_getAsXML :: ClangBase m => Comment s' -> ClangT s m (CXString s)
+fullComment_getAsXML = registerCXString . unsafe_FullComment_getAsXML
 
 -- typedef enum CXTokenKind {
 --   CXToken_Punctuation,
