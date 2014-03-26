@@ -141,6 +141,7 @@ module Clang.Internal.FFI
 , getEnumDeclIntegerType
 , getEnumConstantDeclValue
 , getEnumConstantDeclUnsignedValue
+, getFieldDeclBitWidth
 , cursor_getNumArguments
 , cursor_getArgument
 , cursor_getBaseExpression
@@ -2297,6 +2298,13 @@ getTypeSpelling = registerCXString . unsafe_getTypeSpelling
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     r = clang_getEnumConstantDeclUnsignedValue(a);
 %result (word64 r)
+
+-- int clang_getFieldDeclBitWidth(CXCursor C);
+%fun clang_getFieldDeclBitWidth :: Cursor s -> IO Int
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     r = clang_getFieldDeclBitWidth(a);
+%result (int r)
 
 -- int clang_Cursor_getNumArguments(CXCursor C);
 %fun clang_cursor_getNumArguments :: Cursor s -> IO Int

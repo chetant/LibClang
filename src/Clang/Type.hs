@@ -24,6 +24,7 @@ module Clang.Type
 , getEnumDeclIntegerType
 , getEnumConstantDeclValue
 , getEnumConstantDeclUnsignedValue
+, getFieldDeclBitWidth
 
 , isConstQualifiedType
 , isVolatileQualifiedType
@@ -70,6 +71,12 @@ getEnumConstantDeclValue c = liftIO $ FFI.getEnumConstantDeclValue c
 getEnumConstantDeclUnsignedValue :: ClangBase m => FFI.Cursor s' -> ClangT s m Word64
 getEnumConstantDeclUnsignedValue c = liftIO $ FFI.getEnumConstantDeclUnsignedValue c
 
+getFieldDeclBitWidth :: ClangBase m => FFI.Cursor s' -> ClangT s m (Maybe Int)
+getFieldDeclBitWidth c = do
+  bitWidth <- liftIO $ FFI.getFieldDeclBitWidth c
+  return $ if bitWidth < 0 then Nothing
+                           else Just bitWidth
+    
 getKind :: ClangBase m => FFI.Type s' -> ClangT s m FFI.TypeKind
 getKind = return . FFI.getTypeKind
 
