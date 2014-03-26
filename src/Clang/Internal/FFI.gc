@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Clang.Internal.FFI
 ( Index
@@ -284,6 +285,11 @@ module Clang.Internal.FFI
 , sortCodeCompletionResults
 , codeCompleteGetNumDiagnostics
 , codeCompleteGetDiagnostic
+, CompletionContext(..)
+, codeCompleteGetContexts
+, codeCompleteGetContainerKind
+, codeCompleteGetContainerUSR
+, codeCompleteGetObjCSelector
 , getClangVersion
 -- , toggleCrashRecovery
 , Inclusion(..)
@@ -3725,6 +3731,97 @@ codeCompleteAt tu f l c ufs os =
 codeCompleteGetDiagnostic :: ClangBase m => CodeCompleteResults s' -> Int
                           -> ClangT s m (Diagnostic s)
 codeCompleteGetDiagnostic = (registerDiagnostic .) . unsafe_codeCompleteGetDiagnostic
+
+-- enum CXCompletionContext {
+--   CXCompletionContext_Unexposed = 0,
+--   CXCompletionContext_AnyType = 1 << 0,
+--   CXCompletionContext_AnyValue = 1 << 1,
+--   CXCompletionContext_ObjCObjectValue = 1 << 2,
+--   CXCompletionContext_ObjCSelectorValue = 1 << 3,
+--   CXCompletionContext_CXXClassTypeValue = 1 << 4,
+--   CXCompletionContext_DotMemberAccess = 1 << 5,
+--   CXCompletionContext_ArrowMemberAccess = 1 << 6,
+--   CXCompletionContext_ObjCPropertyAccess = 1 << 7,
+--   CXCompletionContext_EnumTag = 1 << 8,
+--   CXCompletionContext_UnionTag = 1 << 9,
+--   CXCompletionContext_StructTag = 1 << 10,
+--   CXCompletionContext_ClassTag = 1 << 11,
+--   CXCompletionContext_Namespace = 1 << 12,
+--   CXCompletionContext_NestedNameSpecifier = 1 << 13,
+--   CXCompletionContext_ObjCInterface = 1 << 14,
+--   CXCompletionContext_ObjCProtocol = 1 << 15,
+--   CXCompletionContext_ObjCCategory = 1 << 16,
+--   CXCompletionContext_ObjCInstanceMessage = 1 << 17,
+--   CXCompletionContext_ObjCClassMessage = 1 << 18,
+--   CXCompletionContext_ObjCSelectorName = 1 << 19,
+--   CXCompletionContext_MacroName = 1 << 20,
+--   CXCompletionContext_NaturalLanguage = 1 << 21,
+--   CXCompletionContext_Unknown = ((1 << 22) - 1) -- Set all
+                            --   contexts... Not a real value.
+-- };
+%enum CompletionContext (Bounded, Enum, Eq, Ord, Read, Show) Int64 [CXCompletionContext_Unexposed, CXCompletionContext_AnyType, CXCompletionContext_AnyValue, CXCompletionContext_ObjCObjectValue, CXCompletionContext_ObjCSelectorValue, CXCompletionContext_CXXClassTypeValue, CXCompletionContext_DotMemberAccess, CXCompletionContext_ArrowMemberAccess, CXCompletionContext_ObjCPropertyAccess, CXCompletionContext_EnumTag, CXCompletionContext_UnionTag, CXCompletionContext_StructTag, CXCompletionContext_ClassTag, CXCompletionContext_Namespace, CXCompletionContext_NestedNameSpecifier, CXCompletionContext_ObjCInterface, CXCompletionContext_ObjCProtocol, CXCompletionContext_ObjCCategory, CXCompletionContext_ObjCInstanceMessage, CXCompletionContext_ObjCClassMessage, CXCompletionContext_ObjCSelectorName, CXCompletionContext_MacroName, CXCompletionContext_NaturalLanguage]
+
+instance BitFlags CompletionContext where
+  type FlagInt CompletionContext              = Int64
+  toBit CompletionContext_Unexposed           = 0x0
+  toBit CompletionContext_AnyType             = 0x1
+  toBit CompletionContext_AnyValue            = 0x2
+  toBit CompletionContext_ObjCObjectValue     = 0x4
+  toBit CompletionContext_ObjCSelectorValue   = 0x8
+  toBit CompletionContext_CXXClassTypeValue   = 0x10
+  toBit CompletionContext_DotMemberAccess     = 0x20
+  toBit CompletionContext_ArrowMemberAccess   = 0x40
+  toBit CompletionContext_ObjCPropertyAccess  = 0x80
+  toBit CompletionContext_EnumTag             = 0x100
+  toBit CompletionContext_UnionTag            = 0x200
+  toBit CompletionContext_StructTag           = 0x400
+  toBit CompletionContext_ClassTag            = 0x800
+  toBit CompletionContext_Namespace           = 0x1000
+  toBit CompletionContext_NestedNameSpecifier = 0x2000
+  toBit CompletionContext_ObjCInterface       = 0x4000
+  toBit CompletionContext_ObjCProtocol        = 0x8000
+  toBit CompletionContext_ObjCCategory        = 0x10000
+  toBit CompletionContext_ObjCInstanceMessage = 0x20000
+  toBit CompletionContext_ObjCClassMessage    = 0x40000
+  toBit CompletionContext_ObjCSelectorName    = 0x80000
+  toBit CompletionContext_MacroName           = 0x100000
+  toBit CompletionContext_NaturalLanguage     = 0x200000
+
+-- unsigned long long clang_codeCompleteGetContexts(CXCodeCompleteResults *Results);
+%fun clang_codeCompleteGetContexts :: CodeCompleteResults s -> IO Int64
+%call (codeCompleteResults rs)
+%code long long r = clang_codeCompleteGetContexts(rs);
+%result (int64 r)
+
+-- enum CXCursorKind clang_codeCompleteGetContainerKind(CXCodeCompleteResults *Results,
+--                                                      unsigned *IsIncomplete);
+%fun clang_codeCompleteGetContainerKind :: CodeCompleteResults s -> IO (CursorKind, Bool)
+%call (codeCompleteResults rs)
+%code unsigned isIncomplete;
+%     enum CXCursorKind k = clang_codeCompleteGetContainerKind(rs, &isIncomplete);
+%result (cursorKind k, bool isIncomplete)
+
+-- CXString clang_codeCompleteGetContainerUSR(CXCodeCompleteResults *Results);
+%fun unsafe_codeCompleteGetContainerUSR :: CodeCompleteResults s -> IO (CXString ())
+%call (codeCompleteResults rs)
+%code CXString out = clang_codeCompleteGetContainerUSR(rs);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+codeCompleteGetContainerUSR :: ClangBase m => CodeCompleteResults s' -> ClangT s m (CXString s)
+codeCompleteGetContainerUSR = registerCXString . unsafe_codeCompleteGetContainerUSR
+
+-- CXString clang_codeCompleteGetObjCSelector(CXCodeCompleteResults *Results);
+%fun unsafe_codeCompleteGetObjCSelector :: CodeCompleteResults s -> IO (CXString ())
+%call (codeCompleteResults rs)
+%code CXString out = clang_codeCompleteGetObjCSelector(rs);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+codeCompleteGetObjCSelector :: ClangBase m => CodeCompleteResults s' -> ClangT s m (CXString s)
+codeCompleteGetObjCSelector = registerCXString . unsafe_codeCompleteGetObjCSelector
 
 -- CXString clang_getClangVersion();
 %fun unsafe_getClangVersion :: IO (CXString ())

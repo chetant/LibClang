@@ -4,10 +4,11 @@
 module Clang.Completion
 ( FFI.CompletionString
 , FFI.CompletionResult
-, FFI.CompletionChunkKind
+, FFI.CompletionChunkKind(..)
 , FFI.CodeCompleteFlags(..)
 , FFI.CodeCompleteResults
-, FFI.AvailabilityKind
+, FFI.AvailabilityKind(..)
+, FFI.CompletionContext(..)
 , getChunkKind
 , getChunkText
 , getChunkCompletionString
@@ -16,8 +17,12 @@ module Clang.Completion
 , getAvailability
 , defaultCodeCompleteOptions
 , codeCompleteAt
-, getDiagnostics
 , sortResults
+, getDiagnostics
+, getContexts
+, getContainerKind
+, getContainerUSR
+, getObjCSelector
 ) where
 
 import Control.Applicative
@@ -71,3 +76,15 @@ getDiagnostics c = do
   numD <- liftIO $ FFI.codeCompleteGetNumDiagnostics c
   mapM (FFI.codeCompleteGetDiagnostic c) [0..(numD-1)]
 
+getContexts :: ClangBase m => FFI.CodeCompleteResults s' -> ClangT s m [FFI.CompletionContext]
+getContexts rs = unFlags <$> liftIO (FFI.codeCompleteGetContexts rs)
+
+getContainerKind :: ClangBase m => FFI.CodeCompleteResults s'
+                 -> ClangT s m (FFI.CursorKind, Bool)
+getContainerKind rs = liftIO $ FFI.codeCompleteGetContainerKind rs
+
+getContainerUSR :: ClangBase m => FFI.CodeCompleteResults s' -> ClangT s m (ClangString s)
+getContainerUSR = FFI.codeCompleteGetContainerUSR
+
+getObjCSelector :: ClangBase m => FFI.CodeCompleteResults s' -> ClangT s m (ClangString s)
+getObjCSelector = FFI.codeCompleteGetObjCSelector
