@@ -7,6 +7,8 @@ module Clang.Source
 , isSameLocation
 , getLocation
 , getLocationForOffset
+, isInSystemHeader
+, isFromMainFile
 , getCursor
 , FFI.SourceRange
 , nullRange
@@ -27,7 +29,8 @@ import Clang.Monad
 nullLocation :: ClangBase m => ClangT s m (FFI.SourceLocation s)
 nullLocation = liftIO $ FFI.getNullLocation mkProxy
 
-isSameLocation :: ClangBase m => FFI.SourceLocation s' -> FFI.SourceLocation s'' -> ClangT s m Bool
+isSameLocation :: ClangBase m => FFI.SourceLocation s' -> FFI.SourceLocation s''
+               -> ClangT s m Bool
 isSameLocation a b = liftIO $ FFI.equalLocations a b
 
 getLocation :: ClangBase m => FFI.TranslationUnit s' -> FFI.File s'' -> Int -> Int
@@ -37,6 +40,12 @@ getLocation tu f line col = liftIO $ FFI.getLocation mkProxy tu f line col
 getLocationForOffset :: ClangBase m => FFI.TranslationUnit s' -> FFI.File s'' -> Int
                      -> ClangT s m (FFI.SourceLocation s)
 getLocationForOffset tu f off = liftIO $ FFI.getLocationForOffset mkProxy tu f off
+
+isInSystemHeader :: ClangBase m => FFI.SourceLocation s' -> ClangT s m Bool
+isInSystemHeader l = liftIO $ FFI.location_isInSystemHeader l
+
+isFromMainFile :: ClangBase m => FFI.SourceLocation s' -> ClangT s m Bool
+isFromMainFile l = liftIO $ FFI.location_isFromMainFile l
 
 getCursor :: ClangBase m => FFI.TranslationUnit s' -> FFI.SourceLocation s''
           -> ClangT s m (FFI.Cursor s)

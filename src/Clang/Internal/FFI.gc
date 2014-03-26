@@ -34,6 +34,8 @@ module Clang.Internal.FFI
 , equalLocations
 , getLocation
 , getLocationForOffset
+, location_isInSystemHeader
+, location_isFromMainFile
 , SourceRange
 , getNullRange
 , getRange
@@ -706,6 +708,18 @@ data SourceRange s = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 %call (proxy) (translationUnit t) (file f) (int i)
 %code CXSourceLocation r = clang_getLocationForOffset((CXTranslationUnit)t, f, i);
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
+
+-- int clang_Location_isInSystemHeader(CXSourceLocation location);
+%fun clang_Location_isInSystemHeader :: SourceLocation s -> IO Bool
+%call (sourceLocation p1 p2 d)
+%code CXSourceLocation l = {{p1, p2}, d};
+%result (bool {clang_Location_isInSystemHeader(l)})
+
+-- int clang_Location_isFromMainFile(CXSourceLocation location);
+%fun clang_Location_isFromMainFile :: SourceLocation s -> IO Bool
+%call (sourceLocation p1 p2 d)
+%code CXSourceLocation l = {{p1, p2}, d};
+%result (bool {clang_Location_isFromMainFile(l)})
 
 -- CXSourceRange clang_getNullRange();
 %fun clang_getNullRange :: Proxy s -> IO (SourceRange s)
