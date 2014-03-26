@@ -60,6 +60,7 @@ Library
                    Clang.Debug,
                    Clang.Diagnostic,
                    Clang.File,
+                   Clang.Module,
                    Clang.Monad,
                    Clang.Source,
                    Clang.String,

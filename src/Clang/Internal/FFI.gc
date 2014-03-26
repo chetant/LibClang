@@ -193,6 +193,14 @@ module Clang.Internal.FFI
 , cursor_getRawCommentText
 , cursor_getBriefCommentText
 , cursor_getParsedComment
+, Module(..)
+, cursor_getModule
+, module_getASTFile
+, module_getParent
+, module_getName
+, module_getFullName
+, module_getNumTopLevelHeaders
+, module_getTopLevelHeader
 , cXXMethod_isPureVirtual
 , cXXMethod_isStatic
 , cXXMethod_isVirtual
@@ -371,6 +379,8 @@ newtype Index s = Index { unIndex :: Ptr () }
 mkIndex :: Ptr () -> Index ()
 mkIndex = Index
 
+%dis index i = <unIndex/mkIndex> (ptr i)
+
 -- CXIndex clang_createIndex(int excludeDeclarationsFromPCH, int displayDiagnostics);
 %fun unsafe_createIndex :: Bool -> Bool -> IO (Index ())
 %call (bool a) (bool b)
@@ -391,8 +401,6 @@ registerIndex action = do
                             (\i -> disposeIndex i)
   return idx
 {-# INLINEABLE registerIndex #-}
-
-%dis index i = <unIndex/mkIndex> (ptr i)
 
 -- typedef enum {
 --   CXGlobalOpt_None = 0x0,
@@ -590,22 +598,21 @@ unsafeGetByteString (CXString d f) = liftIO $ getCStringPtr d f >>= BU.unsafePac
 getStringHash :: CXString s -> WordPtr
 getStringHash (CXString p _) = ptrToWordPtr p
 
-from_Maybe_File :: Maybe (File s') -> File s
-from_Maybe_File (Just f) = unsafeCoerce f
-from_Maybe_File Nothing  = File nullPtr
-
-to_Maybe_File :: File s' -> Maybe (File s)
-to_Maybe_File (File p) | p == nullPtr = Nothing
-to_Maybe_File f                       = Just (unsafeCoerce f)
-
 -- typedef void *CXFile;
-newtype File s = File (Ptr ())
+newtype File s = File { unFile :: Ptr () }
   deriving (Eq, Ord)
 
-unFile :: File s -> Ptr ()
-unFile (File p) = p
-
 %dis file p = <unFile/File> (ptr p)
+
+maybeFile :: File s' -> Maybe (File s)
+maybeFile (File p) | p == nullPtr = Nothing
+maybeFile f                       = Just (unsafeCoerce f)
+
+unMaybeFile :: Maybe (File s') -> File s
+unMaybeFile (Just f) = unsafeCoerce f
+unMaybeFile Nothing  = File nullPtr
+
+%dis maybe_file f = <unMaybeFile/maybeFile> (file f)
 
 getFileHash :: File s -> WordPtr
 getFileHash (File p) = ptrToWordPtr p
@@ -724,7 +731,7 @@ data SourceRange s = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 %call (proxy) (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXFile f;unsigned ln,c,o;clang_getExpansionLocation(l,&f,&ln,&c,&o);
-%result (<from_Maybe_File/to_Maybe_File> (file f), (int ln), (int c), (int o))
+%result ((maybe_file f), (int ln), (int c), (int o))
 
 -- void clang_getInstantiationLocation(CXSourceLocation location,
 --                                                    CXFile *file,
@@ -735,7 +742,7 @@ data SourceRange s = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 %call (proxy) (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXFile f;unsigned ln,c,o;clang_getInstantiationLocation(l,&f,&ln,&c,&o);
-%result (<from_Maybe_File/to_Maybe_File> (file f), (int ln), (int c), (int o))
+%result ((maybe_file f), (int ln), (int c), (int o))
 
 -- void clang_getSpellingLocation(CXSourceLocation location,
 --                                               CXFile *file,
@@ -746,7 +753,7 @@ data SourceRange s = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 %call (proxy) (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXFile f;unsigned ln,c,o;clang_getSpellingLocation(l,&f,&ln,&c,&o);
-%result (<from_Maybe_File/to_Maybe_File> (file f), (int ln), (int c), (int o))
+%result ((maybe_file f), (int ln), (int c), (int o))
 
 -- CXSourceLocation clang_getRangeStart(CXSourceRange range);
 %fun clang_getRangeStart :: Proxy s -> SourceRange s' -> IO (SourceLocation s)
@@ -2106,7 +2113,7 @@ getOverriddenCursors = registerOverriddenList . unsafe_getOverriddenCursors
 %     CXSourceLocation l = clang_getCursorLocation(a);
 %     CXFile f; unsigned ln, c, o;
 %     clang_getSpellingLocation(l, &f, &ln, &c, &o);
-%result (<from_Maybe_File/to_Maybe_File> (file f), (int ln), (int c), (int o))
+%result ((maybe_file f), (int ln), (int c), (int o))
 {-# INLINEABLE getCursorSpellingLocation #-}
 
 -- CXSourceRange clang_getCursorExtent(CXCursor);
@@ -2838,6 +2845,74 @@ cursor_getBriefCommentText = registerCXString . unsafe_Cursor_getBriefCommentTex
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXComment r = clang_Cursor_getParsedComment(a);
 %result (comment {r.ASTNode} {r.TranslationUnit})
+
+-- typedef void *CXModule;
+newtype Module s = Module { unModule :: Ptr () }
+
+%dis cxmodule p = <unModule/Module> (ptr p)
+
+maybeModule :: Module s' -> Maybe (Module s)
+maybeModule (Module p) | p == nullPtr = Nothing
+maybeModule f                         = Just (unsafeCoerce f)
+
+unMaybeModule :: Maybe (Module s') -> Module s
+unMaybeModule (Just f) = unsafeCoerce f
+unMaybeModule Nothing  = Module nullPtr
+
+%dis maybe_cxmodule m = <unMaybeModule/maybeModule> (cxmodule m)
+
+-- CXModule clang_Cursor_getModule(CXCursor C);
+%fun clang_Cursor_getModule :: Proxy s -> Cursor s' -> IO (Module s)
+%call (proxy) (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     CXModule r = clang_Cursor_getModule(a);
+%result (cxmodule r)
+
+-- CXFile clang_Module_getASTFile(CXModule Module);
+%fun clang_Module_getASTFile :: Proxy s -> Module s' -> IO (File s)
+%call (proxy) (cxmodule m)
+%code CXFile r = clang_Module_getASTFile(m);
+%result (file r)
+
+-- CXModule clang_Module_getParent(CXModule Module);
+%fun clang_Module_getParent :: Proxy s -> Module s' -> IO (Maybe (Module s))
+%call (proxy) (cxmodule m)
+%code CXModule r = clang_Module_getParent(m);
+%result (maybe_cxmodule r)
+
+-- CXString clang_Module_getName(CXModule Module);
+%fun unsafe_Module_getName :: Module s -> IO (CXString ())
+%call (cxmodule m)
+%code CXString out = clang_Module_getName(m);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+module_getName :: ClangBase m => Module s' -> ClangT s m (CXString s)
+module_getName = registerCXString . unsafe_Module_getName
+
+-- CXString clang_Module_getFullName(CXModule Module);
+%fun unsafe_Module_getFullName :: Module s -> IO (CXString ())
+%call (cxmodule m)
+%code CXString out = clang_Module_getFullName(m);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+module_getFullName :: ClangBase m => Module s' -> ClangT s m (CXString s)
+module_getFullName = registerCXString . unsafe_Module_getFullName
+
+-- unsigned clang_Module_getNumTopLevelHeaders(CXTranslationUnit, CXModule Module);
+%fun clang_Module_getNumTopLevelHeaders :: TranslationUnit s -> Module s' -> IO Int
+%call (translationUnit t) (cxmodule m)
+%code unsigned r = clang_Module_getNumTopLevelHeaders(t, m);
+%result (int r)
+
+-- CXFile clang_Module_getTopLevelHeader(CXTranslationUnit, CXModule Module, unsigned Index);
+%fun clang_Module_getTopLevelHeader :: Proxy s -> TranslationUnit s' -> Module s'' -> Int -> IO (File s)
+%call (proxy) (translationUnit t) (cxmodule m) (int idx)
+%code CXFile r = clang_Module_getTopLevelHeader(t, m, idx);
+%result (file r)
 
 -- unsigned clang_CXXMethod_isPureVirtual(CXCursor C);
 %fun clang_CXXMethod_isPureVirtual :: Cursor s -> IO Bool

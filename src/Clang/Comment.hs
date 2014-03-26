@@ -3,9 +3,9 @@
 
 module Clang.Comment
 ( FFI.Comment (..)
-, FFI.CommentKind(..)
-, FFI.CommentInlineCommandRenderKind(..)
-, FFI.CommentParamPassDirection(..)
+, FFI.CommentKind (..)
+, FFI.CommentInlineCommandRenderKind (..)
+, FFI.CommentParamPassDirection (..)
 , getKind
 , getNumChildren
 , getChild
