@@ -39,6 +39,8 @@ module Clang.Internal.FFI
 , SourceRange
 , getNullRange
 , getRange
+, equalRanges
+, range_isNull
 , getExpansionLocation
 , getInstantiationLocation
 , getSpellingLocation
@@ -727,14 +729,27 @@ data SourceRange s = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 %code CXSourceRange r = clang_getNullRange();
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
 
--- CXSourceRange clang_getRange(CXSourceLocation begin,
---                                             CXSourceLocation end);
+-- CXSourceRange clang_getRange(CXSourceLocation begin, CXSourceLocation end);
 %fun clang_getRange :: Proxy s -> SourceLocation s' -> SourceLocation s'' -> IO (SourceRange s)
 %call (proxy) (sourceLocation p1 p2 d) (sourceLocation p12 p22 d2)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXSourceLocation m = {{p12, p22}, d2};
 %     CXSourceRange r = clang_getRange(l, m);
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
+
+-- unsigned clang_equalRanges(CXSourceRange range1, CXSourceRange range2);
+%fun clang_equalRanges :: SourceRange s' -> SourceRange s'' -> IO Bool
+%call (sourceRange p1 p2 d1 d2) (sourceRange p12 p22 d12 d22)
+%code CXSourceRange r1 = {{p1, p2}, d1, d2};
+%     CXSourceRange r2 = {{p12, p22}, d12, d22};
+%     unsigned r = clang_equalRanges(r1, r2);
+%result (bool r)
+
+-- int clang_Range_isNull(CXSourceRange range);
+%fun clang_Range_isNull :: SourceRange s -> IO Bool
+%call (sourceRange p1 p2 d1 d2)
+%code CXSourceRange r1 = {{p1, p2}, d1, d2};
+%result (bool {clang_Range_isNull(r1)})
 
 -- void clang_getExpansionLocation(CXSourceLocation location,
 --                                                CXFile *file,

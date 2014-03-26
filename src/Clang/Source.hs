@@ -13,6 +13,8 @@ module Clang.Source
 , FFI.SourceRange
 , nullRange
 , getRange
+, isSameRange
+, isNullRange
 , getExpansionLocation
 , getInstantiationLocation
 , getSpellingLocation
@@ -58,6 +60,12 @@ nullRange = liftIO $ FFI.getNullRange mkProxy
 getRange :: ClangBase m => FFI.SourceLocation s' -> FFI.SourceLocation s''
          -> ClangT s m (FFI.SourceRange s)
 getRange from to = liftIO $ FFI.getRange mkProxy from to
+
+isSameRange :: ClangBase m => FFI.SourceRange s' -> FFI.SourceRange s'' -> ClangT s m Bool
+isSameRange a b = liftIO $ FFI.equalRanges a b
+
+isNullRange :: ClangBase m => FFI.SourceRange s' -> ClangT s m Bool
+isNullRange r = liftIO $ FFI.range_isNull r
 
 getExpansionLocation :: ClangBase m => FFI.SourceLocation s'
                      -> ClangT s m (Maybe (FFI.File s), Int, Int, Int)
