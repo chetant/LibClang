@@ -32,7 +32,7 @@ import Clang.String (ClangString)
 getDiagnostics :: ClangBase m => FFI.TranslationUnit s' -> ClangT s m [FFI.Diagnostic s]
 getDiagnostics t = do
   numDiags <- liftIO $ FFI.getNumDiagnostics t
-  mapM (FFI.getDiagnostic t) [0..(numDiags-1)]
+  mapM (FFI.getDiagnostic t) [0..(numDiags - 1)]
 
 formatDiagnostic :: ClangBase m => Maybe [FFI.DiagnosticDisplayOptions] -> FFI.Diagnostic s'
                  -> ClangT s m (ClangString s)
@@ -58,7 +58,7 @@ getCategory d = liftIO $ FFI.getDiagnosticCategory d
 getRanges :: ClangBase m => FFI.Diagnostic s' -> ClangT s m [FFI.SourceRange s]
 getRanges d = liftIO $ do
                 numRanges <- FFI.getDiagnosticNumRanges d
-                mapM (FFI.getDiagnosticRange d) [0..(numRanges-1)]
+                mapM (FFI.getDiagnosticRange d) [0..(numRanges - 1)]
 
 getFixIts :: ClangBase m => FFI.Diagnostic s' -> ClangT s m [(FFI.SourceRange s, ClangString s)]
 getFixIts d = do

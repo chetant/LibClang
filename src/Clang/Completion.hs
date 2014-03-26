@@ -15,6 +15,10 @@ module Clang.Completion
 , getNumChunks
 , getPriority
 , getAvailability
+, getAnnotations
+, getParent
+, getBriefComment
+, getCursorCompletionString
 , defaultCodeCompleteOptions
 , codeCompleteAt
 , sortResults
@@ -54,6 +58,20 @@ getPriority cs = liftIO $ FFI.getCompletionPriority cs
 getAvailability :: ClangBase m => FFI.CompletionString s' -> ClangT s m FFI.AvailabilityKind
 getAvailability cs = liftIO $ FFI.getCompletionAvailability cs
 
+getAnnotations :: ClangBase m => FFI.CompletionString s' -> ClangT s m [ClangString s]
+getAnnotations cs = do
+  numA <- liftIO $ FFI.getCompletionNumAnnotations cs
+  mapM (FFI.getCompletionAnnotation cs) [0..(numA - 1)]
+
+getParent :: ClangBase m => FFI.CompletionString s' -> ClangT s m (ClangString s)
+getParent = FFI.getCompletionParent
+
+getBriefComment :: ClangBase m => FFI.CompletionString s' -> ClangT s m (ClangString s)
+getBriefComment = FFI.getCompletionBriefComment
+
+getCursorCompletionString :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.CompletionString s)
+getCursorCompletionString c = liftIO $ FFI.getCursorCompletionString c
+
 defaultCodeCompleteOptions :: ClangBase m => ClangT s m [FFI.CodeCompleteFlags]
 defaultCodeCompleteOptions = unFlags <$> liftIO FFI.defaultCodeCompleteOptions
 
@@ -74,7 +92,7 @@ sortResults c i = liftIO $ FFI.sortCodeCompletionResults c i
 getDiagnostics :: ClangBase m => FFI.CodeCompleteResults s' -> ClangT s m [FFI.Diagnostic s]
 getDiagnostics c = do
   numD <- liftIO $ FFI.codeCompleteGetNumDiagnostics c
-  mapM (FFI.codeCompleteGetDiagnostic c) [0..(numD-1)]
+  mapM (FFI.codeCompleteGetDiagnostic c) [0..(numD - 1)]
 
 getContexts :: ClangBase m => FFI.CodeCompleteResults s' -> ClangT s m [FFI.CompletionContext]
 getContexts rs = unFlags <$> liftIO (FFI.codeCompleteGetContexts rs)

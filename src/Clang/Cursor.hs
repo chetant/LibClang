@@ -305,8 +305,8 @@ getCXXAccessSpecifier c = liftIO $ FFI.getCXXAccessSpecifier c
 
 getOverloadedDecls :: ClangBase m => FFI.Cursor s' -> ClangT s m [FFI.Cursor s]
 getOverloadedDecls c = liftIO $ do
-                         numDecls <- FFI.getNumOverloadedDecls c
-                         mapM (FFI.getOverloadedDecl mkProxy c) [0..(numDecls-1)]
+  numDecls <- FFI.getNumOverloadedDecls c
+  mapM (FFI.getOverloadedDecl mkProxy c) [0..(numDecls - 1)]
 
 -- CursorSet functions
 

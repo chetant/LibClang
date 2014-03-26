@@ -278,6 +278,11 @@ module Clang.Internal.FFI
 , getNumCompletionChunks
 , getCompletionPriority
 , getCompletionAvailability
+, getCompletionNumAnnotations
+, getCompletionAnnotation
+, getCompletionParent
+, getCompletionBriefComment
+, getCursorCompletionString
 , CodeCompleteFlags(..)
 , defaultCodeCompleteOptions
 , CodeCompleteResults
@@ -3652,6 +3657,50 @@ getCompletionChunkText = (registerCXString .) . unsafe_getCompletionChunkText
 -- clang_getCompletionAvailability(CXCompletionString completion_string);
 %fun clang_getCompletionAvailability :: CompletionString s -> IO AvailabilityKind
 
+-- unsigned clang_getCompletionNumAnnotations(CXCompletionString completion_string);
+%fun clang_getCompletionNumAnnotations :: CompletionString s -> IO Int
+
+-- CXString clang_getCompletionAnnotation(CXCompletionString completion_string,
+--                                        unsigned annotation_number);
+%fun unsafe_getCompletionAnnotation :: CompletionString s -> Int -> IO (CXString ())
+%call (completionString s) (int i)
+%code CXString out = clang_getCompletionAnnotation(s, i);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+getCompletionAnnotation :: ClangBase m => CompletionString s' -> Int -> ClangT s m (CXString s)
+getCompletionAnnotation = (registerCXString .) . unsafe_getCompletionAnnotation
+
+-- CXString clang_getCompletionParent(CXCompletionString completion_string,
+--                                    enum CXCursorKind *kind);
+%fun unsafe_getCompletionParent :: CompletionString s -> IO (CXString ())
+%call (completionString s)
+%code CXString out = clang_getCompletionParent(s, NULL);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+getCompletionParent :: ClangBase m => CompletionString s' -> ClangT s m (CXString s)
+getCompletionParent = registerCXString . unsafe_getCompletionParent
+
+-- CXString clang_getCompletionBriefComment(CXCompletionString completion_string);
+%fun unsafe_getCompletionBriefComment :: CompletionString s -> IO (CXString ())
+%call (completionString s)
+%code CXString out = clang_getCompletionBriefComment(s);
+%     const void* outData = out.data;
+%     unsigned outFlags = out.private_flags;
+%result (cxString (ptr outData) (word32 outFlags))
+
+getCompletionBriefComment :: ClangBase m => CompletionString s' -> ClangT s m (CXString s)
+getCompletionBriefComment = registerCXString . unsafe_getCompletionBriefComment
+
+-- CXCompletionString clang_getCursorCompletionString(CXCursor cursor);
+%fun clang_getCursorCompletionString :: Cursor s' -> IO (CompletionString s)
+%call (cursor k xdata p1 p2 p3)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%result (completionString {clang_getCursorCompletionString(a)})
+
 -- enum CXCodeComplete_Flags {
 --   CXCodeComplete_IncludeMacros = 0x01,
 --   CXCodeComplete_IncludeCodePatterns = 0x02,
@@ -3660,8 +3709,9 @@ getCompletionChunkText = (registerCXString .) . unsafe_getCompletionChunkText
 %enum CodeCompleteFlags (Bounded, Enum, Eq, Ord, Read, Show) Int [CXCodeComplete_IncludeMacros, CXCodeComplete_IncludeCodePatterns, CXCodeComplete_IncludeBriefComments]
 
 instance BitFlags CodeCompleteFlags where
-  toBit CodeComplete_IncludeMacros       = 0x01
-  toBit CodeComplete_IncludeCodePatterns = 0x02
+  toBit CodeComplete_IncludeMacros        = 0x01
+  toBit CodeComplete_IncludeCodePatterns  = 0x02
+  toBit CodeComplete_IncludeBriefComments = 0x04
 
 -- unsigned clang_defaultCodeCompleteOptions(void);
 %fun clang_defaultCodeCompleteOptions :: IO Int

@@ -72,7 +72,7 @@ inlineCommandComment_getRenderKind c = liftIO $ FFI.inlineCommandComment_getRend
 inlineCommandComment_getArgs :: ClangBase m => FFI.Comment s' -> ClangT s m [ClangString s]
 inlineCommandComment_getArgs c = do
   numArgs <- liftIO $ FFI.inlineCommandComment_getNumArgs c
-  mapM (FFI.inlineCommandComment_getArgText c) [0..numArgs]
+  mapM (FFI.inlineCommandComment_getArgText c) [0..(numArgs - 1)]
 
 htmlTagComment_getTagName :: ClangBase m => FFI.Comment s' -> ClangT s m (ClangString s)
 htmlTagComment_getTagName = FFI.hTMLTagComment_getTagName
@@ -94,7 +94,7 @@ blockCommandComment_getCommandName = FFI.blockCommandComment_getCommandName
 blockCommandComment_getArgs :: ClangBase m => FFI.Comment s' -> ClangT s m [ClangString s]
 blockCommandComment_getArgs c = do
   numArgs <- liftIO $ FFI.blockCommandComment_getNumArgs c
-  mapM (FFI.blockCommandComment_getArgText c) [0..numArgs]
+  mapM (FFI.blockCommandComment_getArgText c) [0..(numArgs - 1)]
 
 blockCommandComment_getParagraph :: ClangBase m => FFI.Comment s' -> ClangT s m (FFI.Comment s)
 blockCommandComment_getParagraph c = liftIO $ FFI.blockCommandComment_getParagraph mkProxy c
