@@ -133,6 +133,7 @@ module Clang.Internal.FFI
 , TypeKind(..)
 , type_FirstBuiltin
 , type_LastBuiltin
+, CallingConv(..)
 , Type
 , getTypeKind
 , getCursorType
@@ -154,6 +155,7 @@ module Clang.Internal.FFI
 , getTypeDeclaration
 , getDeclObjCTypeEncoding
 , getTypeKindSpelling
+, getFunctionTypeCallingConv
 , getResultType
 , getNumArgTypes
 , getArgType
@@ -2241,6 +2243,24 @@ type_FirstBuiltin, type_LastBuiltin :: TypeKind
 type_FirstBuiltin = Type_Void
 type_LastBuiltin  = Type_ObjCSel
 
+-- enum CXCallingConv {
+--   CXCallingConv_Default = 0,
+--   CXCallingConv_C = 1,
+--   CXCallingConv_X86StdCall = 2,
+--   CXCallingConv_X86FastCall = 3,
+--   CXCallingConv_X86ThisCall = 4,
+--   CXCallingConv_X86Pascal = 5,
+--   CXCallingConv_AAPCS = 6,
+--   CXCallingConv_AAPCS_VFP = 7,
+--   CXCallingConv_PnaclCall = 8,
+--   CXCallingConv_IntelOclBicc = 9,
+--   CXCallingConv_X86_64Win64 = 10,
+--   CXCallingConv_X86_64SysV = 11,
+--   CXCallingConv_Invalid = 100,
+--   CXCallingConv_Unexposed = 200
+-- };
+%enum CallingConv (Bounded, Enum, Eq, Ord, Read, Show) Int [CXCallingConv_Default, CXCallingConv_C, CXCallingConv_X86StdCall, CXCallingConv_X86FastCall, CXCallingConv_X86ThisCall, CXCallingConv_X86Pascal, CXCallingConv_AAPCS, CXCallingConv_AAPCS_VFP, CXCallingConv_PnaclCall, CXCallingConv_IntelOclBicc, CXCallingConv_X86_64Win64, CXCallingConv_X86_64SysV, CXCallingConv_Invalid, CXCallingConv_Unexposed]
+
 -- typedef struct {
 --   enum CXTypeKind kind;
 --   void *data[2];
@@ -2399,6 +2419,13 @@ getDeclObjCTypeEncoding = registerCXString . unsafe_getDeclObjCTypeEncoding
 
 getTypeKindSpelling :: ClangBase m => TypeKind -> ClangT s m (CXString s)
 getTypeKindSpelling = registerCXString . unsafe_getTypeKindSpelling
+
+-- enum CXCallingConv clang_getFunctionTypeCallingConv(CXType T);
+%fun clang_getFunctionTypeCallingConv :: Type s' -> IO CallingConv
+%call (type k p1 p2)
+%code CXType a = {k, {p1, p2}};
+%     enum CXCallingConv r = clang_getFunctionTypeCallingConv(a);
+%result (callingConv r)
 
 -- CXType clang_getResultType(CXType T);
 %fun clang_getResultType :: Proxy s -> Type s' -> IO (Type s)

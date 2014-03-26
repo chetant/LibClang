@@ -6,6 +6,7 @@ module Clang.Type
 , FFI.TypeKind(..)
 , FFI.type_FirstBuiltin
 , FFI.type_LastBuiltin
+, FFI.CallingConv(..)
 , FFI.CXXAccessSpecifier(..)
 , FFI.TypeLayoutError(..)
 , FFI.RefQualifierKind(..)
@@ -40,6 +41,7 @@ module Clang.Type
 , getClassType
 , getCXXRefQualifier
 , isVirtualBase
+, getFunctionTypeCallingConv
 
 , getTypeKindSpelling
 ) where
@@ -140,6 +142,9 @@ getCXXRefQualifier t = liftIO $ FFI.type_getCXXRefQualifier t
 
 isVirtualBase :: ClangBase m => FFI.Cursor s' -> ClangT s m Bool
 isVirtualBase c = liftIO $ FFI.isVirtualBase c
+
+getFunctionTypeCallingConv :: ClangBase m => FFI.Type s' -> ClangT s m FFI.CallingConv
+getFunctionTypeCallingConv t = liftIO $ FFI.getFunctionTypeCallingConv t
 
 
 -- Typekind functions
