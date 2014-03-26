@@ -7,6 +7,8 @@ module Clang.Type
 , FFI.type_FirstBuiltin
 , FFI.type_LastBuiltin
 , FFI.CXXAccessSpecifier(..)
+, FFI.TypeLayoutError(..)
+, FFI.RefQualifierKind(..)
 
 , isSameType
 , getTypeSpelling
@@ -27,12 +29,22 @@ module Clang.Type
 , isVolatileQualifiedType
 , isRestrictQualifiedType
 , isPODType
+, getElementType
+, getNumElements
+, getArrayElementType
+, getArraySize
+, getAlignOf
+, getSizeOf
+, getOffsetOf
+, getClassType
+, getCXXRefQualifier
 , isVirtualBase
 
 , getTypeKindSpelling
 ) where
 
 import Control.Monad.IO.Class
+import qualified Data.ByteString as B
 import Data.Int (Int64)
 import Data.Word (Word64)
 
@@ -90,6 +102,34 @@ isRestrictQualifiedType t = liftIO $ FFI.isRestrictQualifiedType t
 
 isPODType :: ClangBase m => FFI.Type s' -> ClangT s m Bool
 isPODType t = liftIO $ FFI.isPODType t
+
+getElementType :: ClangBase m => FFI.Type s' -> ClangT s m (FFI.Type s)
+getElementType t = liftIO $ FFI.getElementType mkProxy t
+
+getNumElements :: ClangBase m => FFI.Type s' -> ClangT s m Int64
+getNumElements t = liftIO $ FFI.getNumElements t
+
+getArrayElementType :: ClangBase m => FFI.Type s' -> ClangT s m (FFI.Type s)
+getArrayElementType t = liftIO $ FFI.getArrayElementType mkProxy t
+
+getArraySize :: ClangBase m => FFI.Type s' -> ClangT s m Int64
+getArraySize t = liftIO $ FFI.getArraySize t
+
+getAlignOf :: ClangBase m => FFI.Type s' -> ClangT s m (Either FFI.TypeLayoutError Int64)
+getAlignOf t = liftIO $ FFI.type_getAlignOf t
+
+getSizeOf :: ClangBase m => FFI.Type s' -> ClangT s m (Either FFI.TypeLayoutError Int64)
+getSizeOf t = liftIO $ FFI.type_getSizeOf t
+
+getOffsetOf :: ClangBase m => FFI.Type s' -> B.ByteString
+            -> ClangT s m (Either FFI.TypeLayoutError Int64)
+getOffsetOf = FFI.type_getOffsetOf
+
+getClassType :: ClangBase m => FFI.Type s' -> ClangT s m (FFI.Type s)
+getClassType t = liftIO $ FFI.type_getClassType mkProxy t
+
+getCXXRefQualifier :: ClangBase m => FFI.Type s' -> ClangT s m FFI.RefQualifierKind
+getCXXRefQualifier t = liftIO $ FFI.type_getCXXRefQualifier t
 
 isVirtualBase :: ClangBase m => FFI.Cursor s' -> ClangT s m Bool
 isVirtualBase c = liftIO $ FFI.isVirtualBase c

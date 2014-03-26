@@ -157,6 +157,17 @@ module Clang.Internal.FFI
 , isFunctionTypeVariadic
 , getCursorResultType
 , isPODType
+, getElementType
+, getNumElements
+, getArrayElementType
+, getArraySize
+, TypeLayoutError(..)
+, type_getAlignOf
+, type_getClassType
+, type_getSizeOf
+, type_getOffsetOf
+, RefQualifierKind(..)
+, type_getCXXRefQualifier
 , isBitField
 , isVirtualBase
 , CXXAccessSpecifier(..)
@@ -2405,6 +2416,100 @@ getTypeKindSpelling = registerCXString . unsafe_getTypeKindSpelling
 %code CXType a = {k, {p1, p2}};
 %     r = clang_isPODType(a);
 %result (bool r)
+
+-- CXType clang_getElementType(CXType T);
+%fun clang_getElementType :: Proxy s -> Type s' -> IO (Type s)
+%call (proxy) (type k p1 p2)
+%code CXType a = {k, {p1, p2}};
+%     CXType r = clang_getElementType(a);
+%result (type {r.kind} {r.data[0]} {r.data[1]})
+
+-- long long clang_getNumElements(CXType T);
+%fun clang_getNumElements :: Type s -> IO Int64
+%call (type k p1 p2)
+%code CXType a = {k, {p1, p2}};
+%     long long r = clang_getNumElements(a);
+%result (int64 r)
+
+-- CXType clang_getArrayElementType(CXType T);
+%fun clang_getArrayElementType :: Proxy s -> Type s' -> IO (Type s)
+%call (proxy) (type k p1 p2)
+%code CXType a = {k, {p1, p2}};
+%     CXType r = clang_getArrayElementType(a);
+%result (type {r.kind} {r.data[0]} {r.data[1]})
+
+-- long long clang_getArraySize(CXType T);
+%fun clang_getArraySize :: Type s -> IO Int64
+%call (type k p1 p2)
+%code CXType a = {k, {p1, p2}};
+%     long long r = clang_getArraySize(a);
+%result (int64 r)
+
+-- enum CXTypeLayoutError {
+--   CXTypeLayoutError_Invalid = -1,
+--   CXTypeLayoutError_Incomplete = -2,
+--   CXTypeLayoutError_Dependent = -3,
+--   CXTypeLayoutError_NotConstantSize = -4,
+--   CXTypeLayoutError_InvalidFieldName = -5
+-- };
+%enum TypeLayoutError (Bounded, Enum, Eq, Ord, Read, Show) Int [CXTypeLayoutError_Invalid, CXTypeLayoutError_Incomplete, CXTypeLayoutError_Dependent, CXTypeLayoutError_NotConstantSize, CXTypeLayoutError_InvalidFieldName]
+
+int64OrLayoutError :: Int64 -> Either TypeLayoutError Int64
+int64OrLayoutError v | v == -1   = Left TypeLayoutError_Invalid
+                     | v == -2   = Left TypeLayoutError_Incomplete
+                     | v == -3   = Left TypeLayoutError_Dependent
+                     | v == -4   = Left TypeLayoutError_NotConstantSize
+                     | v == -5   = Left TypeLayoutError_InvalidFieldName
+                     | otherwise = Right v
+
+%dis int64_or_layoutError i = <id/int64OrLayoutError> (int64 i)
+
+-- long long clang_Type_getAlignOf(CXType T);
+%fun clang_Type_getAlignOf :: Type s -> IO (Either TypeLayoutError Int64)
+%call (type k p1 p2)
+%code CXType a = {k, {p1, p2}};
+%     long long r = clang_Type_getAlignOf(a);
+%result (int64_or_layoutError r)
+
+-- CXType clang_Type_getClassType(CXType T);
+%fun clang_Type_getClassType :: Proxy s -> Type s' -> IO (Type s)
+%call (proxy) (type k p1 p2)
+%code CXType a = {k, {p1, p2}};
+%     CXType r = clang_Type_getClassType(a);
+%result (type {r.kind} {r.data[0]} {r.data[1]})
+
+-- long long clang_Type_getSizeOf(CXType T);
+%fun clang_Type_getSizeOf :: Type s -> IO (Either TypeLayoutError Int64)
+%call (type k p1 p2)
+%code CXType a = {k, {p1, p2}};
+%     long long r = clang_Type_getSizeOf(a);
+%result (int64_or_layoutError r)
+
+-- long long clang_Type_getOffsetOf(CXType T, const char *S);
+%fun unsafe_Type_getOffsetOf :: Type s -> CString -> IO (Either TypeLayoutError Int64)
+%call (type k p1 p2) (ptr f)
+%code CXType a = {k, {p1, p2}};
+%     long long r = clang_Type_getOffsetOf(a, f);
+%result (int64_or_layoutError r)
+
+type_getOffsetOf :: ClangBase m => Type s' -> B.ByteString
+                 -> ClangT s m (Either TypeLayoutError Int64)
+type_getOffsetOf t field = liftIO $ B.useAsCString field $ \cField ->
+  unsafe_Type_getOffsetOf t cField
+
+-- enum CXRefQualifierKind {
+--   CXRefQualifier_None = 0,
+--   CXRefQualifier_LValue,
+--   CXRefQualifier_RValue
+-- };
+%enum RefQualifierKind (Bounded, Enum, Eq, Ord, Read, Show) Int [CXRefQualifier_None, CXRefQualifier_LValue, CXRefQualifier_RValue]
+
+-- enum CXRefQualifierKind clang_Type_getCXXRefQualifier(CXType T);
+%fun clang_Type_getCXXRefQualifier :: Type s -> IO RefQualifierKind
+%call (type k p1 p2)
+%code CXType a = {k, {p1, p2}};
+%     enum CXRefQualifierKind r = clang_Type_getCXXRefQualifier(a);
+%result (refQualifierKind r)
 
 -- unsigned clang_Cursor_isBitField(CXCursor C);
 %fun clang_isBitField :: Cursor s -> IO Bool
