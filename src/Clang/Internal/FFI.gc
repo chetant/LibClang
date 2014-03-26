@@ -43,8 +43,9 @@ module Clang.Internal.FFI
 , equalRanges
 , range_isNull
 , getExpansionLocation
-, getInstantiationLocation
+, getPresumedLocation
 , getSpellingLocation
+, getFileLocation
 , getRangeStart
 , getRangeEnd
 , DiagnosticSeverity(..)
@@ -778,36 +779,61 @@ data SourceRange s = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
 %result (bool {clang_Range_isNull(r1)})
 
 -- void clang_getExpansionLocation(CXSourceLocation location,
---                                                CXFile *file,
---                                                unsigned *line,
---                                                unsigned *column,
---                                                unsigned *offset);
+--                                 CXFile *file,
+--                                 unsigned *line,
+--                                 unsigned *column,
+--                                 unsigned *offset);
 %fun clang_getExpansionLocation :: Proxy s -> SourceLocation s' -> IO (Maybe (File s), Int, Int, Int)
 %call (proxy) (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
-%     CXFile f;unsigned ln,c,o;clang_getExpansionLocation(l,&f,&ln,&c,&o);
+%     CXFile f;
+%     unsigned ln, c, o;
+%     clang_getExpansionLocation(l, &f, &ln, &c, &o);
 %result ((maybe_file f), (int ln), (int c), (int o))
 
--- void clang_getInstantiationLocation(CXSourceLocation location,
---                                                    CXFile *file,
---                                                    unsigned *line,
---                                                    unsigned *column,
---                                                    unsigned *offset);
-%fun clang_getInstantiationLocation :: Proxy s -> SourceLocation s' -> IO (Maybe (File s), Int, Int, Int)
-%call (proxy) (sourceLocation p1 p2 d)
+-- void clang_getPresumedLocation(CXSourceLocation location,
+--                                CXString *filename,
+--                                unsigned *line,
+--                                unsigned *column);
+%fun unsafe_getPresumedLocation :: SourceLocation s' -> IO (CXString (), Int, Int)
+%call (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
-%     CXFile f;unsigned ln,c,o;clang_getInstantiationLocation(l,&f,&ln,&c,&o);
-%result ((maybe_file f), (int ln), (int c), (int o))
+%     CXString f;
+%     unsigned ln, c;
+%     clang_getPresumedLocation(l, &f, &ln, &c);
+%     const void* outData = f.data;
+%     unsigned outFlags = f.private_flags;
+%result ((cxString (ptr outData) (word32 outFlags)), (int ln), (int c))
+
+getPresumedLocation :: ClangBase m => SourceLocation s' -> ClangT s m (CXString s, Int, Int)
+getPresumedLocation l = do
+  (f, ln, c) <- liftIO $ unsafe_getPresumedLocation l
+  (,,) <$> registerCXString (return f) <*> return ln <*> return c
 
 -- void clang_getSpellingLocation(CXSourceLocation location,
---                                               CXFile *file,
---                                               unsigned *line,
---                                               unsigned *column,
---                                               unsigned *offset);
+--                                CXFile *file,
+--                                unsigned *line,
+--                                unsigned *column,
+--                                unsigned *offset);
 %fun clang_getSpellingLocation :: Proxy s -> SourceLocation s' -> IO (Maybe (File s), Int, Int, Int)
 %call (proxy) (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
-%     CXFile f;unsigned ln,c,o;clang_getSpellingLocation(l,&f,&ln,&c,&o);
+%     CXFile f;
+%     unsigned ln, c, o;
+%     clang_getSpellingLocation(l, &f, &ln, &c, &o);
+%result ((maybe_file f), (int ln), (int c), (int o))
+
+-- void clang_getFileLocation(CXSourceLocation location,
+--                            CXFile *file,
+--                            unsigned *line,
+--                            unsigned *column,
+--                            unsigned *offset);
+%fun clang_getFileLocation :: Proxy s -> SourceLocation s' -> IO (Maybe (File s), Int, Int, Int)
+%call (proxy) (sourceLocation p1 p2 d)
+%code CXSourceLocation l = {{p1, p2}, d};
+%     CXFile f;
+%     unsigned ln, c, o;
+%     clang_getFileLocation(l, &f, &ln, &c, &o);
 %result ((maybe_file f), (int ln), (int c), (int o))
 
 -- CXSourceLocation clang_getRangeStart(CXSourceRange range);

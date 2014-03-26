@@ -16,8 +16,9 @@ module Clang.Source
 , isSameRange
 , isNullRange
 , getExpansionLocation
-, getInstantiationLocation
+, getPresumedLocation
 , getSpellingLocation
+, getFileLocation
 , getStart
 , getEnd
 ) where
@@ -26,6 +27,7 @@ import Control.Monad.IO.Class
 
 import qualified Clang.Internal.FFI as FFI
 import Clang.Monad
+import Clang.String (ClangString)
 
 -- Location functions
 nullLocation :: ClangBase m => ClangT s m (FFI.SourceLocation s)
@@ -71,13 +73,17 @@ getExpansionLocation :: ClangBase m => FFI.SourceLocation s'
                      -> ClangT s m (Maybe (FFI.File s), Int, Int, Int)
 getExpansionLocation l = liftIO $ FFI.getExpansionLocation mkProxy l
 
-getInstantiationLocation :: ClangBase m => FFI.SourceLocation s'
-                         -> ClangT s m (Maybe (FFI.File s), Int, Int, Int)
-getInstantiationLocation l = liftIO $ FFI.getInstantiationLocation mkProxy l
+getPresumedLocation :: ClangBase m => FFI.SourceLocation s'
+                    -> ClangT s m (ClangString s, Int, Int)
+getPresumedLocation = FFI.getPresumedLocation
 
 getSpellingLocation :: ClangBase m => FFI.SourceLocation s'
                     -> ClangT s m (Maybe (FFI.File s), Int, Int, Int)
 getSpellingLocation l = liftIO $ FFI.getSpellingLocation mkProxy l
+
+getFileLocation :: ClangBase m => FFI.SourceLocation s'
+                    -> ClangT s m (Maybe (FFI.File s), Int, Int, Int)
+getFileLocation l = liftIO $ FFI.getFileLocation mkProxy l
 
 getStart :: ClangBase m => FFI.SourceRange s' -> ClangT s m (FFI.SourceLocation s)
 getStart sr = liftIO $ FFI.getRangeStart mkProxy sr
