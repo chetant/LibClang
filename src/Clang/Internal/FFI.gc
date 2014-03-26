@@ -107,6 +107,7 @@ module Clang.Internal.FFI
 , isReference
 , isExpression
 , isStatement
+, isAttribute
 , isInvalid
 , isTranslationUnit
 , isPreprocessing
@@ -296,7 +297,7 @@ module Clang.Internal.FFI
 , codeCompleteGetContainerUSR
 , codeCompleteGetObjCSelector
 , getClangVersion
--- , toggleCrashRecovery
+, toggleCrashRecovery
 , Inclusion(..)
 , InclusionList
 , getInclusions
@@ -1987,6 +1988,11 @@ isStatement k =
   (k >= cursor_FirstStmt && k <= cursor_LastStmt)
 {-# INLINE isStatement #-}
 
+isAttribute :: CursorKind -> Bool
+isAttribute k =
+  (k >= cursor_FirstAttr && k <= cursor_LastAttr)
+{-# INLINE isAttribute #-}
+  
 -- unsigned clang_isInvalid(enum CursorKind);
 isInvalid :: CursorKind -> Bool
 isInvalid k =
@@ -3884,7 +3890,7 @@ getClangVersion :: ClangBase m => ClangT s m (CXString s)
 getClangVersion = registerCXString $ unsafe_getClangVersion
   
 -- -- void clang_toggleCrashRecovery(unsigned isEnabled);
--- %fun clang_toggleCrashRecovery :: Bool -> IO ()
+%fun clang_toggleCrashRecovery :: Bool -> IO ()
 
 data Inclusion s = Inclusion !(File s) !(SourceLocation s) !Bool
 

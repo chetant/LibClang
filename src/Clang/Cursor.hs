@@ -78,6 +78,7 @@ module Clang.Cursor
 , isReference
 , isExpression
 , isStatement
+, isAttribute
 , isInvalid
 , isTranslationUnit
 , isPreprocessing
@@ -250,6 +251,10 @@ isExpression = FFI.isExpression
 isStatement :: FFI.CursorKind -> Bool
 isStatement = FFI.isStatement
 {-# INLINE isStatement #-}
+
+isAttribute :: FFI.CursorKind -> Bool
+isAttribute = FFI.isAttribute
+{-# INLINE isAttribute #-}
 
 isInvalid :: FFI.CursorKind -> Bool
 isInvalid = FFI.isInvalid

@@ -4,7 +4,7 @@
 module Clang.Debug
 ( enableStackTraces
 , getVersion
--- , toggleCrashRecovery
+, toggleCrashRecovery
 ) where
 
 import Control.Monad.IO.Class
@@ -19,4 +19,5 @@ enableStackTraces = liftIO FFI.enableStackTraces
 getVersion :: ClangBase m => ClangT s m (ClangString s)
 getVersion = FFI.getClangVersion
 
--- toggleCrashRecovery = FFI.toggleCrashRecovery
+toggleCrashRecovery :: ClangBase m => Bool -> ClangT s m ()
+toggleCrashRecovery enable = liftIO $ FFI.toggleCrashRecovery enable
