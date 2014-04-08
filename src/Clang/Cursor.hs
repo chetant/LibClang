@@ -66,7 +66,6 @@ module Clang.Cursor
 , getTemplateKind
 , getTemplateForSpecialization
 , getTypeDeclaration
-, getBaseExpression
 , getNumArguments
 , getArgument
 
@@ -218,9 +217,6 @@ getTemplateForSpecialization c = liftIO $ FFI.getSpecializedCursorTemplate mkPro
 
 getTypeDeclaration :: ClangBase m => FFI.Type s' -> ClangT s m (FFI.Cursor s)
 getTypeDeclaration t = liftIO $ FFI.getTypeDeclaration mkProxy t
-
-getBaseExpression :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.Cursor s)
-getBaseExpression c = liftIO $ FFI.cursor_getBaseExpression mkProxy c
 
 getNumArguments :: ClangBase m => FFI.Cursor s' -> ClangT s m Int
 getNumArguments c = liftIO $ FFI.cursor_getNumArguments c
