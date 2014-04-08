@@ -64,7 +64,7 @@ module Clang.Cursor
 , isObjCOptional
 , isVariadic
 , getTemplateKind
-, getSpecializedTemplate
+, getTemplateForSpecialization
 , getTypeDeclaration
 , getBaseExpression
 , getNumArguments
@@ -213,8 +213,8 @@ isVariadic c = liftIO $ FFI.cursor_isVariadic c
 getTemplateKind :: ClangBase m => FFI.Cursor s' -> ClangT s m FFI.CursorKind
 getTemplateKind c = liftIO $ FFI.getTemplateCursorKind c
 
-getSpecializedTemplate :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.Cursor s)
-getSpecializedTemplate c = liftIO $ FFI.getSpecializedCursorTemplate mkProxy c
+getTemplateForSpecialization :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.Cursor s)
+getTemplateForSpecialization c = liftIO $ FFI.getSpecializedCursorTemplate mkProxy c
 
 getTypeDeclaration :: ClangBase m => FFI.Type s' -> ClangT s m (FFI.Cursor s)
 getTypeDeclaration t = liftIO $ FFI.getTypeDeclaration mkProxy t
