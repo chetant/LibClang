@@ -75,7 +75,8 @@ libclangLibraries =
 libclangSharedLibraries :: [String]
 libclangSharedLibraries = ["clang", "LLVM-3.4"]
 
-libClangConfHook :: (GenericPackageDescription, HookedBuildInfo) -> ConfigFlags -> IO LocalBuildInfo
+libClangConfHook :: (GenericPackageDescription, HookedBuildInfo) -> ConfigFlags
+                 -> IO LocalBuildInfo
 libClangConfHook (pkg, pbi) flags = do
   let verbosity = fromFlag (configVerbosity flags)
   lbi <- confHook simpleUserHooks (pkg, pbi) flags
@@ -100,7 +101,11 @@ libClangConfHook (pkg, pbi) flags = do
       lpd    = localPkgDescr lbi
       lib    = fromJust (library lpd)
       libbi  = libBuildInfo lib
-      libbi' = libbi { ldOptions = ldOptions libbi ++ ["-lpthread", linkCPPStdLib,  "-lncurses"] }
+      libbi' = libbi { ldOptions = ldOptions libbi ++ [ "-lpthread"
+                                                      , linkCPPStdLib
+                                                      , "-lncurses"
+                                                      ]
+                     }
       lib'   = lib { libBuildInfo = libbi' }
       lpd'   = lpd { library = Just lib' }
 
@@ -211,10 +216,10 @@ libClangBuildHook pkg lbi usrHooks flags = do
     -- get a list of llvm+clang objects we want to link
     notice verbosity "relinking LibClang library.."
     cObjs <- concat <$>
-               forM libclangLibrariesFiles $ \l -> do
+               (forM libclangLibrariesFiles $ \l -> do
                  let dumpPath = mkDumpPath l
                  (map (dumpPath </>) . filter isObject) <$> 
-                   getDirectoryContents dumpPath
+                   getDirectoryContents dumpPath)
 
     -- get the haskell objects
     hsObjs <- getHaskellObjects lib lbi' bdir objExtension (splitObjs lbi')
@@ -232,7 +237,9 @@ libClangCleanHook pkg v hooks flags = do
   let verbosity = fromFlag (cleanVerbosity flags)
   notice verbosity "Cleaning llvm and clang..."
   curDir <- getCurrentDirectory
-  removeDirectoryRecursive $ curDir </> "build"
+  let buildDir = curDir </> "build"
+  buildDirExists <- doesDirectoryExist buildDir
+  when buildDirExists $ removeDirectoryRecursive buildDir
   cleanHook simpleUserHooks pkg v hooks flags
   return ()
 
@@ -293,7 +300,7 @@ mkObject = (<.> objExtension)
 
 isObject :: String -> Bool
 isObject = (== objExtWithDot) . takeExtension
-objExtWithDot = "." : objExtension
+objExtWithDot = '.' : objExtension
 
 data CPPStdLib = LibStdCPP
                | LibCPP
