@@ -101,8 +101,15 @@ module Clang.Cursor
 , setContains
 , setInsert
 
---CursorKind functions
+-- CursorKind functions
 , getCursorKindSpelling
+
+-- Platform availability
+, FFI.Version(..)
+, FFI.PlatformAvailability(..)
+, FFI.PlatformAvailabilityInfo(..)
+, getCursorPlatformAvailability
+
 ) where
 
 import Control.Applicative
@@ -321,7 +328,13 @@ setInsert :: ClangBase m => FFI.CursorSet s' -> FFI.Cursor s'' -> ClangT s m Boo
 setInsert s c = liftIO $ FFI.cXCursorSet_insert s c
 
 
---CursorKind functions
+-- CursorKind functions
 
 getCursorKindSpelling :: ClangBase m => FFI.CursorKind -> ClangT s m (ClangString s)
 getCursorKindSpelling = FFI.getCursorKindSpelling
+
+-- Platform availability
+
+getCursorPlatformAvailability :: ClangBase m => FFI.Cursor s'
+                              -> ClangT s m (FFI.PlatformAvailabilityInfo s)
+getCursorPlatformAvailability = FFI.getCursorPlatformAvailability

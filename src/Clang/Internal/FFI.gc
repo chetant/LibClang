@@ -3,6 +3,7 @@
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -20,6 +21,7 @@ module Clang.Internal.FFI
 , newUnsavedFile
 , updateUnsavedContents
 , AvailabilityKind(..)
+, Version(..)
 , CXString
 , getString
 , getByteString
@@ -123,6 +125,9 @@ module Clang.Internal.FFI
 , LinkageKind(..)
 , getCursorLinkage
 , getCursorAvailability
+, PlatformAvailability(..)
+, PlatformAvailabilityInfo(..)
+, getCursorPlatformAvailability
 , LanguageKind(..)
 , getCursorLanguage
 , cursor_getTranslationUnit
@@ -319,7 +324,7 @@ module Clang.Internal.FFI
 ) where
 
 import Control.Applicative ((<$>), (<*>))
-import Control.Monad (when)
+import Control.Monad (forM_, when)
 import Control.Monad.Trans
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Unsafe as BU
@@ -591,11 +596,57 @@ withCUnsavedFiles ufs f = do
 --   CXAvailability_NotAccessible
 -- };
 
+data Version = Version
+  { majorVersion    :: !Int
+  , minorVersion    :: !Int
+  , subminorVersion :: !Int
+  } deriving (Eq, Ord, Show)
+
+instance Storable Version where
+  sizeOf _ = sizeOfCXVersion
+  {-# INLINE sizeOf #-}
+
+  alignment _ = alignOfCXVersion
+  {-# INLINE alignment #-}
+
+  peek p = do
+    let fromCInt = fromIntegral :: Num b => CInt -> b
+    major <- fromCInt <$> peekByteOff p offsetCXVersionMajor
+    minor <- fromCInt <$> peekByteOff p offsetCXVersionMinor
+    subminor <- fromCInt <$> peekByteOff p offsetCXVersionSubminor
+    return $! Version major minor subminor
+  {-# INLINE peek #-}
+
+  poke p (Version major minor subminor) = do
+    let toCInt = fromIntegral :: Integral a => a -> CInt
+    pokeByteOff p offsetCXVersionMajor major
+    pokeByteOff p offsetCXVersionMinor minor
+    pokeByteOff p offsetCXVersionSubminor subminor
+  {-# INLINE poke #-}
+  
 -- typedef struct {
 --   const void *data;
 --   unsigned private_flags;
 -- } CXString;
 data CXString s = CXString !(Ptr ()) !Word32
+
+instance Storable (CXString s) where
+  sizeOf _ = sizeOfCXString
+  {-# INLINE sizeOf #-}
+
+  alignment _ = alignOfCXString
+  {-# INLINE alignment #-}
+
+  peek p = do
+    strData <- peekByteOff p offsetCXStringData
+    strFlags <- peekByteOff p offsetCXStringFlags
+    return $! CXString strData strFlags
+  {-# INLINE peek #-}
+
+  poke p (CXString strData strFlags) = do
+    pokeByteOff p offsetCXStringData strData
+    pokeByteOff p offsetCXStringFlags strFlags
+  {-# INLINE poke #-}
 
 registerCXString :: ClangBase m => IO (CXString ()) -> ClangT s m (CXString s)
 registerCXString action = do
@@ -2170,6 +2221,97 @@ isUnexposed k =
 %     enum CXAvailabilityKind r = clang_getCursorAvailability(a);
 %result (availabilityKind r)
 
+data PlatformAvailability = PlatformAvailability
+  { availabilityPlatform      :: !B.ByteString
+  , availabilityIntroduced    :: !Version
+  , availabilityDeprecated    :: !Version
+  , availabilityObsoleted     :: !Version
+  , availabilityIsUnavailable :: !Bool
+  , availabilityMessage       :: !B.ByteString
+  }
+  
+instance Storable PlatformAvailability where
+  sizeOf _ = sizeOfCXPlatformAvailability
+  {-# INLINE sizeOf #-}
+
+  alignment _ = alignOfCXPlatformAvailability
+  {-# INLINE alignment #-}
+
+  peek p = do
+    (CXString platD platF) <- peekByteOff p offsetCXPlatformAvailabilityPlatform
+    platform <- B.packCString =<< getCStringPtr platD platF
+
+    introduced <- peekByteOff p offsetCXPlatformAvailabilityIntroduced
+    deprecated <- peekByteOff p offsetCXPlatformAvailabilityDeprecated
+    obsoleted <- peekByteOff p offsetCXPlatformAvailabilityObsoleted
+    intUnavailable <- fromCInt <$> peekByteOff p offsetCXPlatformAvailabilityUnavailable
+
+    (CXString msgD msgF) <- peekByteOff p offsetCXPlatformAvailabilityMessage
+    message <- B.packCString =<< getCStringPtr msgD msgF
+
+    return $! PlatformAvailability platform introduced deprecated obsoleted
+                                   (if intUnavailable == 0 then False else True)
+                                   message
+  {-# INLINE peek #-}
+
+  -- Since we can't construct CXStrings, we can't really poke these.
+  poke _ _ = undefined
+  {-# INLINE poke #-}
+  
+-- void clang_disposeCXPlatformAvailability(CXPlatformAvailability);
+%fun clang_disposeCXPlatformAvailability :: Ptr PlatformAvailability -> IO ()
+%call (ptr p)
+%code clang_disposeCXPlatformAvailability((CXPlatformAvailability*) p);
+
+-- int clang_getCursorPlatformAvailability(CXCursor cursor,
+--                                         int *always_deprecated,
+--                                         CXString *deprecated_message,
+--                                         int *always_unavailable,
+--                                         CXString *unavailable_message,
+--                                         CXPlatformAvailability *availability,
+--                                         int availability_size);
+%fun unsafe_getCursorPlatformAvailability :: Cursor s' -> Ptr PlatformAvailability -> Int -> IO (Bool, CXString (), Bool, CXString (), Int)
+%call (cursor k xdata p1 p2 p3) (ptr dest) (int destLen)
+%code CXCursor c = {k, xdata, {p1, p2, p3}};
+%     int ad;
+%     CXString dMsg;
+%     int au;
+%     CXString uMsg;
+%     int size = clang_getCursorPlatformAvailability(c, &ad, &dMsg, &au, &uMsg,
+%                                                    (CXPlatformAvailability*) dest,
+%                                                    destLen);
+%     const void* dMsgData = dMsg.data;
+%     unsigned dMsgFlags = dMsg.private_flags;
+%     const void* uMsgData = uMsg.data;
+%     unsigned uMsgFlags = uMsg.private_flags;
+%result (bool ad, cxString (ptr dMsgData) (word32 dMsgFlags), bool au, cxString (ptr uMsgData) (word32 uMsgFlags), int size)
+
+data PlatformAvailabilityInfo s = PlatformAvailabilityInfo
+  { availabilityAlwaysDeprecated   :: !Bool
+  , availabilityDeprecatedMessage  :: !(CXString s)
+  , availabilityAlwaysUnavailable  :: !Bool
+  , availabilityUnavailableMessage :: !(CXString s)
+  , availabilityInfo               :: ![PlatformAvailability]
+  }
+  
+getCursorPlatformAvailability :: ClangBase m => Cursor s'
+                              -> ClangT s m (PlatformAvailabilityInfo s)
+getCursorPlatformAvailability c = do
+    (ad, dMsg, au, uMsg, infos) <-
+      liftIO $ allocaArray maxPlatformAvailability $ \p -> do
+        (ad, dMsg, au, uMsg, outSize) <-
+          unsafe_getCursorPlatformAvailability c p maxPlatformAvailability
+        let count = min outSize maxPlatformAvailability
+        infos <- peekArray count p
+        forM_ [0..(count - 1)] $ \idx -> do
+          disposeCXPlatformAvailability (advancePtr p idx)
+        return (ad, dMsg, au, uMsg, infos)
+    dMsg' <- registerCXString $ return dMsg
+    uMsg' <- registerCXString $ return uMsg
+    return $ PlatformAvailabilityInfo ad dMsg' au uMsg' infos
+  where
+    maxPlatformAvailability = 32
+  
 -- enum CXLanguageKind {
 --   CXLanguage_Invalid = 0,
 --   CXLanguage_C,

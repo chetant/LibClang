@@ -38,6 +38,23 @@ module Clang.Internal.FFIConstants
 , alignOfCXComment
 , offsetCXCommentASTNode
 , offsetCXCommentTranslationUnit
+, sizeOfCXVersion
+, alignOfCXVersion
+, offsetCXVersionMajor
+, offsetCXVersionMinor
+, offsetCXVersionSubminor
+, sizeOfCXString
+, alignOfCXString
+, offsetCXStringData
+, offsetCXStringFlags
+, sizeOfCXPlatformAvailability
+, alignOfCXPlatformAvailability
+, offsetCXPlatformAvailabilityPlatform
+, offsetCXPlatformAvailabilityIntroduced
+, offsetCXPlatformAvailabilityDeprecated
+, offsetCXPlatformAvailabilityObsoleted
+, offsetCXPlatformAvailabilityUnavailable
+, offsetCXPlatformAvailabilityMessage
 ) where
 
 #include <stddef.h>
@@ -94,3 +111,26 @@ sizeOfCXComment = (#const sizeof(CXComment)) :: Int
 alignOfCXComment = (#const 4) :: Int
 offsetCXCommentASTNode = (#const offsetof(CXComment, ASTNode)) :: Int
 offsetCXCommentTranslationUnit = (#const offsetof(CXComment, TranslationUnit)) :: Int
+
+-- CXVersion constants.
+sizeOfCXVersion = (#const sizeof(CXVersion)) :: Int
+alignOfCXVersion = (#const 4) :: Int
+offsetCXVersionMajor = (#const offsetof(CXVersion, Major)) :: Int
+offsetCXVersionMinor = (#const offsetof(CXVersion, Minor)) :: Int
+offsetCXVersionSubminor = (#const offsetof(CXVersion, Subminor)) :: Int
+
+-- CXString constants.
+sizeOfCXString = (#const sizeof(CXString)) :: Int
+alignOfCXString = (#const 4) :: Int
+offsetCXStringData = (#const offsetof(CXString, data)) :: Int
+offsetCXStringFlags = (#const offsetof(CXString, private_flags)) :: Int
+
+-- CXPlatformAvailability constants.
+sizeOfCXPlatformAvailability = (#const sizeof(CXPlatformAvailability)) :: Int
+alignOfCXPlatformAvailability = (#const 4) :: Int
+offsetCXPlatformAvailabilityPlatform = (#const offsetof(CXPlatformAvailability, Platform)) :: Int
+offsetCXPlatformAvailabilityIntroduced = (#const offsetof(CXPlatformAvailability, Introduced)) :: Int
+offsetCXPlatformAvailabilityDeprecated = (#const offsetof(CXPlatformAvailability, Deprecated)) :: Int
+offsetCXPlatformAvailabilityObsoleted = (#const offsetof(CXPlatformAvailability, Obsoleted)) :: Int
+offsetCXPlatformAvailabilityUnavailable = (#const offsetof(CXPlatformAvailability, Unavailable)) :: Int
+offsetCXPlatformAvailabilityMessage = (#const offsetof(CXPlatformAvailability, Message)) :: Int
