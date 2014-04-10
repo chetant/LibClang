@@ -50,8 +50,15 @@ module Clang.Internal.FFI
 , getRangeEnd
 , DiagnosticSeverity(..)
 , Diagnostic
+, DiagnosticSet
+, getNumDiagnosticsInSet
+, getDiagnosticInSet
+, LoadDiagError(..)
+, loadDiagnostics
+, getChildDiagnostics
 , getNumDiagnostics
 , getDiagnostic
+, getDiagnosticSetFromTU
 , DiagnosticDisplayOptions(..)
 , formatDiagnostic
 , defaultDiagnosticDisplayOptions
@@ -878,6 +885,87 @@ registerDiagnostic action = do
 
 %dis diag i = <unDiagnostic/mkDiagnostic> (ptr i)
 
+-- typedef void* CXDiagnosticSet;
+newtype DiagnosticSet s = DiagnosticSet { unDiagnosticSet :: Ptr () }
+
+mkDiagnosticSet :: Ptr () -> DiagnosticSet ()
+mkDiagnosticSet = DiagnosticSet
+
+-- void clang_disposeDiagnosticSet(CXDiagnosticSet);
+%fun clang_disposeDiagnosticSet :: DiagnosticSet s -> IO ()
+%call (diagSet d)
+%code clang_disposeDiagnosticSet(d);
+
+registerDiagnosticSet :: ClangBase m => IO (DiagnosticSet ()) -> ClangT s m (DiagnosticSet s)
+registerDiagnosticSet action = do
+  (_, idx) <- clangAllocate (action >>= return . unsafeCoerce)
+                            (\i -> disposeDiagnosticSet i)
+  return idx
+{-# INLINEABLE registerDiagnosticSet #-}
+
+%dis diagSet i = <unDiagnosticSet/mkDiagnosticSet> (ptr i)
+
+-- unsigned clang_getNumDiagnosticsInSet(CXDiagnosticSet Diags);
+%fun clang_getNumDiagnosticsInSet :: DiagnosticSet s -> IO Int
+%call (diagSet d)
+%code unsigned r = clang_getNumDiagnosticsInSet(d);
+%result (int r)
+
+-- CXDiagnostic clang_getDiagnosticInSet(CXDiagnosticSet Diags, unsigned Index);  
+%fun unsafe_getDiagnosticInSet :: DiagnosticSet s -> Int -> IO (Diagnostic ())
+%call (diagSet d) (int i)
+%code CXDiagnostic r = clang_getDiagnosticInSet(d, i);
+%result (diag r)
+
+getDiagnosticInSet :: ClangBase m => DiagnosticSet s' -> Int -> ClangT s m (Diagnostic s)
+getDiagnosticInSet = (registerDiagnostic .) . unsafe_getDiagnosticInSet
+
+-- enum CXLoadDiag_Error {
+--   CXLoadDiag_None = 0,
+--   CXLoadDiag_Unknown = 1,
+--   CXLoadDiag_CannotLoad = 2,
+--   CXLoadDiag_InvalidFile = 3
+-- };
+%enum LoadDiagError (Bounded, Enum, Eq, Ord, Read, Show) Int [CXLoadDiag_None, CXLoadDiag_Unknown, CXLoadDiag_CannotLoad, CXLoadDiag_InvalidFile]
+
+data LoadDiagsResult =
+  LoadDiagsResult LoadDiagError (CXString ()) (DiagnosticSet ())
+
+%dis loadDiagsResult err eStrData eStrFlags ds = LoadDiagsResult (loadDiagError err) (cxString (ptr eStrData) (word32 eStrFlags)) (diagSet ds)
+
+-- CXDiagnosticSet clang_loadDiagnostics(const char *file,
+--                                       enum CXLoadDiag_Error *error,
+--                                       CXString *errorString);
+%fun unsafe_loadDiagnostics :: FilePath -> IO LoadDiagsResult
+%call (string file)
+%code enum CXLoadDiag_Error err;
+%     CXString errStr;
+%     CXDiagnosticSet r = clang_loadDiagnostics(file, &err, &errStr);
+%     const void* outData = errStr.data;
+%     unsigned outFlags = errStr.private_flags;
+%result (loadDiagsResult err outData outFlags r)
+
+loadDiagnostics :: ClangBase m => FilePath
+                -> ClangT s m (Either (LoadDiagError, CXString s) (DiagnosticSet s))
+loadDiagnostics path = do
+  result <- liftIO $ unsafe_loadDiagnostics path
+  case result of
+    (LoadDiagsResult err errStr ds@(DiagnosticSet p))
+      | p == nullPtr -> Left . (err,) <$> registerCXString (return errStr)
+      | otherwise    -> Right <$> registerDiagnosticSet (return ds)
+
+-- CXDiagnosticSet clang_getChildDiagnostics(CXDiagnostic D);
+%fun unsafe_getChildDiagnostics :: Diagnostic s' -> IO (DiagnosticSet ())
+%call (diag d)
+%code CXDiagnosticSet r = clang_getChildDiagnostics(d);
+%result (diagSet r)
+
+-- Note that as a special case, the DiagnosticSet returned by this
+-- function does not need to be freed, so we intentionally don't
+-- register it.
+getChildDiagnostics :: ClangBase m => Diagnostic s' -> ClangT s m (DiagnosticSet s)
+getChildDiagnostics = unsafeCoerce <$> unsafe_getChildDiagnostics
+
 -- unsigned clang_getNumDiagnostics(CXTranslationUnit Unit);
 %fun clang_getNumDiagnostics :: TranslationUnit s -> IO Int
 %call (translationUnit t)
@@ -892,6 +980,15 @@ registerDiagnostic action = do
 
 getDiagnostic :: ClangBase m => TranslationUnit s' -> Int -> ClangT s m (Diagnostic s)
 getDiagnostic = (registerDiagnostic .) . unsafe_getDiagnostic
+
+-- CXDiagnosticSet clang_getDiagnosticSetFromTU(CXTranslationUnit Unit);  
+%fun unsafe_getDiagnosticSetFromTU :: TranslationUnit s -> IO (DiagnosticSet ())
+%call (translationUnit t)
+%code CXDiagnosticSet r = clang_getDiagnosticSetFromTU(t);
+%result (diagSet r)
+
+getDiagnosticSetFromTU :: ClangBase m => TranslationUnit s' -> ClangT s m (DiagnosticSet s)
+getDiagnosticSetFromTU = registerDiagnosticSet . unsafe_getDiagnosticSetFromTU
 
 -- enum CXDiagnosticDisplayOptions {
 --   CXDiagnostic_DisplaySourceLocation = 0x01,

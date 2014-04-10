@@ -4,11 +4,18 @@
 module Clang.Diagnostic
 ( FFI.DiagnosticSeverity(..)
 , FFI.DiagnosticDisplayOptions(..)
+, FFI.LoadDiagError(..)
 , FFI.Diagnostic
+, FFI.DiagnosticSet
 
 , getDiagnostics
+, getChildDiagnostics
 , defaultDisplayOptions
 , formatDiagnostic
+
+, loadDiagnostics
+, getDiagnosticSetFromTU
+, getDiagnosticsInSet
 
 , getSeverity
 , getSpelling
@@ -34,11 +41,27 @@ getDiagnostics t = do
   numDiags <- liftIO $ FFI.getNumDiagnostics t
   mapM (FFI.getDiagnostic t) [0..(numDiags - 1)]
 
+getChildDiagnostics :: ClangBase m => FFI.Diagnostic s' -> ClangT s m (FFI.DiagnosticSet s)
+getChildDiagnostics = FFI.getChildDiagnostics
+
 formatDiagnostic :: ClangBase m => Maybe [FFI.DiagnosticDisplayOptions] -> FFI.Diagnostic s'
                  -> ClangT s m (ClangString s)
 formatDiagnostic Nothing diag     = FFI.formatDiagnostic diag =<<
                                     liftIO FFI.defaultDiagnosticDisplayOptions
 formatDiagnostic (Just opts) diag = FFI.formatDiagnostic diag (orFlags opts)
+
+loadDiagnostics :: ClangBase m => FilePath
+                -> ClangT s m (Either (FFI.LoadDiagError, ClangString s) (FFI.DiagnosticSet s))
+loadDiagnostics = FFI.loadDiagnostics
+
+getDiagnosticSetFromTU :: ClangBase m => FFI.TranslationUnit s'
+                       -> ClangT s m (FFI.DiagnosticSet s)
+getDiagnosticSetFromTU = FFI.getDiagnosticSetFromTU
+
+getDiagnosticsInSet :: ClangBase m => FFI.DiagnosticSet s' -> ClangT s m [FFI.Diagnostic s]
+getDiagnosticsInSet ds = do
+  numDiags <- liftIO $ FFI.getNumDiagnosticsInSet ds
+  mapM (FFI.getDiagnosticInSet ds) [0..(numDiags - 1)]
 
 getSeverity :: ClangBase m => FFI.Diagnostic s' -> ClangT s m FFI.DiagnosticSeverity
 getSeverity d = liftIO $ FFI.getDiagnosticSeverity d
