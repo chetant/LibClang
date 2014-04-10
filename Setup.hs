@@ -1,5 +1,5 @@
 import Data.List (isPrefixOf)
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, fromMaybe)
 import Control.Monad
 import Control.Applicative
 import Distribution.PackageDescription
@@ -88,7 +88,7 @@ libClangConfHook (pkg, pbi) flags = do
       llvmPrefixDir = llvmBuildDir </> "out"
 
       pdb       = withPrograms lbi 
-      confPrg   = maybe (error "'configure' not found!") id (lookupKnownProgram "configure" pdb)
+      confPrg   = fromMaybe (error "'configure' not found!") (lookupKnownProgram "configure" pdb)
 
   cppStdLib <- preferredStdLib pdb flags
 
@@ -107,12 +107,12 @@ libClangConfHook (pkg, pbi) flags = do
   createDirectoryIfMissingVerbose verbosity True llvmPrefixDir
   let clangLinkPath = llvmRepoDir </> "tools" </> "clang"
   clangLinkExists <- doesDirectoryExist clangLinkPath
-  when (not clangLinkExists) $ createSymbolicLink clangRepoDir clangLinkPath
+  unless clangLinkExists $ createSymbolicLink clangRepoDir clangLinkPath
 
   notice verbosity "Configuring llvm and clang..."
   (cfgCmd, _) <- requireProgram verbosity confPrg pdb
   makefileExists <- doesFileExist $ llvmBuildDir </> "Makefile"
-  when (not makefileExists) $ do
+  unless makefileExists $ do
     setCurrentDirectory llvmBuildDir
     runProgram verbosity cfgCmd
            [ "--enable-optimized"
@@ -155,7 +155,7 @@ libClangBuildHook pkg lbi usrHooks flags = do
         Just ghcPrg = lookupProgram ghcProgram pdb
         ghcPrg' = ghcPrg { programOverrideArgs = programOverrideArgs ghcPrg ++ 
                                                  ["-optl-Wl,-rpath," ++ 
-                                                  (libdir $ absoluteInstallDirs pkg lbi NoCopyDest)
+                                                  libdir (absoluteInstallDirs pkg lbi NoCopyDest)
                                                  ]
                          }
         Just hsc2hsPrg = lookupProgram hsc2hsProgram pdb
@@ -166,9 +166,10 @@ libClangBuildHook pkg lbi usrHooks flags = do
                                                        ,"--lflag="++llvmLibDir
                                                        ]
                                }
-        makeProg = maybe (error "'make' not found!") id (lookupKnownProgram "make" pdb)
-        pdb' = foldr updateProgram pdb [ghcPrg'
-                                       ,if os == "darwin" then hsc2hsPrg' else hsc2hsPrg]
+        makeProg = fromMaybe (error "'make' not found!") (lookupKnownProgram "make" pdb)
+        pdb' = foldr updateProgram pdb [ ghcPrg'
+                                       , if os == "darwin" then hsc2hsPrg' else hsc2hsPrg
+                                       ]
         lbi' = lbi { localPkgDescr = lpd', withPrograms = pdb' }
         bdir = buildDir lbi'
 
@@ -189,7 +190,7 @@ libClangBuildHook pkg lbi usrHooks flags = do
                               (llvmLibDir </> mkStaticLib "clang_static")
 
     -- build the library with the new lbi and pkgDesc
-    (buildHook simpleUserHooks) lpd' lbi' usrHooks flags
+    buildHook simpleUserHooks lpd' lbi' usrHooks flags
 
     (arProg, _) <- requireProgram verbosity arProgram (withPrograms lbi')
     let mkDumpPath l = llvmTmpDir </> l <.> "dump"
@@ -209,16 +210,19 @@ libClangBuildHook pkg lbi usrHooks flags = do
 
     -- get a list of llvm+clang objects we want to link
     notice verbosity "relinking LibClang library.."
-    cObjs <- concat <$> (forM libclangLibrariesFiles $ \l -> do
-                             let dumpPath = mkDumpPath l
-                             (map (dumpPath </>) . filter isObject) <$> 
-                               getDirectoryContents dumpPath)
+    cObjs <- concat <$>
+               forM libclangLibrariesFiles $ \l -> do
+                 let dumpPath = mkDumpPath l
+                 (map (dumpPath </>) . filter isObject) <$> 
+                   getDirectoryContents dumpPath
+
     -- get the haskell objects
     hsObjs <- getHaskellObjects lib lbi' bdir objExtension (splitObjs lbi')
     -- relink the objs into the package libraries
     let staticObjs = cObjs ++ hsObjs ++ 
-                      [bdir </> "src" </> "Clang" </> "Internal" </> mkObject "FFI_stub_ffi"
-                      ,bdir </> "cbits" </> mkObject "visitors"]
+                      [ bdir </> "src" </> "Clang" </> "Internal" </> mkObject "FFI_stub_ffi"
+                      , bdir </> "cbits" </> mkObject "visitors"
+                      ]
         libFile = getLibraryName bdir lbi'
     removeFile libFile
     createArLibArchive verbosity arProg libFile staticObjs
@@ -229,12 +233,12 @@ libClangCleanHook pkg v hooks flags = do
   notice verbosity "Cleaning llvm and clang..."
   curDir <- getCurrentDirectory
   removeDirectoryRecursive $ curDir </> "build"
-  (cleanHook simpleUserHooks) pkg v hooks flags
+  cleanHook simpleUserHooks pkg v hooks flags
   return ()
 
 libClangInstallHook :: PackageDescription -> LocalBuildInfo -> UserHooks -> InstallFlags -> IO ()
 libClangInstallHook pkg lbi hooks flags = do
-  (instHook simpleUserHooks) pkg lbi hooks flags
+  instHook simpleUserHooks pkg lbi hooks flags
   curDir <- getCurrentDirectory
   let llvmLibDir = curDir </> "build" </> "out" </> "lib"
       verbosity = fromFlag (installVerbosity flags)
@@ -266,9 +270,9 @@ getLibraryName pref lbi = getLibName $ filter isLib $ componentsConfigs lbi
     where isLib (CLibName, _, _) = True
           isLib _ = False
           getLibName [(_,clbi,_)]
-              | LibraryName lname <- componentLibraries clbi !! 0 = pref </> mkStaticLib lname
-          getLibName [] = error $ "getLibName: No libraries found!"
-          getLibName _ = error $ "getLibName: more than one library found!"
+              | LibraryName lname <- head (componentLibraries clbi) = pref </> mkStaticLib lname
+          getLibName [] = error "getLibName: No libraries found!"
+          getLibName _ = error "getLibName: more than one library found!"
 
 extractArLibArchive :: Verbosity -> ConfiguredProgram -> FilePath -> IO ()
 extractArLibArchive verbosity ar target = runProgramInvocation verbosity inv
@@ -289,7 +293,7 @@ mkObject = (<.> objExtension)
 
 isObject :: String -> Bool
 isObject = (== objExtWithDot) . takeExtension
-objExtWithDot = "." ++ objExtension
+objExtWithDot = "." : objExtension
 
 data CPPStdLib = LibStdCPP
                | LibCPP
@@ -309,7 +313,7 @@ preferredStdLib pdb flags =
 darwinPreferredStdLib :: ProgramDb -> ConfigFlags -> IO CPPStdLib
 darwinPreferredStdLib pdb flags = do
   let verbosity = fromFlag (configVerbosity flags)
-      swVersPrg = maybe (error "'sw_vers' not found!") id (lookupKnownProgram "sw_vers" pdb)
+      swVersPrg = fromMaybe (error "'sw_vers' not found!") (lookupKnownProgram "sw_vers" pdb)
   (swVersCmd, _) <- requireProgram verbosity swVersPrg pdb
   darwinVer <- getProgramOutput verbosity swVersCmd ["-productVersion"]
 
