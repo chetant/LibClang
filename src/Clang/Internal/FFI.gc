@@ -311,6 +311,11 @@ module Clang.Internal.FFI
 , Inclusion(..)
 , InclusionList
 , getInclusions
+, Remapping
+, getRemappings
+, getRemappingsFromFileList
+, remap_getNumFiles
+, remap_getFilenames
 ) where
 
 import Control.Applicative ((<$>), (<*>))
@@ -4104,3 +4109,83 @@ toInclusionList (is, n) = UnsafeInclusionList is n
 
 getInclusions :: ClangBase m => TranslationUnit s' -> ClangT s m (InclusionList s)
 getInclusions = registerInclusionList . unsafe_getInclusions
+
+-- typedef void* CXRemapping;
+newtype Remapping s = Remapping { unRemapping :: Ptr () }
+
+mkRemapping :: Ptr () -> Remapping ()
+mkRemapping = Remapping
+
+-- void clang_remap_dispose(CXRemapping);
+%fun clang_remap_dispose :: Remapping s -> IO ()
+%call (remapping d)
+%code clang_remap_dispose(d);
+
+registerRemapping :: ClangBase m => IO (Remapping ()) -> ClangT s m (Remapping s)
+registerRemapping action = do
+  (_, idx) <- clangAllocate (action >>= return . unsafeCoerce)
+                            (\i -> remap_dispose i)
+  return idx
+{-# INLINEABLE registerRemapping #-}
+
+%dis remapping i = <unRemapping/mkRemapping> (ptr i)
+
+maybeRemapping :: Remapping s' -> Maybe (Remapping s)
+maybeRemapping (Remapping p) | p == nullPtr = Nothing
+maybeRemapping f                            = Just (unsafeCoerce f)
+
+unMaybeRemapping :: Maybe (Remapping s') -> Remapping s
+unMaybeRemapping (Just f) = unsafeCoerce f
+unMaybeRemapping Nothing  = Remapping nullPtr
+
+%dis maybe_remapping m = <unMaybeRemapping/maybeRemapping> (remapping m)
+
+-- CXRemapping clang_getRemappings(const char *path);
+%fun unsafe_getRemappings :: FilePath -> IO (Maybe (Remapping ()))
+%call (string path)
+%code CXRemapping r = clang_getRemappings(path);
+%result (maybe_remapping r)
+
+getRemappings :: ClangBase m => FilePath -> ClangT s m (Maybe (Remapping s))
+getRemappings path = do
+  mRemappings <- liftIO $ unsafe_getRemappings path
+  case mRemappings of
+    Just remappings -> Just <$> registerRemapping (return remappings)
+    Nothing         -> return Nothing
+
+-- CXRemapping clang_getRemappingsFromFileList(const char **filePaths, unsigned numFiles);
+%fun unsafe_getRemappingsFromFileList :: Ptr CString -> Int -> IO (Maybe (Remapping ()))
+%call (ptr paths) (int numPaths)
+%code CXRemapping r = clang_getRemappingsFromFileList(paths, (unsigned) numPaths);
+%result (maybe_remapping r)
+
+getRemappingsFromFileList :: ClangBase m => [FilePath] -> ClangT s m (Maybe (Remapping s))
+getRemappingsFromFileList paths = do
+  mRemappings <- withStringList paths unsafe_getRemappingsFromFileList
+  case mRemappings of
+    Just remappings -> Just <$> registerRemapping (return remappings)
+    Nothing         -> return Nothing
+
+-- unsigned clang_remap_getNumFiles(CXRemapping);
+%fun clang_remap_getNumFiles :: Remapping s -> IO Int
+%call (remapping remaps)
+%code unsigned r = clang_remap_getNumFiles(remaps);
+%result (int r)
+
+-- void clang_remap_getFilenames(CXRemapping, unsigned index,
+--                               CXString *original, CXString *transformed);
+%fun unsafe_remap_getFilenames :: Remapping s -> Int -> IO (CXString (), CXString ())
+%call (remapping remaps) (int idx)
+%code CXString original;
+%     CXString transformed;
+%     clang_remap_getFilenames(remaps, (unsigned) idx, &original, &transformed);
+%     const void* origData = original.data;
+%     unsigned origFlags = original.private_flags;
+%     const void* trData = transformed.data;
+%     unsigned trFlags = transformed.private_flags;
+%result (cxString (ptr origData) (word32 origFlags), cxString (ptr trData) (word32 trFlags))
+
+remap_getFilenames :: ClangBase m => Remapping s' -> Int -> ClangT s m (CXString s, CXString s)
+remap_getFilenames r idx = do
+  (orig, tr) <- liftIO $ unsafe_remap_getFilenames r idx
+  (,) <$> registerCXString (return orig) <*> registerCXString (return tr)

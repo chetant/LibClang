@@ -62,6 +62,7 @@ Library
                    Clang.File,
                    Clang.Module,
                    Clang.Monad,
+                   Clang.Remapping,
                    Clang.Source,
                    Clang.String,
                    Clang.Token,
