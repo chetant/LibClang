@@ -4161,7 +4161,7 @@ getRemappings path = do
 
 getRemappingsFromFileList :: ClangBase m => [FilePath] -> ClangT s m (Maybe (Remapping s))
 getRemappingsFromFileList paths = do
-  mRemappings <- withStringList paths unsafe_getRemappingsFromFileList
+  mRemappings <- liftIO $ withStringList paths unsafe_getRemappingsFromFileList
   case mRemappings of
     Just remappings -> Just <$> registerRemapping (return remappings)
     Nothing         -> return Nothing
