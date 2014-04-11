@@ -2145,12 +2145,11 @@ instance Eq (Cursor s) where
     {-# INLINE (==) #-}
 
 instance Hashable (Cursor s) where
-    hash (Cursor k _ p1 p2 _) =
+    hashWithSalt salt (Cursor k _ p1 p2 _) =
       let p = if isExpression k || isStatement k then p2 else p1
-          kindHash = hash (marshall_CursorKind k)
+          kindHash = hashWithSalt salt (marshall_CursorKind k)
           pAsInt = fromIntegral (ptrToIntPtr p) :: Int
-          dataHash = hash pAsInt
-      in kindHash `combine` dataHash
+      in hashWithSalt kindHash pAsInt
     {-# INLINE hash #-}
 
 -- CXCursor clang_getNullCursor(void);

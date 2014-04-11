@@ -27,10 +27,16 @@ import Unsafe.Coerce (unsafeCoerce)  -- With GHC 7.8 we can use the safer 'coerc
 
 newtype ClangT s m a = ClangT
   { unClangT :: ResourceT m a
-  } deriving (Applicative, Functor, Monad, MonadIO, MonadResource, MonadThrow, MonadTrans)
+  } deriving (Applicative, Functor, Monad, MonadIO, MonadThrow, MonadTrans)
 
 instance MonadBase b m => MonadBase b (ClangT s m) where
   liftBase = lift . liftBase
+
+instance ClangBase m => MonadResource (ClangT s m) where
+  liftResourceT = transClangT liftIO
+
+transClangT :: (m a -> n b) -> ResourceT m a -> ClangT s n b
+transClangT f rt = ClangT $ transResourceT f rt
 
 type ClangBase m = MonadResourceBase m
 
