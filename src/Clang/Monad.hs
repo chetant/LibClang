@@ -1,5 +1,6 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE RankNTypes #-}
 
 module Clang.Monad
