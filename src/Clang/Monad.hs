@@ -7,6 +7,8 @@ module Clang.Monad
 ( ClangT
 , Clang
 , ClangBase
+, ClangValue(..)
+, ClangValueList(..)
 , Proxy
 , clangScope
 , mkProxy
@@ -14,7 +16,7 @@ module Clang.Monad
 
 import Control.Monad.Trans (lift)
 
-import Clang.Internal.Monad (ClangBase, ClangT, Proxy, runClangT)
+import Clang.Internal.Monad
 
 type Clang s a = ClangT s IO a
 

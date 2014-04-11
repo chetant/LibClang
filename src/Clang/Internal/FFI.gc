@@ -6,6 +6,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
 module Clang.Internal.FFI
 ( Index
@@ -422,6 +423,7 @@ toCInt = fromIntegral
 
 -- typedef void *CXIndex;
 newtype Index s = Index { unIndex :: Ptr () }
+instance ClangValue Index
 
 mkIndex :: Ptr () -> Index ()
 mkIndex = Index
@@ -483,6 +485,7 @@ globalOpt_ThreadBackgroundPriorityForAll = [GlobalOpt_ThreadBackgroundPriorityFo
 
 -- typedef struct CXTranslationUnitImpl *CXTranslationUnit;
 newtype TranslationUnit s = TranslationUnit { unTranslationUnit :: (Ptr ()) }
+instance ClangValue TranslationUnit
 
 mkTranslationUnit :: Ptr () -> TranslationUnit ()
 mkTranslationUnit = TranslationUnit
@@ -629,6 +632,7 @@ instance Storable Version where
 --   unsigned private_flags;
 -- } CXString;
 data CXString s = CXString !(Ptr ()) !Word32
+instance ClangValue CXString
 
 instance Storable (CXString s) where
   sizeOf _ = sizeOfCXString
@@ -695,6 +699,8 @@ getStringHash (CXString p _) = ptrToWordPtr p
 newtype File s = File { unFile :: Ptr () }
   deriving (Eq, Ord)
 
+instance ClangValue File
+
 %dis file p = <unFile/File> (ptr p)
 
 maybeFile :: File s' -> Maybe (File s)
@@ -738,6 +744,7 @@ getFileTime (File ptr) = clang_getFileTime ptr
 --   unsigned int_data;
 -- } CXSourceLocation;
 data SourceLocation s = SourceLocation !(Ptr ()) !(Ptr ()) !Int
+instance ClangValue SourceLocation
 %dis sourceLocation p1 p2 d = SourceLocation (ptr p1) (ptr p2) (int d)
 
 instance Storable (SourceLocation s) where
@@ -768,6 +775,7 @@ instance Storable (SourceLocation s) where
 --   unsigned end_int_data;
 -- } CXSourceRange;
 data SourceRange s = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
+instance ClangValue SourceRange
 %dis sourceRange p1 p2 d1 d2 = SourceRange (ptr p1) (ptr p2) (int d1) (int d2)
 
 -- CXSourceLocation clang_getNullLocation();
@@ -923,6 +931,7 @@ getPresumedLocation l = do
 
 -- typedef void* CXDiagnostic;
 newtype Diagnostic s = Diagnostic { unDiagnostic :: Ptr () }
+instance ClangValue Diagnostic
 
 mkDiagnostic :: Ptr () -> Diagnostic ()
 mkDiagnostic = Diagnostic
@@ -943,6 +952,7 @@ registerDiagnostic action = do
 
 -- typedef void* CXDiagnosticSet;
 newtype DiagnosticSet s = DiagnosticSet { unDiagnosticSet :: Ptr () }
+instance ClangValue DiagnosticSet
 
 mkDiagnosticSet :: Ptr () -> DiagnosticSet ()
 mkDiagnosticSet = DiagnosticSet
@@ -2034,6 +2044,7 @@ cursor_MacroInstantiation = Cursor_MacroExpansion
 -- } CXComment;
 data Comment s = Comment !(Ptr ()) !(Ptr ())
                  deriving (Eq)
+instance ClangValue Comment
 %dis comment p1 p2 = Comment (ptr p1) (ptr p2)
 
 instance Storable (Comment s) where
@@ -2060,6 +2071,7 @@ instance Storable (Comment s) where
 --   const void* data[3];
 -- } CXCursor;
 data Cursor s = Cursor !CursorKind !Int !(Ptr ()) !(Ptr ()) !(Ptr ())
+instance ClangValue Cursor
 %dis cursor k xdata p1 p2 p3 = Cursor (cursorKind k) (int xdata) (ptr p1) (ptr p2) (ptr p3)
 
 instance Storable (Cursor s) where
@@ -2293,6 +2305,8 @@ data PlatformAvailabilityInfo s = PlatformAvailabilityInfo
   , availabilityUnavailableMessage :: !(CXString s)
   , availabilityInfo               :: ![PlatformAvailability]
   }
+
+instance ClangValue PlatformAvailabilityInfo
   
 getCursorPlatformAvailability :: ClangBase m => Cursor s'
                               -> ClangT s m (PlatformAvailabilityInfo s)
@@ -2343,6 +2357,7 @@ cursor_getTranslationUnit c = liftIO $ unsafeCoerce <$> unsafe_Cursor_getTransla
 
 -- typedef struct CXCursorSetImpl *CXCursorSet;
 newtype CursorSet s = CursorSet { unCursorSet :: Ptr () }
+instance ClangValue CursorSet
 
 -- void clang_disposeCXCursorSet(CXCursorSet cset);
 %fun clang_disposeCXCursorSet :: CursorSet s -> IO ()
@@ -2535,6 +2550,7 @@ type_LastBuiltin  = Type_ObjCSel
 --   void *data[2];
 -- } CXType;
 data Type s = Type !TypeKind !(Ptr ()) !(Ptr ())
+instance ClangValue Type
 %dis type k p1 p2 = Type (typeKind k) (ptr p1) (ptr p2)
 
 getTypeKind (Type k _ _) = k
@@ -2878,6 +2894,7 @@ type_getOffsetOf t field = liftIO $ B.useAsCString field $ \cField ->
 
 -- We deliberately don't export the constructor. The only way to unwrap this is registerCursorList.
 type CursorList s = DVS.Vector (Cursor s)
+instance ClangValueList Cursor
 data UnsafeCursorList = UnsafeCursorList !(Ptr ()) !Int
 
 -- void freeCursorList(CXCursor* cursors);
@@ -2935,6 +2952,8 @@ data ParentedCursor s = ParentedCursor
   , childCursor  :: !(Cursor s)
   }
 
+instance ClangValue ParentedCursor
+
 instance Storable (ParentedCursor s) where
     sizeOf _ = sizeOfParentedCursor
     {-# INLINE sizeOf #-}
@@ -2955,6 +2974,7 @@ instance Storable (ParentedCursor s) where
 
 -- We deliberately don't export the constructor. The only way to unwrap this is registerParentedCursorList.
 type ParentedCursorList s = DVS.Vector (ParentedCursor s)
+instance ClangValueList ParentedCursor
 data UnsafeParentedCursorList = UnsafeParentedCursorList !(Ptr ()) !Int
 
 -- void freeParentedCursorList(struct ParentedCursor* parentedCursors);
@@ -3296,6 +3316,7 @@ cursor_getBriefCommentText = registerCXString . unsafe_Cursor_getBriefCommentTex
 
 -- typedef void *CXModule;
 newtype Module s = Module { unModule :: Ptr () }
+instance ClangValue Module
 
 %dis cxmodule p = <unModule/Module> (ptr p)
 
@@ -3749,6 +3770,7 @@ fullComment_getAsXML = registerCXString . unsafe_FullComment_getAsXML
 --   void *ptr_data;
 -- } CXToken;
 data Token s = Token !Int !Int !Int !Int !(Ptr ())
+instance ClangValue Token
 %dis token w x y z p = Token (int w) (int x) (int y) (int z) (ptr p)
 
 instance Storable (Token s) where
@@ -3811,6 +3833,7 @@ getTokenSpelling = (registerCXString .) . unsafe_getTokenSpelling
 
 -- We deliberately don't export the constructor. The only way to unwrap this is registerCursorList.
 type TokenList s = DVS.Vector (Token s)
+instance ClangValueList Token
 data UnsafeTokenList = UnsafeTokenList !(Ptr ()) !Int
 
 foreign import ccall unsafe "FFI_stub_ffi.h clang_disposeTokens" clang_disposeTokens :: Ptr () -> Ptr () -> CUInt -> IO ()
@@ -3891,6 +3914,7 @@ foreign import ccall unsafe "clang-c/Index.h clang_enableStackTraces" enableStac
 
 -- typedef void *CXCompletionString;
 newtype CompletionString s = CompletionString (Ptr ())
+instance ClangValue CompletionString
 %dis completionString x = CompletionString (ptr x)
 
 -- typedef struct {
@@ -3898,6 +3922,7 @@ newtype CompletionString s = CompletionString (Ptr ())
 --   CXCompletionString CompletionString;
 -- } CXCompletionResult;
 data CompletionResult s = CompletionResult !CursorKind !(CompletionString s)
+instance ClangValue CompletionResult
 %dis completionResult k s = CompletionResult (cursorKind k) (competionString s)
 
 -- enum CXCompletionChunkKind {
@@ -4024,6 +4049,7 @@ instance BitFlags CodeCompleteFlags where
 --   unsigned NumResults;
 -- } CXCodeCompleteResults;
 newtype CodeCompleteResults s = CodeCompleteResults (Ptr ())
+instance ClangValue CodeCompleteResults
 
 unCodeCompleteResults :: CodeCompleteResults s -> Ptr ()
 unCodeCompleteResults (CodeCompleteResults p) = p
@@ -4190,6 +4216,7 @@ getClangVersion = registerCXString $ unsafe_getClangVersion
 %fun clang_toggleCrashRecovery :: Bool -> IO ()
 
 data Inclusion s = Inclusion !(File s) !(SourceLocation s) !Bool
+instance ClangValue Inclusion
 
 instance Storable (Inclusion s) where
     sizeOf _ = sizeOfInclusion
@@ -4215,6 +4242,7 @@ instance Storable (Inclusion s) where
     {-# INLINE poke #-}
 
 type InclusionList s = DVS.Vector (Inclusion s)
+instance ClangValueList Inclusion
 data UnsafeInclusionList = UnsafeInclusionList !(Ptr ()) !Int
 
 -- void freeInclusions(struct Inclusion* inclusions);
@@ -4254,6 +4282,7 @@ getInclusions = registerInclusionList . unsafe_getInclusions
 
 -- typedef void* CXRemapping;
 newtype Remapping s = Remapping { unRemapping :: Ptr () }
+instance ClangValue Remapping
 
 mkRemapping :: Ptr () -> Remapping ()
 mkRemapping = Remapping
