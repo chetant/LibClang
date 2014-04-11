@@ -41,6 +41,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 
 import qualified Clang.Internal.FFI as FFI
+import Clang.Internal.Monad (mkProxy)
 import Clang.Monad
 import Clang.String (ClangString)
 

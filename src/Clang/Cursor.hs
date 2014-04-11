@@ -118,6 +118,7 @@ import GHC.Word
 
 import Clang.Internal.BitFlags
 import qualified Clang.Internal.FFI as FFI
+import Clang.Internal.Monad (mkProxy)
 import Clang.Monad
 import Clang.String (ClangString)
 

@@ -15,6 +15,7 @@ module Clang.Internal.Monad
 , Proxy
 , runClangT
 , clangAllocate
+, mkProxy
 ) where
 
 import Control.Applicative
@@ -42,6 +43,10 @@ runClangT f = runResourceT . unClangT $ f
 clangAllocate :: ClangBase m => IO a -> (a -> IO ()) -> ClangT s m (ReleaseKey, a)
 clangAllocate = allocate
 {-# INLINEABLE clangAllocate #-}
+
+mkProxy :: Proxy s
+mkProxy = undefined
+{-# INLINE mkProxy #-}
 
 class ClangValue v where
   -- | Promotes a value from an outer scope to the current inner scope.

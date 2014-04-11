@@ -37,7 +37,6 @@ import System.FilePath ((</>))
 
 import Clang.Internal.BitFlags
 import Clang.Internal.Monad
-import Clang.Monad (mkProxy)
 import qualified Clang.Internal.FFI as FFI
 import Clang.String (ClangString)
 import Paths_LibClang (getDataFileName)

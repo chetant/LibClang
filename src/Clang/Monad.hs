@@ -11,7 +11,6 @@ module Clang.Monad
 , ClangValueList(..)
 , Proxy
 , clangScope
-, mkProxy
 ) where
 
 import Control.Monad.Trans (lift)
@@ -25,7 +24,3 @@ type Clang s a = ClangT s IO a
 clangScope :: ClangBase m => (forall s. ClangT s m a) -> ClangT s' m a
 clangScope = lift . runClangT
 {-# INLINEABLE clangScope #-}
-
-mkProxy :: Proxy s
-mkProxy = undefined
-{-# INLINE mkProxy #-}

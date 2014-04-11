@@ -52,6 +52,7 @@ import Data.Int (Int64)
 import Data.Word (Word64)
 
 import qualified Clang.Internal.FFI as FFI
+import Clang.Internal.Monad (mkProxy)
 import Clang.Monad
 import Clang.String (ClangString)
 

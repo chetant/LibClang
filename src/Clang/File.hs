@@ -17,6 +17,7 @@ import Data.Time.Clock.POSIX (POSIXTime, posixSecondsToUTCTime)
 import Data.Time.Clock (UTCTime)
 
 import qualified Clang.Internal.FFI as FFI
+import Clang.Internal.Monad (mkProxy)
 import Clang.Monad
 import Clang.String (ClangString)
 
