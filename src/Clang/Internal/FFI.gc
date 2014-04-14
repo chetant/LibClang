@@ -239,6 +239,8 @@ module Clang.Internal.FFI
 , cXXMethod_isVirtual
 , getTemplateCursorKind
 , getSpecializedCursorTemplate
+, getCursorReferenceNameRange
+, NameRefFlags(..)
 , CommentKind(..)
 , CommentInlineCommandRenderKind(..)
 , CommentParamPassDirection(..)
@@ -3417,6 +3419,27 @@ module_getFullName = registerCXString . unsafe_Module_getFullName
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXCursor r = clang_getSpecializedCursorTemplate(a);
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
+
+-- CXSourceRange clang_getCursorReferenceNameRange(CXCursor C,
+--                                                 unsigned NameFlags, 
+--                                                 unsigned PieceIndex);
+%fun clang_getCursorReferenceNameRange :: Proxy s -> Cursor s' -> Int -> Int -> IO (SourceRange s)
+%call (proxy) (cursor k xdata p1 p2 p3) (int fs) (int idx)
+%code CXCursor a = {k, xdata, {p1, p2, p3}};
+%     CXSourceRange r = clang_getCursorReferenceNameRange(a, (unsigned) fs, (unsigned) idx);
+%result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
+
+-- enum CXNameRefFlags {
+--   CXNameRange_WantQualifier = 0x1,
+--   CXNameRange_WantTemplateArgs = 0x2,
+--   CXNameRange_WantSinglePiece = 0x4
+-- };
+%enum NameRefFlags (Bounded, Enum, Eq, Ord, Read, Show) Int [CXNameRange_WantQualifier, CXNameRange_WantTemplateArgs, CXNameRange_WantSinglePiece]
+
+instance BitFlags NameRefFlags where
+  toBit NameRange_WantQualifier    = 0x01
+  toBit NameRange_WantTemplateArgs = 0x02
+  toBit NameRange_WantSinglePiece  = 0x04
 
 -- enum CXCommentKind {
 --   CXComment_Null = 0,

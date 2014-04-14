@@ -65,6 +65,8 @@ module Clang.Cursor
 , isVariadic
 , getTemplateKind
 , getTemplateForSpecialization
+, getReferenceNameRange
+, FFI.NameRefFlags(..)
 , getTypeDeclaration
 , getNumArguments
 , getArgument
@@ -222,6 +224,10 @@ getTemplateKind c = liftIO $ FFI.getTemplateCursorKind c
 
 getTemplateForSpecialization :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.Cursor s)
 getTemplateForSpecialization c = liftIO $ FFI.getSpecializedCursorTemplate mkProxy c
+
+getReferenceNameRange :: ClangBase m => FFI.Cursor s' -> [FFI.NameRefFlags] -> Int
+                      -> ClangT s m (FFI.SourceRange s)
+getReferenceNameRange c fs p = liftIO $ FFI.getCursorReferenceNameRange mkProxy c (orFlags fs) p
 
 getTypeDeclaration :: ClangBase m => FFI.Type s' -> ClangT s m (FFI.Cursor s)
 getTypeDeclaration t = liftIO $ FFI.getTypeDeclaration mkProxy t
