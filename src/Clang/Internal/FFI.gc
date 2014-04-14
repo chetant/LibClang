@@ -29,9 +29,11 @@ module Clang.Internal.FFI
 , unsafeGetByteString
 , getStringHash
 , File(..)
-, getFileHash
 , getFileName
 , getFileTime
+, FileUniqueId(..)
+, getFileUniqueID
+, isFileMultipleIncludeGuarded
 , getFile
 , SourceLocation
 , getNullLocation
@@ -703,6 +705,10 @@ newtype File s = File { unFile :: Ptr () }
 
 instance ClangValue File
 
+instance Hashable (File s) where
+  hashWithSalt salt (File p) = let pInt = (fromIntegral $ ptrToWordPtr p) :: Int
+                               in  hashWithSalt salt pInt
+
 %dis file p = <unFile/File> (ptr p)
 
 maybeFile :: File s' -> Maybe (File s)
@@ -714,9 +720,6 @@ unMaybeFile (Just f) = unsafeCoerce f
 unMaybeFile Nothing  = File nullPtr
 
 %dis maybe_file f = <unMaybeFile/maybeFile> (file f)
-
-getFileHash :: File s -> WordPtr
-getFileHash (File p) = ptrToWordPtr p
 
 -- CXString clang_getFileName(CXFile SFile);
 %fun unsafe_getFileName :: File s -> IO (CXString ())
@@ -734,6 +737,35 @@ foreign import ccall unsafe "clang-c/Index.h clang_getFileTime" clang_getFileTim
 
 getFileTime :: File s -> IO CTime
 getFileTime (File ptr) = clang_getFileTime ptr
+
+data FileUniqueId = FileUniqueId !Word64 !Word64 !Word64
+  deriving (Eq, Ord, Show)
+
+instance Hashable FileUniqueId where
+    hashWithSalt salt (FileUniqueId a b c) = (`hashWithSalt` a)
+                                           . (`hashWithSalt` b)
+                                           . (`hashWithSalt` c)
+                                           $ salt
+    {-# INLINE hashWithSalt #-}
+
+maybeFileUniqueID :: (Int, Word64, Word64, Word64) -> Maybe FileUniqueId
+maybeFileUniqueID (v, d1, d2, d3) | v /= 0    = Nothing
+                                  | otherwise = Just $ FileUniqueId d1 d2 d3
+
+%dis maybe_fileUniqueID v d1 d2 d3 = <id/maybeFileUniqueID> (int v) (word64 d1) (word64 d2) (word64 d3)
+
+-- int clang_getFileUniqueID(CXFile file, CXFileUniqueID *outID);
+%fun clang_getFileUniqueID :: File s -> IO (Maybe FileUniqueId)
+%call (file f)
+%code CXFileUniqueID uid;
+%     int r = clang_getFileUniqueID(f, &uid);
+%result (maybe_fileUniqueID r {uid.data[0]} {uid.data[1]} {uid.data[2]})
+
+-- unsigned clang_isFileMultipleIncludeGuarded(CXTranslationUnit tu, CXFile file);
+%fun clang_isFileMultipleIncludeGuarded :: TranslationUnit s -> File s' -> IO Bool
+%call (translationUnit t) (file f)
+%code unsigned r = clang_isFileMultipleIncludeGuarded(t, f);
+%result (bool r)
 
 -- CXFile clang_getFile(CXTranslationUnit tu, const char *file_name);
 %fun clang_getFile :: Proxy s -> TranslationUnit s' -> String -> IO (File s)

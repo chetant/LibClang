@@ -4,11 +4,13 @@
 module Clang.File
 ( FFI.UnsavedFile
 , FFI.File
+, FFI.FileUniqueId
 , getName
-, hashFile
 , getPOSIXTime
 , getUTCTime
 , getFile
+, getFileUniqueId
+, isFileMultipleIncludeGuarded
 ) where
 
 import Control.Monad.IO.Class
@@ -24,9 +26,6 @@ import Clang.String (ClangString)
 getName :: ClangBase m => FFI.File s' -> ClangT s m (ClangString s)
 getName = FFI.getFileName
 
-hashFile :: ClangBase m => FFI.File s' -> ClangT s m Int
-hashFile f = return $! fromIntegral $ FFI.getFileHash f
-
 getPOSIXTime :: ClangBase m => FFI.File s' -> ClangT s m POSIXTime
 getPOSIXTime f = liftIO $ realToFrac <$> FFI.getFileTime f
 
@@ -35,3 +34,10 @@ getUTCTime f = liftIO $ posixSecondsToUTCTime . realToFrac <$> FFI.getFileTime f
 
 getFile :: ClangBase m => FFI.TranslationUnit s' -> FilePath -> ClangT s m (FFI.File s)
 getFile t f = liftIO $ FFI.getFile mkProxy t f
+
+getFileUniqueId :: ClangBase m => FFI.File s' -> ClangT s m (Maybe FFI.FileUniqueId)
+getFileUniqueId f = liftIO $ FFI.getFileUniqueID f
+
+isFileMultipleIncludeGuarded :: ClangBase m => FFI.TranslationUnit s' -> FFI.File s''
+                             -> ClangT s m Bool
+isFileMultipleIncludeGuarded t f = liftIO $ FFI.isFileMultipleIncludeGuarded t f
