@@ -3,34 +3,52 @@
 
 #include "clang-c/Index.h"
 
-// Wrappers for clang_visitChildren.
-struct ParentedCursor
+void freeCursorList(CXCursor* cursors);
+
+typedef struct
 {
   CXCursor parent;
   CXCursor cursor;
-};
+} ParentedCursor;
 
+void freeParentedCursorList(ParentedCursor* parentedCursors);
+
+// Wrappers for libclang traversals.
 void getChildren(CXCursor parent, CXCursor** childrenOut, unsigned* countOut);
-
 void getDescendants(CXCursor parent, CXCursor** childrenOut, unsigned* countOut);
+void getDeclarations(CXTranslationUnit tu, CXCursor** declsOut, unsigned* declCountOut);
+void getReferences(CXTranslationUnit tu, CXCursor** refsOut, unsigned* refCountOut);
+void getDeclarationsAndReferences(CXTranslationUnit tu,
+                                  CXCursor** declsOut, unsigned* declCountOut,
+                                  CXCursor** refsOut, unsigned* refCountOut);
 
-void getParentedDescendants(CXCursor parent, struct ParentedCursor** descendantsOut,
+// Variants that include the parent of each cursor.
+void getParentedDescendants(CXCursor parent,
+                            ParentedCursor** descendantsOut,
                             unsigned* countOut);
-
-void freeCursorList(CXCursor* cursors);
-void freeParentedCursorList(struct ParentedCursor* parentedCursors);
+void getParentedDeclarations(CXTranslationUnit tu,
+                             ParentedCursor** declsOut,
+                             unsigned* declCountOut);
+void getParentedReferences(CXTranslationUnit tu,
+                           ParentedCursor** refsOut,
+                           unsigned* refCountOut);
+void getParentedDeclarationsAndReferences(CXTranslationUnit tu,
+                                          ParentedCursor** declsOut,
+                                          unsigned* declCountOut,
+                                          ParentedCursor** refsOut,
+                                          unsigned* refCountOut);
 
 // Wrappers for clang_getInclusions.
-struct Inclusion
+typedef struct
 {
   CXFile           inclusion;
   CXSourceLocation location;
   unsigned char    isDirect;
-};
+} Inclusion;
 
-void getInclusions(CXTranslationUnit tu, struct Inclusion** inclusionsOut,
+void freeInclusionList(Inclusion* inclusions);
+
+void getInclusions(CXTranslationUnit tu, Inclusion** inclusionsOut,
                    unsigned* countOut);
-
-void freeInclusionList(struct Inclusion* inclusions);
 
 #endif

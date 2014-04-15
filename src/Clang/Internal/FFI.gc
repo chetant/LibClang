@@ -198,9 +198,15 @@ module Clang.Internal.FFI
 , CursorList
 , getChildren
 , getDescendants
+, getDeclarations
+, getReferences
+, getDeclarationsAndReferences
 , ParentedCursor(..)
 , ParentedCursorList
 , getParentedDescendants
+, getParentedDeclarations
+, getParentedReferences
+, getParentedDeclarationsAndReferences
 , getCursorUSR
 , constructUSR_ObjCClass
 , constructUSR_ObjCCategory
@@ -2980,6 +2986,42 @@ getChildren = registerCursorList . unsafe_getChildren
 getDescendants :: ClangBase m => Cursor s' -> ClangT s m (CursorList s)
 getDescendants = registerCursorList . unsafe_getDescendants
 
+-- void getDeclarations(CXTranslationUnit tu, CXCursor** declsOut, unsigned* declCountOut);
+%fun unsafe_getDeclarations :: TranslationUnit s -> IO UnsafeCursorList
+%call (translationUnit t)
+%code CXCursor* children; unsigned count;
+%     getDeclarations(t, &children, &count);
+%result (cursorList children count)
+
+getDeclarations :: ClangBase m => TranslationUnit s' -> ClangT s m (CursorList s)
+getDeclarations = registerCursorList . unsafe_getDeclarations
+
+-- void getReferences(CXTranslationUnit tu, CXCursor** declsOut, unsigned* declCountOut);
+%fun unsafe_getReferences :: TranslationUnit s -> IO UnsafeCursorList
+%call (translationUnit t)
+%code CXCursor* children; unsigned count;
+%     getReferences(t, &children, &count);
+%result (cursorList children count)
+
+getReferences :: ClangBase m => TranslationUnit s' -> ClangT s m (CursorList s)
+getReferences = registerCursorList . unsafe_getReferences
+
+-- void getDeclarationsAndReferences(CXTranslationUnit tu,
+--                                   CXCursor** declsOut, unsigned* declCountOut,
+--                                   CXCursor** refsOut, unsigned* refCountOut);
+%fun unsafe_getDeclarationsAndReferences :: TranslationUnit s -> IO (UnsafeCursorList, UnsafeCursorList)
+%call (translationUnit t)
+%code CXCursor* decls; unsigned declCount;
+%     CXCursor* refs; unsigned refCount;
+%     getDeclarationsAndReferences(t, &decls, &declCount, &refs, &refCount);
+%result (cursorList decls declCount, cursorList refs refCount)
+
+getDeclarationsAndReferences :: ClangBase m => TranslationUnit s'
+                             -> ClangT s m (CursorList s, CursorList s)
+getDeclarationsAndReferences tu = do
+  (ds, rs) <- liftIO $ unsafe_getDeclarationsAndReferences tu
+  (,) <$> registerCursorList (return ds) <*> registerCursorList (return rs)
+
 data ParentedCursor s = ParentedCursor
   { parentCursor :: !(Cursor s)
   , childCursor  :: !(Cursor s)
@@ -3042,12 +3084,48 @@ toParentedCursorList (cs, n) = UnsafeParentedCursorList cs n
 %fun unsafe_getParentedDescendants :: Cursor s -> IO UnsafeParentedCursorList
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor c = {k, xdata, {p1, p2, p3}};
-%     struct ParentedCursor* descendants; unsigned count;
+%     ParentedCursor* descendants; unsigned count;
 %     getParentedDescendants(c, &descendants, &count);
 %result (parentedCursorList descendants count)
 
 getParentedDescendants :: ClangBase m => Cursor s' -> ClangT s m (ParentedCursorList s)
 getParentedDescendants = registerParentedCursorList . unsafe_getParentedDescendants
+
+-- void getParentedDeclarations(CXTranslationUnit tu, CXCursor** declsOut, unsigned* declCountOut);
+%fun unsafe_getParentedDeclarations :: TranslationUnit s -> IO UnsafeParentedCursorList
+%call (translationUnit t)
+%code ParentedCursor* children; unsigned count;
+%     getParentedDeclarations(t, &children, &count);
+%result (parentedCursorList children count)
+
+getParentedDeclarations :: ClangBase m => TranslationUnit s' -> ClangT s m (ParentedCursorList s)
+getParentedDeclarations = registerParentedCursorList . unsafe_getParentedDeclarations
+
+-- void getParentedReferences(CXTranslationUnit tu, CXCursor** declsOut, unsigned* declCountOut);
+%fun unsafe_getParentedReferences :: TranslationUnit s -> IO UnsafeParentedCursorList
+%call (translationUnit t)
+%code ParentedCursor* children; unsigned count;
+%     getParentedReferences(t, &children, &count);
+%result (parentedCursorList children count)
+
+getParentedReferences :: ClangBase m => TranslationUnit s' -> ClangT s m (ParentedCursorList s)
+getParentedReferences = registerParentedCursorList . unsafe_getParentedReferences
+
+-- void getDeclarationsAndReferences(CXTranslationUnit tu,
+--                                   CXCursor** declsOut, unsigned* declCountOut,
+--                                   CXCursor** refsOut, unsigned* refCountOut);
+%fun unsafe_getParentedDeclarationsAndReferences :: TranslationUnit s -> IO (UnsafeParentedCursorList, UnsafeParentedCursorList)
+%call (translationUnit t)
+%code ParentedCursor* decls; unsigned declCount;
+%     ParentedCursor* refs; unsigned refCount;
+%     getParentedDeclarationsAndReferences(t, &decls, &declCount, &refs, &refCount);
+%result (parentedCursorList decls declCount, parentedCursorList refs refCount)
+
+getParentedDeclarationsAndReferences :: ClangBase m => TranslationUnit s'
+                                     -> ClangT s m (ParentedCursorList s, ParentedCursorList s)
+getParentedDeclarationsAndReferences tu = do
+  (ds, rs) <- liftIO $ unsafe_getParentedDeclarationsAndReferences tu
+  (,) <$> registerParentedCursorList (return ds) <*> registerParentedCursorList (return rs)
 
 -- CXString clang_getCursorUSR(CXCursor);
 %fun unsafe_getCursorUSR :: Cursor s -> IO (CXString ())
@@ -4327,7 +4405,7 @@ toInclusionList (is, n) = UnsafeInclusionList is n
 -- void getInclusions(CXTranslationUnit tu, struct Inclusion** inclusionsOut, unsigned* countOut)
 %fun unsafe_getInclusions :: TranslationUnit s -> IO UnsafeInclusionList
 %call (translationUnit t)
-%code struct Inclusion* inclusions; unsigned count;
+%code Inclusion* inclusions; unsigned count;
 %     getInclusions(t, &inclusions, &count);
 %result (inclusionList inclusions count)
 

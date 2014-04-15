@@ -13,8 +13,15 @@ module Clang.Traversal (
   FFI.CursorList
 , getChildren
 , getDescendants
+, getDeclarations
+, getReferences
+, getDeclarationsAndReferences
+
 , FFI.ParentedCursorList
 , getParentedDescendants
+, getParentedDeclarations
+, getParentedReferences
+, getParentedDeclarationsAndReferences
 
 -- * Inclusion traversals
 , FFI.Inclusion(..)
@@ -47,8 +54,31 @@ getChildren = FFI.getChildren
 getDescendants :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.CursorList s)
 getDescendants = FFI.getDescendants
 
+getDeclarations :: ClangBase m => FFI.TranslationUnit s' -> ClangT s m (FFI.CursorList s)
+getDeclarations = FFI.getDeclarations
+
+getReferences :: ClangBase m => FFI.TranslationUnit s' -> ClangT s m (FFI.CursorList s)
+getReferences = FFI.getReferences
+
+getDeclarationsAndReferences :: ClangBase m => FFI.TranslationUnit s'
+                             -> ClangT s m (FFI.CursorList s, FFI.CursorList s)
+getDeclarationsAndReferences = FFI.getDeclarationsAndReferences
+
 getParentedDescendants :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.ParentedCursorList s)
 getParentedDescendants = FFI.getParentedDescendants
+
+getParentedDeclarations :: ClangBase m => FFI.TranslationUnit s'
+                        -> ClangT s m (FFI.ParentedCursorList s)
+getParentedDeclarations = FFI.getParentedDeclarations
+
+getParentedReferences :: ClangBase m => FFI.TranslationUnit s'
+                      -> ClangT s m (FFI.ParentedCursorList s)
+getParentedReferences = FFI.getParentedReferences
+
+getParentedDeclarationsAndReferences :: ClangBase m => FFI.TranslationUnit s'
+                                     -> ClangT s m (FFI.ParentedCursorList s,
+                                                    FFI.ParentedCursorList s)
+getParentedDeclarationsAndReferences = FFI.getParentedDeclarationsAndReferences
 
 getInclusions :: ClangBase m => FFI.TranslationUnit s' -> ClangT s m (FFI.InclusionList s)
 getInclusions = FFI.getInclusions

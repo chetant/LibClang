@@ -71,17 +71,17 @@ offsetCXCursorP2 = (#const offsetof(CXCursor, data) + sizeof(void*)) :: Int
 offsetCXCursorP3 = (#const offsetof(CXCursor, data) + 2 * sizeof(void*)) :: Int
 
 -- ParentedCursor constants.
-sizeOfParentedCursor = (#const sizeof(struct ParentedCursor)) :: Int
+sizeOfParentedCursor = (#const sizeof(ParentedCursor)) :: Int
 alignOfParentedCursor = (#const 4) :: Int
-offsetParentedCursorParent = (#const offsetof(struct ParentedCursor, parent)) :: Int
-offsetParentedCursorCursor = (#const offsetof(struct ParentedCursor, cursor)) :: Int
+offsetParentedCursorParent = (#const offsetof(ParentedCursor, parent)) :: Int
+offsetParentedCursorCursor = (#const offsetof(ParentedCursor, cursor)) :: Int
 
 -- Inclusion constants.
-sizeOfInclusion = (#const sizeof(struct Inclusion)) :: Int
+sizeOfInclusion = (#const sizeof(Inclusion)) :: Int
 alignOfInclusion = (#const 4) :: Int
-offsetInclusionInclusion = (#const offsetof(struct Inclusion, inclusion)) :: Int
-offsetInclusionLocation = (#const offsetof(struct Inclusion, location)) :: Int
-offsetInclusionIsDirect = (#const offsetof(struct Inclusion, isDirect)) :: Int
+offsetInclusionInclusion = (#const offsetof(Inclusion, inclusion)) :: Int
+offsetInclusionLocation = (#const offsetof(Inclusion, location)) :: Int
+offsetInclusionIsDirect = (#const offsetof(Inclusion, isDirect)) :: Int
 
 -- SourceLocation constants.
 sizeOfCXSourceLocation = (#const sizeof(CXSourceLocation)) :: Int
