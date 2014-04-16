@@ -2,14 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Clang.Completion
-( FFI.CompletionString
-, FFI.CompletionResult
-, FFI.CompletionChunkKind(..)
-, FFI.CodeCompleteFlags(..)
-, FFI.CodeCompleteResults
-, FFI.AvailabilityKind(..)
-, FFI.CompletionContext(..)
-, getChunkKind
+( getChunkKind
 , getChunkText
 , getChunkCompletionString
 , getNumChunks
@@ -35,14 +28,13 @@ import qualified Data.Vector as DV
 
 import Clang.Internal.BitFlags
 import qualified Clang.Internal.FFI as FFI
-import Clang.Monad
-import Clang.String (ClangString)
+import Clang.Internal.Monad
 
 getChunkKind :: ClangBase m => FFI.CompletionString s' -> Int
              -> ClangT s m FFI.CompletionChunkKind
 getChunkKind cs i = liftIO $ FFI.getCompletionChunkKind cs i
 
-getChunkText :: ClangBase m => FFI.CompletionString s' -> Int -> ClangT s m (ClangString s)
+getChunkText :: ClangBase m => FFI.CompletionString s' -> Int -> ClangT s m (FFI.ClangString s)
 getChunkText = FFI.getCompletionChunkText
 
 getChunkCompletionString :: ClangBase m => FFI.CompletionString s' -> Int ->
@@ -58,15 +50,15 @@ getPriority cs = liftIO $ FFI.getCompletionPriority cs
 getAvailability :: ClangBase m => FFI.CompletionString s' -> ClangT s m FFI.AvailabilityKind
 getAvailability cs = liftIO $ FFI.getCompletionAvailability cs
 
-getAnnotations :: ClangBase m => FFI.CompletionString s' -> ClangT s m [ClangString s]
+getAnnotations :: ClangBase m => FFI.CompletionString s' -> ClangT s m [FFI.ClangString s]
 getAnnotations cs = do
   numA <- liftIO $ FFI.getCompletionNumAnnotations cs
   mapM (FFI.getCompletionAnnotation cs) [0..(numA - 1)]
 
-getParent :: ClangBase m => FFI.CompletionString s' -> ClangT s m (ClangString s)
+getParent :: ClangBase m => FFI.CompletionString s' -> ClangT s m (FFI.ClangString s)
 getParent = FFI.getCompletionParent
 
-getBriefComment :: ClangBase m => FFI.CompletionString s' -> ClangT s m (ClangString s)
+getBriefComment :: ClangBase m => FFI.CompletionString s' -> ClangT s m (FFI.ClangString s)
 getBriefComment = FFI.getCompletionBriefComment
 
 getCursorCompletionString :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.CompletionString s)
@@ -101,8 +93,8 @@ getContainerKind :: ClangBase m => FFI.CodeCompleteResults s'
                  -> ClangT s m (FFI.CursorKind, Bool)
 getContainerKind rs = liftIO $ FFI.codeCompleteGetContainerKind rs
 
-getContainerUSR :: ClangBase m => FFI.CodeCompleteResults s' -> ClangT s m (ClangString s)
+getContainerUSR :: ClangBase m => FFI.CodeCompleteResults s' -> ClangT s m (FFI.ClangString s)
 getContainerUSR = FFI.codeCompleteGetContainerUSR
 
-getObjCSelector :: ClangBase m => FFI.CodeCompleteResults s' -> ClangT s m (ClangString s)
+getObjCSelector :: ClangBase m => FFI.CodeCompleteResults s' -> ClangT s m (FFI.ClangString s)
 getObjCSelector = FFI.codeCompleteGetObjCSelector

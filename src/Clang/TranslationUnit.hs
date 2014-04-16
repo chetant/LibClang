@@ -3,16 +3,7 @@
 {-# LANGUAGE RankNTypes #-}
 
 module Clang.TranslationUnit
-( FFI.Index
-, FFI.Cursor
-, FFI.ReparseFlags
-, FFI.SaveTranslationUnitFlags(..)
-, FFI.TranslationUnit
-, FFI.TranslationUnitFlags(..)
-, FFI.UnsavedFile
-, FFI.GlobalOptFlags(..)
-, FFI.globalOpt_ThreadBackgroundPriorityForAll
-, getSpelling
+( getSpelling
 , withCreateIndex
 , withCreate
 , withCreateFromSourceFile
@@ -32,16 +23,16 @@ module Clang.TranslationUnit
 
 import Control.Applicative
 import Control.Monad.IO.Class
+import Data.Traversable (traverse)
 import qualified Data.Vector as DV
 import System.FilePath ((</>))
 
 import Clang.Internal.BitFlags
 import Clang.Internal.Monad
 import qualified Clang.Internal.FFI as FFI
-import Clang.String (ClangString)
 import Paths_LibClang (getDataFileName)
 
-getSpelling :: ClangBase m => FFI.TranslationUnit s' -> ClangT s m (ClangString s)
+getSpelling :: ClangBase m => FFI.TranslationUnit s' -> ClangT s m (FFI.ClangString s)
 getSpelling = FFI.getTranslationUnitSpelling
 
 withCreate :: ClangBase m => FFI.Index s' -> String
@@ -71,12 +62,11 @@ withParse ::
   -> DV.Vector FFI.UnsavedFile -- ^ Unsaved files
   -> [FFI.TranslationUnitFlags] -- ^ TranslationUnit flags
   -> (FFI.TranslationUnit s -> ClangT s m a) -- ^ Function that will process the TranslationUnit
-  -> ClangT s m a -- ^ Result to be returned if source couldn't be parsed
-  -> ClangT s m a
-withParse idx ms ss ufs opts f nr = do
+  -> ClangT s m (Maybe a)
+withParse idx ms ss ufs opts f = do
   liftIO $ FFI.setClangResourcesPath idx =<< clangResourcesPath
-  tu <- FFI.parseTranslationUnit idx ms ss ufs (orFlags opts)
-  maybe nr f tu
+  mayTU <- FFI.parseTranslationUnit idx ms ss ufs (orFlags opts)
+  traverse f mayTU
 
 clangResourcesPath :: IO FilePath
 clangResourcesPath =

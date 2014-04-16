@@ -23,7 +23,7 @@ module Clang.Internal.FFI
 , updateUnsavedContents
 , AvailabilityKind(..)
 , Version(..)
-, CXString
+, ClangString
 , getString
 , getByteString
 , unsafeGetByteString
@@ -370,7 +370,7 @@ LibClang uses two strategies to create safe, deterministic
 bindings.
 
 First, all types that either represent resources managed on the C side
-(for example, TranslationUnit and CXString) or contain pointers into
+(for example, TranslationUnit and ClangString) or contain pointers into
 those resources (for example, Cursor) are tagged with an ST-like
 universally quantified phantom type parameter. This prevents them from
 being used outside of the scope in which they were allocated. This is
@@ -380,7 +380,7 @@ their proper scope is critical to making this safe.
 
 Second, all operations that allocate a resource that later
 needs to be freed are wrapped in a type-specific 'register'
-function. An example is registerCXString. This function registers a
+function. An example is registerClangString. This function registers a
 cleanup action with the underlying ClangT monad, which is essentially
 just ResourceT in disguise. This not only provides safety, but it also
 enforces prompt finalization of resources which can significantly
@@ -641,10 +641,10 @@ instance Storable Version where
 --   const void *data;
 --   unsigned private_flags;
 -- } CXString;
-data CXString s = CXString !(Ptr ()) !Word32
-instance ClangValue CXString
+data ClangString s = ClangString !(Ptr ()) !Word32
+instance ClangValue ClangString
 
-instance Storable (CXString s) where
+instance Storable (ClangString s) where
   sizeOf _ = sizeOfCXString
   {-# INLINE sizeOf #-}
 
@@ -654,43 +654,42 @@ instance Storable (CXString s) where
   peek p = do
     strData <- peekByteOff p offsetCXStringData
     strFlags <- peekByteOff p offsetCXStringFlags
-    return $! CXString strData strFlags
+    return $! ClangString strData strFlags
   {-# INLINE peek #-}
 
-  poke p (CXString strData strFlags) = do
+  poke p (ClangString strData strFlags) = do
     pokeByteOff p offsetCXStringData strData
     pokeByteOff p offsetCXStringFlags strFlags
   {-# INLINE poke #-}
 
-registerCXString :: ClangBase m => IO (CXString ()) -> ClangT s m (CXString s)
-registerCXString action = do
+registerClangString :: ClangBase m => IO (ClangString ()) -> ClangT s m (ClangString s)
+registerClangString action = do
   (_, str) <- clangAllocate (action >>= return . unsafeCoerce)
-                            (\(CXString d f) -> freeCXString d f)
+                            (\(ClangString d f) -> freeClangString d f)
   return str
-{-# INLINEABLE registerCXString #-}
+{-# INLINEABLE registerClangString #-}
 
-%C void freeCXString(void* data, unsigned flags) {
+%C void freeClangString(void* data, unsigned flags) {
 %    CXString str;
 %    str.data = data;
 %    str.private_flags = flags;
-%    //printf("Called freeCXString for string [%s]\n", clang_getCString(str));
 %    clang_disposeString(str);
 %  }
-foreign import ccall unsafe "FFI_stub_ffi.h freeCXString" freeCXString :: Ptr () -> Word32 -> IO ()
+foreign import ccall unsafe "FFI_stub_ffi.h freeClangString" freeClangString :: Ptr () -> Word32 -> IO ()
 
-unmarshall_cxString :: Ptr () -> Word32 -> IO (CXString ())
-unmarshall_cxString d f = return $ CXString d f
+unmarshall_clangString :: Ptr () -> Word32 -> IO (ClangString ())
+unmarshall_clangString d f = return $ ClangString d f
 
-getString :: ClangBase m => CXString s' -> ClangT s m String
-getString (CXString d f) = liftIO $ getCStringPtr d f >>= peekCString
+getString :: ClangBase m => ClangString s' -> ClangT s m String
+getString (ClangString d f) = liftIO $ getCStringPtr d f >>= peekCString
 
-getByteString :: ClangBase m => CXString s' -> ClangT s m B.ByteString
-getByteString (CXString d f) = liftIO $ getCStringPtr d f >>= B.packCString
+getByteString :: ClangBase m => ClangString s' -> ClangT s m B.ByteString
+getByteString (ClangString d f) = liftIO $ getCStringPtr d f >>= B.packCString
 
-unsafeGetByteString :: ClangBase m => CXString s' -> ClangT s m B.ByteString
-unsafeGetByteString (CXString d f) = liftIO $ getCStringPtr d f >>= BU.unsafePackCString
+unsafeGetByteString :: ClangBase m => ClangString s' -> ClangT s m B.ByteString
+unsafeGetByteString (ClangString d f) = liftIO $ getCStringPtr d f >>= BU.unsafePackCString
 
--- const char *clang_getCString(CXString string);
+-- const char *clang_getCString(ClangString string);
 %fun clang_getCStringPtr :: Ptr () -> Word32 -> IO CString
 %call (ptr d) (word32 f)
 %code CXString str;
@@ -702,8 +701,8 @@ unsafeGetByteString (CXString d f) = liftIO $ getCStringPtr d f >>= BU.unsafePac
 %dis word32 x    = %%Word32 ({HsWord32} x)
 %dis word64 x    = %%Word64 ({HsWord64} x)
 
-getStringHash :: CXString s -> WordPtr
-getStringHash (CXString p _) = ptrToWordPtr p
+getStringHash :: ClangString s -> WordPtr
+getStringHash (ClangString p _) = ptrToWordPtr p
 
 -- typedef void *CXFile;
 newtype File s = File { unFile :: Ptr () }
@@ -728,15 +727,15 @@ unMaybeFile Nothing  = File nullPtr
 %dis maybe_file f = <unMaybeFile/maybeFile> (file f)
 
 -- CXString clang_getFileName(CXFile SFile);
-%fun unsafe_getFileName :: File s -> IO (CXString ())
+%fun unsafe_getFileName :: File s -> IO (ClangString ())
 %call (file x)
 %code CXString out = clang_getFileName(x);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-getFileName :: ClangBase m => File s' -> ClangT s m (CXString s)
-getFileName = registerCXString . unsafe_getFileName
+getFileName :: ClangBase m => File s' -> ClangT s m (ClangString s)
+getFileName = registerClangString . unsafe_getFileName
 
 -- time_t clang_getFileTime(CXFile SFile);
 foreign import ccall unsafe "clang-c/Index.h clang_getFileTime" clang_getFileTime :: Ptr () -> IO CTime
@@ -905,7 +904,7 @@ instance ClangValue SourceRange
 --                                CXString *filename,
 --                                unsigned *line,
 --                                unsigned *column);
-%fun unsafe_getPresumedLocation :: SourceLocation s' -> IO (CXString (), Int, Int)
+%fun unsafe_getPresumedLocation :: SourceLocation s' -> IO (ClangString (), Int, Int)
 %call (sourceLocation p1 p2 d)
 %code CXSourceLocation l = {{p1, p2}, d};
 %     CXString f;
@@ -913,12 +912,12 @@ instance ClangValue SourceRange
 %     clang_getPresumedLocation(l, &f, &ln, &c);
 %     const void* outData = f.data;
 %     unsigned outFlags = f.private_flags;
-%result ((cxString (ptr outData) (word32 outFlags)), (int ln), (int c))
+%result ((clangString (ptr outData) (word32 outFlags)), (int ln), (int c))
 
-getPresumedLocation :: ClangBase m => SourceLocation s' -> ClangT s m (CXString s, Int, Int)
+getPresumedLocation :: ClangBase m => SourceLocation s' -> ClangT s m (ClangString s, Int, Int)
 getPresumedLocation l = do
   (f, ln, c) <- liftIO $ unsafe_getPresumedLocation l
-  (,,) <$> registerCXString (return f) <*> return ln <*> return c
+  (,,) <$> registerClangString (return f) <*> return ln <*> return c
 
 -- void clang_getSpellingLocation(CXSourceLocation location,
 --                                CXFile *file,
@@ -1035,9 +1034,9 @@ getDiagnosticInSet = (registerDiagnostic .) . unsafe_getDiagnosticInSet
 %enum LoadDiagError (Bounded, Enum, Eq, Ord, Read, Show) Int [CXLoadDiag_None, CXLoadDiag_Unknown, CXLoadDiag_CannotLoad, CXLoadDiag_InvalidFile]
 
 data LoadDiagsResult =
-  LoadDiagsResult LoadDiagError (CXString ()) (DiagnosticSet ())
+  LoadDiagsResult LoadDiagError (ClangString ()) (DiagnosticSet ())
 
-%dis loadDiagsResult err eStrData eStrFlags ds = LoadDiagsResult (loadDiagError err) (cxString (ptr eStrData) (word32 eStrFlags)) (diagSet ds)
+%dis loadDiagsResult err eStrData eStrFlags ds = LoadDiagsResult (loadDiagError err) (clangString (ptr eStrData) (word32 eStrFlags)) (diagSet ds)
 
 -- CXDiagnosticSet clang_loadDiagnostics(const char *file,
 --                                       enum CXLoadDiag_Error *error,
@@ -1052,12 +1051,12 @@ data LoadDiagsResult =
 %result (loadDiagsResult err outData outFlags r)
 
 loadDiagnostics :: ClangBase m => FilePath
-                -> ClangT s m (Either (LoadDiagError, CXString s) (DiagnosticSet s))
+                -> ClangT s m (Either (LoadDiagError, ClangString s) (DiagnosticSet s))
 loadDiagnostics path = do
   result <- liftIO $ unsafe_loadDiagnostics path
   case result of
     (LoadDiagsResult err errStr ds@(DiagnosticSet p))
-      | p == nullPtr -> Left . (err,) <$> registerCXString (return errStr)
+      | p == nullPtr -> Left . (err,) <$> registerClangString (return errStr)
       | otherwise    -> Right <$> registerDiagnosticSet (return ds)
 
 -- CXDiagnosticSet clang_getChildDiagnostics(CXDiagnostic D);
@@ -1115,15 +1114,15 @@ instance BitFlags DiagnosticDisplayOptions where
   toBit Diagnostic_DisplayCategoryName   = 0x20
 
 -- CXString clang_formatDiagnostic(CXDiagnostic Diagnostic, unsigned Options);
-%fun unsafe_formatDiagnostic :: Diagnostic s -> Int -> IO (CXString ())
+%fun unsafe_formatDiagnostic :: Diagnostic s -> Int -> IO (ClangString ())
 %call (diag d) (int i)
 %code CXString out = clang_formatDiagnostic(d, i);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-formatDiagnostic :: ClangBase m => Diagnostic s' -> Int -> ClangT s m (CXString s)
-formatDiagnostic = (registerCXString .) . unsafe_formatDiagnostic
+formatDiagnostic :: ClangBase m => Diagnostic s' -> Int -> ClangT s m (ClangString s)
+formatDiagnostic = (registerClangString .) . unsafe_formatDiagnostic
 
 -- unsigned clang_defaultDiagnosticDisplayOptions(void);
 %fun clang_defaultDiagnosticDisplayOptions :: IO Int
@@ -1141,19 +1140,19 @@ formatDiagnostic = (registerCXString .) . unsafe_formatDiagnostic
 %result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
 
 -- CXString clang_getDiagnosticSpelling(CXDiagnostic);
-%fun unsafe_getDiagnosticSpelling :: Diagnostic s -> IO (CXString ())
+%fun unsafe_getDiagnosticSpelling :: Diagnostic s -> IO (ClangString ())
 %call (diag d)
 %code CXString out = clang_getDiagnosticSpelling(d);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-getDiagnosticSpelling :: ClangBase m => Diagnostic s' -> ClangT s m (CXString s)
-getDiagnosticSpelling = registerCXString . unsafe_getDiagnosticSpelling
+getDiagnosticSpelling :: ClangBase m => Diagnostic s' -> ClangT s m (ClangString s)
+getDiagnosticSpelling = registerClangString . unsafe_getDiagnosticSpelling
 
 -- CXString clang_getDiagnosticOption(CXDiagnostic Diag,
 --                                                   CXString *Disable);
-%fun unsafe_getDiagnosticOption :: Diagnostic s -> IO (CXString (), CXString ())
+%fun unsafe_getDiagnosticOption :: Diagnostic s -> IO (ClangString (), ClangString ())
 %call (diag d)
 %code CXString a;
 %     CXString out = clang_getDiagnosticOption(d, &a);
@@ -1161,12 +1160,12 @@ getDiagnosticSpelling = registerCXString . unsafe_getDiagnosticSpelling
 %     unsigned aFlags = a.private_flags;
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result ((cxString (ptr outData) (word32 outFlags)), (cxString (ptr aData) (word32 aFlags)))
+%result ((clangString (ptr outData) (word32 outFlags)), (clangString (ptr aData) (word32 aFlags)))
 
-getDiagnosticOption :: ClangBase m => Diagnostic s' -> ClangT s m (CXString s, CXString s)
+getDiagnosticOption :: ClangBase m => Diagnostic s' -> ClangT s m (ClangString s, ClangString s)
 getDiagnosticOption d = do
   (a, b) <- liftIO $ unsafe_getDiagnosticOption d
-  (,) <$> registerCXString (return a) <*> registerCXString (return b)
+  (,) <$> registerClangString (return a) <*> registerClangString (return b)
 
 -- unsigned clang_getDiagnosticCategory(CXDiagnostic);
 %fun clang_getDiagnosticCategory :: Diagnostic s -> IO Int
@@ -1175,15 +1174,15 @@ getDiagnosticOption d = do
 %result (int c)
 
 -- CXString clang_getDiagnosticCategoryText(CXDiagnostic);
-%fun unsafe_getDiagnosticCategoryText :: Diagnostic s -> IO (CXString ())
+%fun unsafe_getDiagnosticCategoryText :: Diagnostic s -> IO (ClangString ())
 %call (diag d)
 %code CXString out = clang_getDiagnosticCategoryText(d);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-getDiagnosticCategoryText :: ClangBase m => Diagnostic s' -> ClangT s m (CXString s)
-getDiagnosticCategoryText = registerCXString . unsafe_getDiagnosticCategoryText
+getDiagnosticCategoryText :: ClangBase m => Diagnostic s' -> ClangT s m (ClangString s)
+getDiagnosticCategoryText = registerClangString . unsafe_getDiagnosticCategoryText
 
 -- unsigned clang_getDiagnosticNumRanges(CXDiagnostic);
 %fun clang_getDiagnosticNumRanges :: Diagnostic s -> IO Int
@@ -1207,31 +1206,31 @@ getDiagnosticCategoryText = registerCXString . unsafe_getDiagnosticCategoryText
 -- CXString clang_getDiagnosticFixIt(CXDiagnostic Diagnostic,
 --                                                  unsigned FixIt,
 --                                                CXSourceRange *ReplacementRange);
-%fun unsafe_getDiagnosticFixIt :: Diagnostic s' -> Int -> IO (SourceRange s, CXString ())
+%fun unsafe_getDiagnosticFixIt :: Diagnostic s' -> Int -> IO (SourceRange s, ClangString ())
 %call (diag d) (int i)
 %code CXSourceRange a;
 %     CXString out = clang_getDiagnosticFixIt(d, i, &a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result ((sourceRange {a.ptr_data[0]} {a.ptr_data[1]} {a.begin_int_data} {a.end_int_data}), (cxString (ptr outData) (word32 outFlags)))
+%result ((sourceRange {a.ptr_data[0]} {a.ptr_data[1]} {a.begin_int_data} {a.end_int_data}), (clangString (ptr outData) (word32 outFlags)))
 
 getDiagnosticFixIt :: ClangBase m => Diagnostic s' -> Int
-                   -> ClangT s m (SourceRange s, CXString s)
+                   -> ClangT s m (SourceRange s, ClangString s)
 getDiagnosticFixIt d i = do
   (r, s) <- liftIO $ unsafe_getDiagnosticFixIt d i
-  (r,) <$> registerCXString (return s)
+  (r,) <$> registerClangString (return s)
 
 -- CXString
 -- clang_getTranslationUnitSpelling(CXTranslationUnit CTUnit);
-%fun unsafe_getTranslationUnitSpelling :: TranslationUnit s -> IO (CXString ())
+%fun unsafe_getTranslationUnitSpelling :: TranslationUnit s -> IO (ClangString ())
 %call (translationUnit t)
 %code CXString out = clang_getTranslationUnitSpelling(t);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-getTranslationUnitSpelling :: ClangBase m => TranslationUnit s' -> ClangT s m (CXString s)
-getTranslationUnitSpelling = registerCXString . unsafe_getTranslationUnitSpelling
+getTranslationUnitSpelling :: ClangBase m => TranslationUnit s' -> ClangT s m (ClangString s)
+getTranslationUnitSpelling = registerClangString . unsafe_getTranslationUnitSpelling
 
 -- CXTranslationUnit clang_createTranslationUnitFromSourceFile(
 --                                          CXIndex CIdx,
@@ -2289,7 +2288,7 @@ instance Storable PlatformAvailability where
   {-# INLINE alignment #-}
 
   peek p = do
-    (CXString platD platF) <- peekByteOff p offsetCXPlatformAvailabilityPlatform
+    (ClangString platD platF) <- peekByteOff p offsetCXPlatformAvailabilityPlatform
     platform <- B.packCString =<< getCStringPtr platD platF
 
     introduced <- peekByteOff p offsetCXPlatformAvailabilityIntroduced
@@ -2297,7 +2296,7 @@ instance Storable PlatformAvailability where
     obsoleted <- peekByteOff p offsetCXPlatformAvailabilityObsoleted
     intUnavailable <- fromCInt <$> peekByteOff p offsetCXPlatformAvailabilityUnavailable
 
-    (CXString msgD msgF) <- peekByteOff p offsetCXPlatformAvailabilityMessage
+    (ClangString msgD msgF) <- peekByteOff p offsetCXPlatformAvailabilityMessage
     message <- B.packCString =<< getCStringPtr msgD msgF
 
     return $! PlatformAvailability platform introduced deprecated obsoleted
@@ -2305,7 +2304,7 @@ instance Storable PlatformAvailability where
                                    message
   {-# INLINE peek #-}
 
-  -- Since we can't construct CXStrings, we can't really poke these.
+  -- Since we can't construct ClangStrings, we can't really poke these.
   poke _ _ = undefined
   {-# INLINE poke #-}
   
@@ -2321,7 +2320,7 @@ instance Storable PlatformAvailability where
 --                                         CXString *unavailable_message,
 --                                         CXPlatformAvailability *availability,
 --                                         int availability_size);
-%fun unsafe_getCursorPlatformAvailability :: Cursor s' -> Ptr PlatformAvailability -> Int -> IO (Bool, CXString (), Bool, CXString (), Int)
+%fun unsafe_getCursorPlatformAvailability :: Cursor s' -> Ptr PlatformAvailability -> Int -> IO (Bool, ClangString (), Bool, ClangString (), Int)
 %call (cursor k xdata p1 p2 p3) (ptr dest) (int destLen)
 %code CXCursor c = {k, xdata, {p1, p2, p3}};
 %     int ad;
@@ -2335,13 +2334,13 @@ instance Storable PlatformAvailability where
 %     unsigned dMsgFlags = dMsg.private_flags;
 %     const void* uMsgData = uMsg.data;
 %     unsigned uMsgFlags = uMsg.private_flags;
-%result (bool ad, cxString (ptr dMsgData) (word32 dMsgFlags), bool au, cxString (ptr uMsgData) (word32 uMsgFlags), int size)
+%result (bool ad, clangString (ptr dMsgData) (word32 dMsgFlags), bool au, clangString (ptr uMsgData) (word32 uMsgFlags), int size)
 
 data PlatformAvailabilityInfo s = PlatformAvailabilityInfo
   { availabilityAlwaysDeprecated   :: !Bool
-  , availabilityDeprecatedMessage  :: !(CXString s)
+  , availabilityDeprecatedMessage  :: !(ClangString s)
   , availabilityAlwaysUnavailable  :: !Bool
-  , availabilityUnavailableMessage :: !(CXString s)
+  , availabilityUnavailableMessage :: !(ClangString s)
   , availabilityInfo               :: ![PlatformAvailability]
   }
 
@@ -2359,8 +2358,8 @@ getCursorPlatformAvailability c = do
         forM_ [0..(count - 1)] $ \idx -> do
           disposeCXPlatformAvailability (advancePtr p idx)
         return (ad, dMsg, au, uMsg, infos)
-    dMsg' <- registerCXString $ return dMsg
-    uMsg' <- registerCXString $ return uMsg
+    dMsg' <- registerClangString $ return dMsg
+    uMsg' <- registerClangString $ return uMsg
     return $ PlatformAvailabilityInfo ad dMsg' au uMsg' infos
   where
     maxPlatformAvailability = 32
@@ -2602,16 +2601,16 @@ getTypeKind (Type k _ _) = k
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
 -- CXString clang_getTypeSpelling(CXType CT);
-%fun unsafe_getTypeSpelling :: (Type s) -> IO (CXString ())
+%fun unsafe_getTypeSpelling :: (Type s) -> IO (ClangString ())
 %call (type k p1 p2)
 %code CXType t = {k, {p1, p2}};
 %     CXString out = clang_getTypeSpelling(t);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-getTypeSpelling :: ClangBase m => (Type s') -> ClangT s m (CXString s)
-getTypeSpelling = registerCXString . unsafe_getTypeSpelling
+getTypeSpelling :: ClangBase m => (Type s') -> ClangT s m (ClangString s)
+getTypeSpelling = registerClangString . unsafe_getTypeSpelling
 
 -- CXType clang_getTypedefDeclUnderlyingType(CXCursor C);
 %fun clang_getTypedefDeclUnderlyingType :: Proxy s -> Cursor s' -> IO (Type s)
@@ -2715,27 +2714,27 @@ getTypeSpelling = registerCXString . unsafe_getTypeSpelling
 %result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
 
 -- CXString clang_getDeclObjCTypeEncoding(CXCursor C);
-%fun unsafe_getDeclObjCTypeEncoding :: Cursor s -> IO (CXString ())
+%fun unsafe_getDeclObjCTypeEncoding :: Cursor s -> IO (ClangString ())
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString out = clang_getDeclObjCTypeEncoding(a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-getDeclObjCTypeEncoding :: ClangBase m => Cursor s' -> ClangT s m (CXString s)
-getDeclObjCTypeEncoding = registerCXString . unsafe_getDeclObjCTypeEncoding
+getDeclObjCTypeEncoding :: ClangBase m => Cursor s' -> ClangT s m (ClangString s)
+getDeclObjCTypeEncoding = registerClangString . unsafe_getDeclObjCTypeEncoding
 
 -- CXString clang_getTypeKindSpelling(enum CXTypeKind K);
-%fun unsafe_getTypeKindSpelling :: TypeKind -> IO (CXString ())
+%fun unsafe_getTypeKindSpelling :: TypeKind -> IO (ClangString ())
 %call (typeKind tk)
 %code CXString out = clang_getTypeKindSpelling(tk);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-getTypeKindSpelling :: ClangBase m => TypeKind -> ClangT s m (CXString s)
-getTypeKindSpelling = registerCXString . unsafe_getTypeKindSpelling
+getTypeKindSpelling :: ClangBase m => TypeKind -> ClangT s m (ClangString s)
+getTypeKindSpelling = registerClangString . unsafe_getTypeKindSpelling
 
 -- enum CXCallingConv clang_getFunctionTypeCallingConv(CXType T);
 %fun clang_getFunctionTypeCallingConv :: Type s' -> IO CallingConv
@@ -3128,56 +3127,56 @@ getParentedDeclarationsAndReferences tu = do
   (,) <$> registerParentedCursorList (return ds) <*> registerParentedCursorList (return rs)
 
 -- CXString clang_getCursorUSR(CXCursor);
-%fun unsafe_getCursorUSR :: Cursor s -> IO (CXString ())
+%fun unsafe_getCursorUSR :: Cursor s -> IO (ClangString ())
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString out = clang_getCursorUSR(a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-getCursorUSR :: ClangBase m => Cursor s' -> ClangT s m (CXString s)
-getCursorUSR = registerCXString . unsafe_getCursorUSR
+getCursorUSR :: ClangBase m => Cursor s' -> ClangT s m (ClangString s)
+getCursorUSR = registerClangString . unsafe_getCursorUSR
 
 -- CXString clang_constructUSR_ObjCClass(const char *class_name);
-%fun unsafe_constructUSR_ObjCClass :: String -> IO (CXString ())
+%fun unsafe_constructUSR_ObjCClass :: String -> IO (ClangString ())
 %call (string s)
 %code CXString out = clang_constructUSR_ObjCClass(s);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-constructUSR_ObjCClass :: ClangBase m => String -> ClangT s m (CXString s)
-constructUSR_ObjCClass = registerCXString . unsafe_constructUSR_ObjCClass
+constructUSR_ObjCClass :: ClangBase m => String -> ClangT s m (ClangString s)
+constructUSR_ObjCClass = registerClangString . unsafe_constructUSR_ObjCClass
 
 -- CXString
 --   clang_constructUSR_ObjCCategory(const char *class_name,
 --                                  const char *category_name);
-%fun unsafe_constructUSR_ObjCCategory :: String -> String -> IO (CXString ())
+%fun unsafe_constructUSR_ObjCCategory :: String -> String -> IO (ClangString ())
 %call (string s) (string p)
 %code CXString out = clang_constructUSR_ObjCCategory(s, p);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-constructUSR_ObjCCategory :: ClangBase m => String -> String -> ClangT s m (CXString s)
-constructUSR_ObjCCategory = (registerCXString .) . unsafe_constructUSR_ObjCCategory
+constructUSR_ObjCCategory :: ClangBase m => String -> String -> ClangT s m (ClangString s)
+constructUSR_ObjCCategory = (registerClangString .) . unsafe_constructUSR_ObjCCategory
 
 -- CXString
 --   clang_constructUSR_ObjCProtocol(const char *protocol_name);
-%fun unsafe_constructUSR_ObjCProtocol :: String -> IO (CXString ())
+%fun unsafe_constructUSR_ObjCProtocol :: String -> IO (ClangString ())
 %call (string s)
 %code CXString out = clang_constructUSR_ObjCProtocol(s);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-constructUSR_ObjCProtocol :: ClangBase m => String -> ClangT s m (CXString s)
-constructUSR_ObjCProtocol = registerCXString . unsafe_constructUSR_ObjCProtocol
+constructUSR_ObjCProtocol :: ClangBase m => String -> ClangT s m (ClangString s)
+constructUSR_ObjCProtocol = registerClangString . unsafe_constructUSR_ObjCProtocol
 
 -- CXString clang_constructUSR_ObjCIvar(const char *name,
 --                                                     CXString classUSR);
-%fun unsafe_constructUSR_ObjCIvar :: String -> Ptr () -> Word32 -> IO (CXString ())
+%fun unsafe_constructUSR_ObjCIvar :: String -> Ptr () -> Word32 -> IO (ClangString ())
 %call (string s) (ptr d) (word32 f)
 %code CXString str;
 %     str.data = d;
@@ -3185,15 +3184,15 @@ constructUSR_ObjCProtocol = registerCXString . unsafe_constructUSR_ObjCProtocol
 %     CXString out = clang_constructUSR_ObjCIvar(s, str);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-constructUSR_ObjCIvar :: ClangBase m => String -> CXString s' -> ClangT s m (CXString s)
-constructUSR_ObjCIvar s (CXString d f) = registerCXString $ unsafe_constructUSR_ObjCIvar s d f
+constructUSR_ObjCIvar :: ClangBase m => String -> ClangString s' -> ClangT s m (ClangString s)
+constructUSR_ObjCIvar s (ClangString d f) = registerClangString $ unsafe_constructUSR_ObjCIvar s d f
 
 -- CXString clang_constructUSR_ObjCMethod(const char *name,
 --                                                       unsigned isInstanceMethod,
 --                                                       CXString classUSR);
-%fun unsafe_constructUSR_ObjCMethod :: String -> Bool -> Ptr () -> Word32 -> IO (CXString ())
+%fun unsafe_constructUSR_ObjCMethod :: String -> Bool -> Ptr () -> Word32 -> IO (ClangString ())
 %call (string s) (bool b) (ptr d) (word32 f)
 %code CXString str;
 %     str.data = d;
@@ -3201,15 +3200,15 @@ constructUSR_ObjCIvar s (CXString d f) = registerCXString $ unsafe_constructUSR_
 %     CXString out = clang_constructUSR_ObjCMethod(s, b, str);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-constructUSR_ObjCMethod :: ClangBase m => String -> Bool -> CXString s' -> ClangT s m (CXString s)
-constructUSR_ObjCMethod s b (CXString d f) =
-  registerCXString $ unsafe_constructUSR_ObjCMethod s b d f
+constructUSR_ObjCMethod :: ClangBase m => String -> Bool -> ClangString s' -> ClangT s m (ClangString s)
+constructUSR_ObjCMethod s b (ClangString d f) =
+  registerClangString $ unsafe_constructUSR_ObjCMethod s b d f
 
 -- CXString clang_constructUSR_ObjCProperty(const char *property,
 --                                                         CXString classUSR);
-%fun unsafe_constructUSR_ObjCProperty :: String -> Ptr () -> Word32 -> IO (CXString ())
+%fun unsafe_constructUSR_ObjCProperty :: String -> Ptr () -> Word32 -> IO (ClangString ())
 %call (string s) (ptr d) (word32 f)
 %code CXString str;
 %     str.data = d;
@@ -3217,23 +3216,23 @@ constructUSR_ObjCMethod s b (CXString d f) =
 %     CXString out = clang_constructUSR_ObjCProperty(s, str);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-constructUSR_ObjCProperty :: ClangBase m => String -> CXString s' -> ClangT s m (CXString s)
-constructUSR_ObjCProperty s (CXString d f) =
-  registerCXString $ unsafe_constructUSR_ObjCProperty s d f
+constructUSR_ObjCProperty :: ClangBase m => String -> ClangString s' -> ClangT s m (ClangString s)
+constructUSR_ObjCProperty s (ClangString d f) =
+  registerClangString $ unsafe_constructUSR_ObjCProperty s d f
 
 -- CXString clang_getCursorSpelling(CXCursor);
-%fun unsafe_getCursorSpelling :: Cursor s -> IO (CXString ())
+%fun unsafe_getCursorSpelling :: Cursor s -> IO (ClangString ())
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString out = clang_getCursorSpelling(a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-getCursorSpelling :: ClangBase m => Cursor s' -> ClangT s m (CXString s)
-getCursorSpelling = registerCXString . unsafe_getCursorSpelling
+getCursorSpelling :: ClangBase m => Cursor s' -> ClangT s m (ClangString s)
+getCursorSpelling = registerClangString . unsafe_getCursorSpelling
 
 -- CXSourceRange clang_Cursor_getSpellingNameRange(CXCursor,
 --                                                 unsigned pieceIndex,
@@ -3245,16 +3244,16 @@ getCursorSpelling = registerCXString . unsafe_getCursorSpelling
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
 
 -- CXString clang_getCursorDisplayName(CXCursor);
-%fun unsafe_getCursorDisplayName :: Cursor s -> IO (CXString ())
+%fun unsafe_getCursorDisplayName :: Cursor s -> IO (ClangString ())
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString out = clang_getCursorDisplayName(a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-getCursorDisplayName :: ClangBase m => Cursor s' -> ClangT s m (CXString s)
-getCursorDisplayName = registerCXString . unsafe_getCursorDisplayName
+getCursorDisplayName :: ClangBase m => Cursor s' -> ClangT s m (ClangString s)
+getCursorDisplayName = registerClangString . unsafe_getCursorDisplayName
   
 -- CXCursor clang_getCursorReferenced(CXCursor);
 %fun clang_getCursorReferenced :: Proxy s -> Cursor s' -> IO (Cursor s)
@@ -3395,28 +3394,28 @@ instance BitFlags ObjCDeclQualifierKind where
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
 
 -- CXString clang_Cursor_getRawCommentText(CXCursor C);
-%fun unsafe_Cursor_getRawCommentText :: Cursor s' -> IO (CXString ())
+%fun unsafe_Cursor_getRawCommentText :: Cursor s' -> IO (ClangString ())
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString out = clang_Cursor_getRawCommentText(a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-cursor_getRawCommentText :: ClangBase m => Cursor s' -> ClangT s m (CXString s)
-cursor_getRawCommentText = registerCXString . unsafe_Cursor_getRawCommentText
+cursor_getRawCommentText :: ClangBase m => Cursor s' -> ClangT s m (ClangString s)
+cursor_getRawCommentText = registerClangString . unsafe_Cursor_getRawCommentText
 
 -- CXString clang_Cursor_getBriefCommentText(CXCursor C);
-%fun unsafe_Cursor_getBriefCommentText :: Cursor s' -> IO (CXString ())
+%fun unsafe_Cursor_getBriefCommentText :: Cursor s' -> IO (ClangString ())
 %call (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXString out = clang_Cursor_getBriefCommentText(a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-cursor_getBriefCommentText :: ClangBase m => Cursor s' -> ClangT s m (CXString s)
-cursor_getBriefCommentText = registerCXString . unsafe_Cursor_getBriefCommentText
+cursor_getBriefCommentText :: ClangBase m => Cursor s' -> ClangT s m (ClangString s)
+cursor_getBriefCommentText = registerClangString . unsafe_Cursor_getBriefCommentText
 
 -- CXComment clang_Cursor_getParsedComment(CXCursor C);
 %fun clang_Cursor_getParsedComment :: Proxy s -> Cursor s' -> IO (Comment s)
@@ -3461,26 +3460,26 @@ unMaybeModule Nothing  = Module nullPtr
 %result (maybe_cxmodule r)
 
 -- CXString clang_Module_getName(CXModule Module);
-%fun unsafe_Module_getName :: Module s -> IO (CXString ())
+%fun unsafe_Module_getName :: Module s -> IO (ClangString ())
 %call (cxmodule m)
 %code CXString out = clang_Module_getName(m);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-module_getName :: ClangBase m => Module s' -> ClangT s m (CXString s)
-module_getName = registerCXString . unsafe_Module_getName
+module_getName :: ClangBase m => Module s' -> ClangT s m (ClangString s)
+module_getName = registerClangString . unsafe_Module_getName
 
 -- CXString clang_Module_getFullName(CXModule Module);
-%fun unsafe_Module_getFullName :: Module s -> IO (CXString ())
+%fun unsafe_Module_getFullName :: Module s -> IO (ClangString ())
 %call (cxmodule m)
 %code CXString out = clang_Module_getFullName(m);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-module_getFullName :: ClangBase m => Module s' -> ClangT s m (CXString s)
-module_getFullName = registerCXString . unsafe_Module_getFullName
+module_getFullName :: ClangBase m => Module s' -> ClangT s m (ClangString s)
+module_getFullName = registerClangString . unsafe_Module_getFullName
 
 -- unsigned clang_Module_getNumTopLevelHeaders(CXTranslationUnit, CXModule Module);
 %fun clang_Module_getNumTopLevelHeaders :: TranslationUnit s -> Module s' -> IO Int
@@ -3618,28 +3617,28 @@ instance BitFlags NameRefFlags where
 %result (bool r)
 
 -- CXString clang_TextComment_getText(CXComment Comment);
-%fun unsafe_TextComment_getText :: Comment s -> IO (CXString ())
+%fun unsafe_TextComment_getText :: Comment s -> IO (ClangString ())
 %call (comment p1 p2)
 %code CXComment a = {p1, p2};
 %     CXString out = clang_TextComment_getText(a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-textComment_getText :: ClangBase m => Comment s' -> ClangT s m (CXString s)
-textComment_getText = registerCXString . unsafe_TextComment_getText
+textComment_getText :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
+textComment_getText = registerClangString . unsafe_TextComment_getText
 
 -- CXString clang_InlineCommandComment_getCommandName(CXComment Comment);
-%fun unsafe_InlineCommandComment_getCommandName :: Comment s -> IO (CXString ())
+%fun unsafe_InlineCommandComment_getCommandName :: Comment s -> IO (ClangString ())
 %call (comment p1 p2)
 %code CXComment a = {p1, p2};
 %     CXString out = clang_InlineCommandComment_getCommandName(a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-inlineCommandComment_getCommandName :: ClangBase m => Comment s' -> ClangT s m (CXString s)
-inlineCommandComment_getCommandName = registerCXString . unsafe_InlineCommandComment_getCommandName
+inlineCommandComment_getCommandName :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
+inlineCommandComment_getCommandName = registerClangString . unsafe_InlineCommandComment_getCommandName
 
 -- enum CXCommentInlineCommandRenderKind clang_InlineCommandComment_getRenderKind(CXComment Comment);
 %fun clang_InlineCommandComment_getRenderKind :: Comment s -> IO CommentInlineCommandRenderKind
@@ -3656,28 +3655,28 @@ inlineCommandComment_getCommandName = registerCXString . unsafe_InlineCommandCom
 %result (int r)
 
 -- CXString clang_InlineCommandComment_getArgText(CXComment Comment, unsigned ArgIdx);
-%fun unsafe_InlineCommandComment_getArgText :: Comment s -> Int -> IO (CXString ())
+%fun unsafe_InlineCommandComment_getArgText :: Comment s -> Int -> IO (ClangString ())
 %call (comment p1 p2) (int idx)
 %code CXComment a = {p1, p2};
 %     CXString out = clang_InlineCommandComment_getArgText(a, idx);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-inlineCommandComment_getArgText :: ClangBase m => Comment s' -> Int -> ClangT s m (CXString s)
-inlineCommandComment_getArgText = (registerCXString .) . unsafe_InlineCommandComment_getArgText
+inlineCommandComment_getArgText :: ClangBase m => Comment s' -> Int -> ClangT s m (ClangString s)
+inlineCommandComment_getArgText = (registerClangString .) . unsafe_InlineCommandComment_getArgText
 
 -- CXString clang_HTMLTagComment_getTagName(CXComment Comment);
-%fun unsafe_HTMLTagComment_getTagName :: Comment s -> IO (CXString ())
+%fun unsafe_HTMLTagComment_getTagName :: Comment s -> IO (ClangString ())
 %call (comment p1 p2)
 %code CXComment a = {p1, p2};
 %     CXString out = clang_HTMLTagComment_getTagName(a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-hTMLTagComment_getTagName :: ClangBase m => Comment s' -> ClangT s m (CXString s)
-hTMLTagComment_getTagName = registerCXString . unsafe_HTMLTagComment_getTagName
+hTMLTagComment_getTagName :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
+hTMLTagComment_getTagName = registerClangString . unsafe_HTMLTagComment_getTagName
 
 -- unsigned clang_HTMLStartTagComment_isSelfClosing(CXComment Comment);
 %fun clang_HTMLStartTagComment_isSelfClosing :: Comment s -> IO Bool
@@ -3694,40 +3693,40 @@ hTMLTagComment_getTagName = registerCXString . unsafe_HTMLTagComment_getTagName
 %result (int r)
 
 -- CXString clang_HTMLStartTag_getAttrName(CXComment Comment, unsigned AttrIdx);
-%fun unsafe_HTMLStartTag_getAttrName :: Comment s -> Int -> IO (CXString ())
+%fun unsafe_HTMLStartTag_getAttrName :: Comment s -> Int -> IO (ClangString ())
 %call (comment p1 p2) (int idx)
 %code CXComment a = {p1, p2};
 %     CXString out = clang_HTMLStartTag_getAttrName(a, idx);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-hTMLStartTag_getAttrName :: ClangBase m => Comment s' -> Int -> ClangT s m (CXString s)
-hTMLStartTag_getAttrName = (registerCXString .) . unsafe_HTMLStartTag_getAttrName
+hTMLStartTag_getAttrName :: ClangBase m => Comment s' -> Int -> ClangT s m (ClangString s)
+hTMLStartTag_getAttrName = (registerClangString .) . unsafe_HTMLStartTag_getAttrName
 
 -- CXString clang_HTMLStartTag_getAttrValue(CXComment Comment, unsigned AttrIdx);
-%fun unsafe_HTMLStartTag_getAttrValue :: Comment s -> Int -> IO (CXString ())
+%fun unsafe_HTMLStartTag_getAttrValue :: Comment s -> Int -> IO (ClangString ())
 %call (comment p1 p2) (int idx)
 %code CXComment a = {p1, p2};
 %     CXString out = clang_HTMLStartTag_getAttrValue(a, idx);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-hTMLStartTag_getAttrValue :: ClangBase m => Comment s' -> Int -> ClangT s m (CXString s)
-hTMLStartTag_getAttrValue = (registerCXString .) . unsafe_HTMLStartTag_getAttrValue
+hTMLStartTag_getAttrValue :: ClangBase m => Comment s' -> Int -> ClangT s m (ClangString s)
+hTMLStartTag_getAttrValue = (registerClangString .) . unsafe_HTMLStartTag_getAttrValue
 
 -- CXString clang_BlockCommandComment_getCommandName(CXComment Comment);
-%fun unsafe_BlockCommandComment_getCommandName :: Comment s -> IO (CXString ())
+%fun unsafe_BlockCommandComment_getCommandName :: Comment s -> IO (ClangString ())
 %call (comment p1 p2)
 %code CXComment a = {p1, p2};
 %     CXString out = clang_BlockCommandComment_getCommandName(a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-blockCommandComment_getCommandName :: ClangBase m => Comment s' -> ClangT s m (CXString s)
-blockCommandComment_getCommandName = registerCXString . unsafe_BlockCommandComment_getCommandName
+blockCommandComment_getCommandName :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
+blockCommandComment_getCommandName = registerClangString . unsafe_BlockCommandComment_getCommandName
 
 -- unsigned clang_BlockCommandComment_getNumArgs(CXComment Comment);
 %fun clang_BlockCommandComment_getNumArgs :: Comment s -> IO Int
@@ -3737,16 +3736,16 @@ blockCommandComment_getCommandName = registerCXString . unsafe_BlockCommandComme
 %result (int r)
 
 -- CXString clang_BlockCommandComment_getArgText(CXComment Comment, unsigned ArgIdx);
-%fun unsafe_BlockCommandComment_getArgText :: Comment s -> Int -> IO (CXString ())
+%fun unsafe_BlockCommandComment_getArgText :: Comment s -> Int -> IO (ClangString ())
 %call (comment p1 p2) (int idx)
 %code CXComment a = {p1, p2};
 %     CXString out = clang_BlockCommandComment_getArgText(a, idx);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-blockCommandComment_getArgText :: ClangBase m => Comment s' -> Int -> ClangT s m (CXString s)
-blockCommandComment_getArgText = (registerCXString .) . unsafe_BlockCommandComment_getArgText
+blockCommandComment_getArgText :: ClangBase m => Comment s' -> Int -> ClangT s m (ClangString s)
+blockCommandComment_getArgText = (registerClangString .) . unsafe_BlockCommandComment_getArgText
 
 -- CXComment clang_BlockCommandComment_getParagraph(CXComment Comment);
 %fun clang_BlockCommandComment_getParagraph :: Proxy s -> Comment s' -> IO (Comment s)
@@ -3756,16 +3755,16 @@ blockCommandComment_getArgText = (registerCXString .) . unsafe_BlockCommandComme
 %result (comment {r.ASTNode} {r.TranslationUnit})
 
 -- CXString clang_ParamCommandComment_getParamName(CXComment Comment);
-%fun unsafe_ParamCommandComment_getParamName :: Comment s -> IO (CXString ())
+%fun unsafe_ParamCommandComment_getParamName :: Comment s -> IO (ClangString ())
 %call (comment p1 p2)
 %code CXComment a = {p1, p2};
 %     CXString out = clang_ParamCommandComment_getParamName(a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-paramCommandComment_getParamName :: ClangBase m => Comment s' -> ClangT s m (CXString s)
-paramCommandComment_getParamName = registerCXString . unsafe_ParamCommandComment_getParamName
+paramCommandComment_getParamName :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
+paramCommandComment_getParamName = registerClangString . unsafe_ParamCommandComment_getParamName
 
 -- unsigned clang_ParamCommandComment_isParamIndexValid(CXComment Comment);
 %fun clang_ParamCommandComment_isParamIndexValid :: Comment s -> IO Bool
@@ -3796,16 +3795,16 @@ paramCommandComment_getParamName = registerCXString . unsafe_ParamCommandComment
 %result (commentParamPassDirection r)
 
 -- CXString clang_TParamCommandComment_getParamName(CXComment Comment);
-%fun unsafe_TParamCommandComment_getParamName :: Comment s -> IO (CXString ())
+%fun unsafe_TParamCommandComment_getParamName :: Comment s -> IO (ClangString ())
 %call (comment p1 p2)
 %code CXComment a = {p1, p2};
 %     CXString out = clang_TParamCommandComment_getParamName(a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-tParamCommandComment_getParamName :: ClangBase m => Comment s' -> ClangT s m (CXString s)
-tParamCommandComment_getParamName = registerCXString . unsafe_TParamCommandComment_getParamName
+tParamCommandComment_getParamName :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
+tParamCommandComment_getParamName = registerClangString . unsafe_TParamCommandComment_getParamName
 
 -- unsigned clang_TParamCommandComment_isParamPositionValid(CXComment Comment);
 %fun clang_TParamCommandComment_isParamPositionValid :: Comment s -> IO Bool
@@ -3829,64 +3828,64 @@ tParamCommandComment_getParamName = registerCXString . unsafe_TParamCommandComme
 %result (int r)
 
 -- CXString clang_VerbatimBlockLineComment_getText(CXComment Comment);
-%fun unsafe_VerbatimBlockLineComment_getText :: Comment s -> IO (CXString ())
+%fun unsafe_VerbatimBlockLineComment_getText :: Comment s -> IO (ClangString ())
 %call (comment p1 p2)
 %code CXComment a = {p1, p2};
 %     CXString out = clang_VerbatimBlockLineComment_getText(a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-verbatimBlockLineComment_getText :: ClangBase m => Comment s' -> ClangT s m (CXString s)
-verbatimBlockLineComment_getText = registerCXString . unsafe_VerbatimBlockLineComment_getText
+verbatimBlockLineComment_getText :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
+verbatimBlockLineComment_getText = registerClangString . unsafe_VerbatimBlockLineComment_getText
 
 -- CXString clang_VerbatimLineComment_getText(CXComment Comment);
-%fun unsafe_VerbatimLineComment_getText :: Comment s -> IO (CXString ())
+%fun unsafe_VerbatimLineComment_getText :: Comment s -> IO (ClangString ())
 %call (comment p1 p2)
 %code CXComment a = {p1, p2};
 %     CXString out = clang_VerbatimLineComment_getText(a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-verbatimLineComment_getText :: ClangBase m => Comment s' -> ClangT s m (CXString s)
-verbatimLineComment_getText = registerCXString . unsafe_VerbatimLineComment_getText
+verbatimLineComment_getText :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
+verbatimLineComment_getText = registerClangString . unsafe_VerbatimLineComment_getText
 
 -- CXString clang_HTMLTagComment_getAsString(CXComment Comment);
-%fun unsafe_HTMLTagComment_getAsString :: Comment s -> IO (CXString ())
+%fun unsafe_HTMLTagComment_getAsString :: Comment s -> IO (ClangString ())
 %call (comment p1 p2)
 %code CXComment a = {p1, p2};
 %     CXString out = clang_HTMLTagComment_getAsString(a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-hTMLTagComment_getAsString :: ClangBase m => Comment s' -> ClangT s m (CXString s)
-hTMLTagComment_getAsString = registerCXString . unsafe_HTMLTagComment_getAsString
+hTMLTagComment_getAsString :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
+hTMLTagComment_getAsString = registerClangString . unsafe_HTMLTagComment_getAsString
 
 -- CXString clang_FullComment_getAsHTML(CXComment Comment);
-%fun unsafe_FullComment_getAsHTML :: Comment s -> IO (CXString ())
+%fun unsafe_FullComment_getAsHTML :: Comment s -> IO (ClangString ())
 %call (comment p1 p2)
 %code CXComment a = {p1, p2};
 %     CXString out = clang_FullComment_getAsHTML(a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-fullComment_getAsHTML :: ClangBase m => Comment s' -> ClangT s m (CXString s)
-fullComment_getAsHTML = registerCXString . unsafe_FullComment_getAsHTML
+fullComment_getAsHTML :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
+fullComment_getAsHTML = registerClangString . unsafe_FullComment_getAsHTML
 
 -- CXString clang_FullComment_getAsXML(CXComment Comment);
-%fun unsafe_FullComment_getAsXML :: Comment s -> IO (CXString ())
+%fun unsafe_FullComment_getAsXML :: Comment s -> IO (ClangString ())
 %call (comment p1 p2)
 %code CXComment a = {p1, p2};
 %     CXString out = clang_FullComment_getAsXML(a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-fullComment_getAsXML :: ClangBase m => Comment s' -> ClangT s m (CXString s)
-fullComment_getAsXML = registerCXString . unsafe_FullComment_getAsXML
+fullComment_getAsXML :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
+fullComment_getAsXML = registerClangString . unsafe_FullComment_getAsXML
 
 -- typedef enum CXTokenKind {
 --   CXToken_Punctuation,
@@ -3937,16 +3936,16 @@ instance Storable (Token s) where
 %result (tokenKind r)
 
 -- CXString clang_getTokenSpelling(CXTranslationUnit, CXToken);
-%fun unsafe_getTokenSpelling :: TranslationUnit s -> Token s' -> IO (CXString ())
+%fun unsafe_getTokenSpelling :: TranslationUnit s -> Token s' -> IO (ClangString ())
 %call (translationUnit t) (token w x y z p)
 %code CXToken a = {{w, x, y, z}, p};
 %     CXString out = clang_getTokenSpelling(t, a);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-getTokenSpelling :: ClangBase m => TranslationUnit s' -> Token s'' -> ClangT s m (CXString s)
-getTokenSpelling = (registerCXString .) . unsafe_getTokenSpelling
+getTokenSpelling :: ClangBase m => TranslationUnit s' -> Token s'' -> ClangT s m (ClangString s)
+getTokenSpelling = (registerClangString .) . unsafe_getTokenSpelling
 
 -- CXSourceLocation clang_getTokenLocation(CXTranslationUnit,
 --                                                        CXToken);
@@ -4027,15 +4026,15 @@ annotateTokens :: ClangBase m => TranslationUnit s' -> TokenList s'' -> ClangT s
 annotateTokens = (registerCursorList .) . unsafe_annotateTokens
 
 -- CXString clang_getCursorKindSpelling(enum CXCursorKind Kind);
-%fun unsafe_getCursorKindSpelling :: CursorKind -> IO (CXString ())
+%fun unsafe_getCursorKindSpelling :: CursorKind -> IO (ClangString ())
 %call (cursorKind k)
 %code CXString out = clang_getCursorKindSpelling(k);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-getCursorKindSpelling :: ClangBase m => CursorKind -> ClangT s m (CXString s)
-getCursorKindSpelling = registerCXString . unsafe_getCursorKindSpelling
+getCursorKindSpelling :: ClangBase m => CursorKind -> ClangT s m (ClangString s)
+getCursorKindSpelling = registerClangString . unsafe_getCursorKindSpelling
 
 -- void clang_enableStackTraces(void);
 foreign import ccall unsafe "clang-c/Index.h clang_enableStackTraces" enableStackTraces :: IO ()
@@ -4090,15 +4089,15 @@ instance ClangValue CompletionResult
 -- CXString
 -- clang_getCompletionChunkText(CXCompletionString completion_string,
 --                              unsigned chunk_number);
-%fun unsafe_getCompletionChunkText :: CompletionString s -> Int -> IO (CXString ())
+%fun unsafe_getCompletionChunkText :: CompletionString s -> Int -> IO (ClangString ())
 %call (completionString s) (int i)
 %code CXString out = clang_getCompletionChunkText(s, i);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-getCompletionChunkText :: ClangBase m => CompletionString s' -> Int -> ClangT s m (CXString s)
-getCompletionChunkText = (registerCXString .) . unsafe_getCompletionChunkText
+getCompletionChunkText :: ClangBase m => CompletionString s' -> Int -> ClangT s m (ClangString s)
+getCompletionChunkText = (registerClangString .) . unsafe_getCompletionChunkText
 
 -- CXCompletionString
 -- clang_getCompletionChunkCompletionString(CXCompletionString completion_string,
@@ -4122,38 +4121,38 @@ getCompletionChunkText = (registerCXString .) . unsafe_getCompletionChunkText
 
 -- CXString clang_getCompletionAnnotation(CXCompletionString completion_string,
 --                                        unsigned annotation_number);
-%fun unsafe_getCompletionAnnotation :: CompletionString s -> Int -> IO (CXString ())
+%fun unsafe_getCompletionAnnotation :: CompletionString s -> Int -> IO (ClangString ())
 %call (completionString s) (int i)
 %code CXString out = clang_getCompletionAnnotation(s, i);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-getCompletionAnnotation :: ClangBase m => CompletionString s' -> Int -> ClangT s m (CXString s)
-getCompletionAnnotation = (registerCXString .) . unsafe_getCompletionAnnotation
+getCompletionAnnotation :: ClangBase m => CompletionString s' -> Int -> ClangT s m (ClangString s)
+getCompletionAnnotation = (registerClangString .) . unsafe_getCompletionAnnotation
 
 -- CXString clang_getCompletionParent(CXCompletionString completion_string,
 --                                    enum CXCursorKind *kind);
-%fun unsafe_getCompletionParent :: CompletionString s -> IO (CXString ())
+%fun unsafe_getCompletionParent :: CompletionString s -> IO (ClangString ())
 %call (completionString s)
 %code CXString out = clang_getCompletionParent(s, NULL);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-getCompletionParent :: ClangBase m => CompletionString s' -> ClangT s m (CXString s)
-getCompletionParent = registerCXString . unsafe_getCompletionParent
+getCompletionParent :: ClangBase m => CompletionString s' -> ClangT s m (ClangString s)
+getCompletionParent = registerClangString . unsafe_getCompletionParent
 
 -- CXString clang_getCompletionBriefComment(CXCompletionString completion_string);
-%fun unsafe_getCompletionBriefComment :: CompletionString s -> IO (CXString ())
+%fun unsafe_getCompletionBriefComment :: CompletionString s -> IO (ClangString ())
 %call (completionString s)
 %code CXString out = clang_getCompletionBriefComment(s);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-getCompletionBriefComment :: ClangBase m => CompletionString s' -> ClangT s m (CXString s)
-getCompletionBriefComment = registerCXString . unsafe_getCompletionBriefComment
+getCompletionBriefComment :: ClangBase m => CompletionString s' -> ClangT s m (ClangString s)
+getCompletionBriefComment = registerClangString . unsafe_getCompletionBriefComment
 
 -- CXCompletionString clang_getCursorCompletionString(CXCursor cursor);
 %fun clang_getCursorCompletionString :: Cursor s' -> IO (CompletionString s)
@@ -4313,36 +4312,36 @@ instance BitFlags CompletionContext where
 %result (cursorKind k, bool isIncomplete)
 
 -- CXString clang_codeCompleteGetContainerUSR(CXCodeCompleteResults *Results);
-%fun unsafe_codeCompleteGetContainerUSR :: CodeCompleteResults s -> IO (CXString ())
+%fun unsafe_codeCompleteGetContainerUSR :: CodeCompleteResults s -> IO (ClangString ())
 %call (codeCompleteResults rs)
 %code CXString out = clang_codeCompleteGetContainerUSR(rs);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-codeCompleteGetContainerUSR :: ClangBase m => CodeCompleteResults s' -> ClangT s m (CXString s)
-codeCompleteGetContainerUSR = registerCXString . unsafe_codeCompleteGetContainerUSR
+codeCompleteGetContainerUSR :: ClangBase m => CodeCompleteResults s' -> ClangT s m (ClangString s)
+codeCompleteGetContainerUSR = registerClangString . unsafe_codeCompleteGetContainerUSR
 
 -- CXString clang_codeCompleteGetObjCSelector(CXCodeCompleteResults *Results);
-%fun unsafe_codeCompleteGetObjCSelector :: CodeCompleteResults s -> IO (CXString ())
+%fun unsafe_codeCompleteGetObjCSelector :: CodeCompleteResults s -> IO (ClangString ())
 %call (codeCompleteResults rs)
 %code CXString out = clang_codeCompleteGetObjCSelector(rs);
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-codeCompleteGetObjCSelector :: ClangBase m => CodeCompleteResults s' -> ClangT s m (CXString s)
-codeCompleteGetObjCSelector = registerCXString . unsafe_codeCompleteGetObjCSelector
+codeCompleteGetObjCSelector :: ClangBase m => CodeCompleteResults s' -> ClangT s m (ClangString s)
+codeCompleteGetObjCSelector = registerClangString . unsafe_codeCompleteGetObjCSelector
 
 -- CXString clang_getClangVersion();
-%fun unsafe_getClangVersion :: IO (CXString ())
+%fun unsafe_getClangVersion :: IO (ClangString ())
 %code CXString out = clang_getClangVersion();
 %     const void* outData = out.data;
 %     unsigned outFlags = out.private_flags;
-%result (cxString (ptr outData) (word32 outFlags))
+%result (clangString (ptr outData) (word32 outFlags))
 
-getClangVersion :: ClangBase m => ClangT s m (CXString s)
-getClangVersion = registerCXString $ unsafe_getClangVersion
+getClangVersion :: ClangBase m => ClangT s m (ClangString s)
+getClangVersion = registerClangString $ unsafe_getClangVersion
   
 -- -- void clang_toggleCrashRecovery(unsigned isEnabled);
 %fun clang_toggleCrashRecovery :: Bool -> IO ()
@@ -4477,7 +4476,7 @@ getRemappingsFromFileList paths = do
 
 -- void clang_remap_getFilenames(CXRemapping, unsigned index,
 --                               CXString *original, CXString *transformed);
-%fun unsafe_remap_getFilenames :: Remapping s -> Int -> IO (CXString (), CXString ())
+%fun unsafe_remap_getFilenames :: Remapping s -> Int -> IO (ClangString (), ClangString ())
 %call (remapping remaps) (int idx)
 %code CXString original;
 %     CXString transformed;
@@ -4486,9 +4485,9 @@ getRemappingsFromFileList paths = do
 %     unsigned origFlags = original.private_flags;
 %     const void* trData = transformed.data;
 %     unsigned trFlags = transformed.private_flags;
-%result (cxString (ptr origData) (word32 origFlags), cxString (ptr trData) (word32 trFlags))
+%result (clangString (ptr origData) (word32 origFlags), clangString (ptr trData) (word32 trFlags))
 
-remap_getFilenames :: ClangBase m => Remapping s' -> Int -> ClangT s m (CXString s, CXString s)
+remap_getFilenames :: ClangBase m => Remapping s' -> Int -> ClangT s m (ClangString s, ClangString s)
 remap_getFilenames r idx = do
   (orig, tr) <- liftIO $ unsafe_remap_getFilenames r idx
-  (,) <$> registerCXString (return orig) <*> registerCXString (return tr)
+  (,) <$> registerClangString (return orig) <*> registerClangString (return tr)

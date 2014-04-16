@@ -2,15 +2,13 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Clang.Source
-( FFI.SourceLocation
-, nullLocation
+( nullLocation
 , isSameLocation
 , getLocation
 , getLocationForOffset
 , isInSystemHeader
 , isFromMainFile
 , getCursor
-, FFI.SourceRange
 , nullRange
 , getRange
 , isSameRange
@@ -26,9 +24,7 @@ module Clang.Source
 import Control.Monad.IO.Class
 
 import qualified Clang.Internal.FFI as FFI
-import Clang.Internal.Monad (mkProxy)
-import Clang.Monad
-import Clang.String (ClangString)
+import Clang.Internal.Monad
 
 -- Location functions
 nullLocation :: ClangBase m => ClangT s m (FFI.SourceLocation s)
@@ -75,7 +71,7 @@ getExpansionLocation :: ClangBase m => FFI.SourceLocation s'
 getExpansionLocation l = liftIO $ FFI.getExpansionLocation mkProxy l
 
 getPresumedLocation :: ClangBase m => FFI.SourceLocation s'
-                    -> ClangT s m (ClangString s, Int, Int)
+                    -> ClangT s m (FFI.ClangString s, Int, Int)
 getPresumedLocation = FFI.getPresumedLocation
 
 getSpellingLocation :: ClangBase m => FFI.SourceLocation s'

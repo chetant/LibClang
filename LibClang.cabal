@@ -61,13 +61,11 @@ Library
                    Clang.Diagnostic,
                    Clang.File,
                    Clang.Module,
-                   Clang.Monad,
                    Clang.Remapping,
                    Clang.Source,
                    Clang.String,
                    Clang.Token,
                    Clang.TranslationUnit,
-                   Clang.Traversal,
                    Clang.Type
   other-modules: Clang.Internal.BitFlags,
                  Clang.Internal.Monad,

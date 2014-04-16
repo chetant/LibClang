@@ -2,10 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Clang.File
-( FFI.UnsavedFile
-, FFI.File
-, FFI.FileUniqueId
-, getName
+( getName
 , getPOSIXTime
 , getUTCTime
 , getFile
@@ -19,11 +16,9 @@ import Data.Time.Clock.POSIX (POSIXTime, posixSecondsToUTCTime)
 import Data.Time.Clock (UTCTime)
 
 import qualified Clang.Internal.FFI as FFI
-import Clang.Internal.Monad (mkProxy)
-import Clang.Monad
-import Clang.String (ClangString)
+import Clang.Internal.Monad
 
-getName :: ClangBase m => FFI.File s' -> ClangT s m (ClangString s)
+getName :: ClangBase m => FFI.File s' -> ClangT s m (FFI.ClangString s)
 getName = FFI.getFileName
 
 getPOSIXTime :: ClangBase m => FFI.File s' -> ClangT s m POSIXTime

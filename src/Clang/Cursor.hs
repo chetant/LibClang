@@ -6,35 +6,10 @@
   This is the primary way of traversing and querying code
 -}
 module Clang.Cursor
-( FFI.CursorKind(..)
-, FFI.cursor_FirstDecl
-, FFI.cursor_LastDecl
-, FFI.cursor_FirstRef
-, FFI.cursor_LastRef
-, FFI.cursor_FirstInvalid
-, FFI.cursor_LastInvalid
-, FFI.cursor_FirstExpr
-, FFI.cursor_LastExpr
-, FFI.cursor_FirstStmt
-, FFI.cursor_LastStmt
-, FFI.cursor_FirstAttr
-, FFI.cursor_LastAttr
-, FFI.cursor_FirstPreprocessing
-, FFI.cursor_LastPreprocessing
-, FFI.cursor_FirstExtraDecl
-, FFI.cursor_LastExtraDecl
-, FFI.cursor_GCCAsmStmt
-, FFI.cursor_MacroInstantiation
-, FFI.LinkageKind(..)
-, FFI.LanguageKind(..)
-, FFI.Cursor
-, FFI.CursorSet
-, FFI.ParentedCursor(..)
-
-, isNullCursor
+( isNullCursor
 , nullCursor
 , getHash
-, Clang.Cursor.getKind
+, getKind
 , getLinkage
 , getAvailability
 , getLanguage
@@ -43,11 +18,11 @@ module Clang.Cursor
 , getLexicalParent
 , getOverriddenCursors
 , getIncludedFile
-, Clang.Cursor.getLocation
-, Clang.Cursor.getSpellingLocation
+, getLocation
+, getSpellingLocation
 , getExtent
 , getType
-, Clang.Cursor.getResultType
+, getResultType
 , getDeclObjCTypeEncoding
 , getSpelling
 , getSpellingNameRange
@@ -57,16 +32,13 @@ module Clang.Cursor
 , getCanonicalCursor
 , getObjCSelectorIndex
 , getReceiverType
-, FFI.ObjCPropertyAttrKind(..)
 , getObjCPropertyAttributes
-, FFI.ObjCDeclQualifierKind(..)
 , getObjCDeclQualifiers
 , isObjCOptional
 , isVariadic
 , getTemplateKind
 , getTemplateForSpecialization
 , getReferenceNameRange
-, FFI.NameRefFlags(..)
 , getTypeDeclaration
 , getNumArguments
 , getArgument
@@ -85,7 +57,7 @@ module Clang.Cursor
 , isPreprocessing
 , isUnexposed
 , isBitField
-, Clang.Cursor.isVirtualBase
+, isVirtualBase
 , isPureVirtualCppMethod
 , isStaticCppMethod
 , isVirtualCppMethod
@@ -107,11 +79,7 @@ module Clang.Cursor
 , getCursorKindSpelling
 
 -- Platform availability
-, FFI.Version(..)
-, FFI.PlatformAvailability(..)
-, FFI.PlatformAvailabilityInfo(..)
 , getCursorPlatformAvailability
-
 ) where
 
 import Control.Applicative
@@ -120,9 +88,7 @@ import GHC.Word
 
 import Clang.Internal.BitFlags
 import qualified Clang.Internal.FFI as FFI
-import Clang.Internal.Monad (mkProxy)
-import Clang.Monad
-import Clang.String (ClangString)
+import Clang.Internal.Monad
 
 isNullCursor :: FFI.Cursor s -> Bool
 isNullCursor = FFI.cursor_isNull
@@ -179,16 +145,16 @@ getType c = liftIO $ FFI.getCursorType mkProxy c
 getResultType :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.Type s)
 getResultType c = liftIO $ FFI.getCursorResultType mkProxy c
 
-getDeclObjCTypeEncoding :: ClangBase m => FFI.Cursor s' -> ClangT s m (ClangString s)
+getDeclObjCTypeEncoding :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.ClangString s)
 getDeclObjCTypeEncoding = FFI.getDeclObjCTypeEncoding
 
-getSpelling :: ClangBase m => FFI.Cursor s' -> ClangT s m (ClangString s)
+getSpelling :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.ClangString s)
 getSpelling = FFI.getCursorSpelling
 
 getSpellingNameRange :: ClangBase m => FFI.Cursor s' -> Int -> ClangT s m (FFI.SourceRange s)
 getSpellingNameRange c idx = liftIO $ FFI.cursor_getSpellingNameRange mkProxy c idx
 
-getDisplayName :: ClangBase m => FFI.Cursor s' -> ClangT s m (ClangString s)
+getDisplayName :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.ClangString s)
 getDisplayName = FFI.getCursorDisplayName
 
 getReferenced :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.Cursor s)
@@ -303,10 +269,10 @@ isDynamicCall c = liftIO $ FFI.cursor_isDynamicCall c
 getCommentRange :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.SourceRange s)
 getCommentRange c = liftIO $ FFI.cursor_getCommentRange mkProxy c
 
-getRawCommentText :: ClangBase m => FFI.Cursor s' -> ClangT s m (ClangString s)
+getRawCommentText :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.ClangString s)
 getRawCommentText = FFI.cursor_getRawCommentText
 
-getBriefCommentText :: ClangBase m => FFI.Cursor s' -> ClangT s m (ClangString s)
+getBriefCommentText :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.ClangString s)
 getBriefCommentText = FFI.cursor_getBriefCommentText
 
 getParsedComment :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.Comment s)
@@ -337,7 +303,7 @@ setInsert s c = liftIO $ FFI.cXCursorSet_insert s c
 
 -- CursorKind functions
 
-getCursorKindSpelling :: ClangBase m => FFI.CursorKind -> ClangT s m (ClangString s)
+getCursorKindSpelling :: ClangBase m => FFI.CursorKind -> ClangT s m (FFI.ClangString s)
 getCursorKindSpelling = FFI.getCursorKindSpelling
 
 -- Platform availability

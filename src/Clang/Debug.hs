@@ -10,13 +10,12 @@ module Clang.Debug
 import Control.Monad.IO.Class
 
 import qualified Clang.Internal.FFI as FFI
-import Clang.Monad
-import Clang.String (ClangString)
+import Clang.Internal.Monad
 
 enableStackTraces :: ClangBase m => ClangT s m ()
 enableStackTraces = liftIO FFI.enableStackTraces
 
-getVersion :: ClangBase m => ClangT s m (ClangString s)
+getVersion :: ClangBase m => ClangT s m (FFI.ClangString s)
 getVersion = FFI.getClangVersion
 
 toggleCrashRecovery :: ClangBase m => Bool -> ClangT s m ()

@@ -2,16 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Clang.Type
-( FFI.Type
-, FFI.TypeKind(..)
-, FFI.type_FirstBuiltin
-, FFI.type_LastBuiltin
-, FFI.CallingConv(..)
-, FFI.CXXAccessSpecifier(..)
-, FFI.TypeLayoutError(..)
-, FFI.RefQualifierKind(..)
-
-, isSameType
+( isSameType
 , getTypeSpelling
 , getKind
 , getCanonicalType
@@ -52,14 +43,12 @@ import Data.Int (Int64)
 import Data.Word (Word64)
 
 import qualified Clang.Internal.FFI as FFI
-import Clang.Internal.Monad (mkProxy)
-import Clang.Monad
-import Clang.String (ClangString)
+import Clang.Internal.Monad
 
 isSameType :: ClangBase m => FFI.Type s' -> FFI.Type s'' -> ClangT s m Bool
 isSameType a b = liftIO $ FFI.equalTypes a b
 
-getTypeSpelling :: ClangBase m => FFI.Type s' -> ClangT s m (ClangString s)
+getTypeSpelling :: ClangBase m => FFI.Type s' -> ClangT s m (FFI.ClangString s)
 getTypeSpelling = FFI.getTypeSpelling
 
 getTypedefDeclUnderlyingType :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.Type s)
@@ -149,5 +138,5 @@ getFunctionTypeCallingConv t = liftIO $ FFI.getFunctionTypeCallingConv t
 
 
 -- Typekind functions
-getTypeKindSpelling :: ClangBase m => FFI.TypeKind -> ClangT s m (ClangString s)
+getTypeKindSpelling :: ClangBase m => FFI.TypeKind -> ClangT s m (FFI.ClangString s)
 getTypeKindSpelling = FFI.getTypeKindSpelling
