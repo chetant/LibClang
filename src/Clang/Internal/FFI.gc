@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -w #-}
+{-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-unused-matches #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -9,7 +9,10 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 
 module Clang.Internal.FFI
-( Index
+( versionMajor
+, versionMinor
+, encodedVersion
+, Index
 , createIndex
 , GlobalOptFlags(..)
 , globalOpt_ThreadBackgroundPriorityForAll
@@ -430,6 +433,11 @@ fromCInt = fromIntegral
 
 toCInt :: Integral a => a -> CInt
 toCInt = fromIntegral
+
+-- Version information.
+%const Int [versionMajor   = CINDEX_VERSION_MAJOR,
+%           versionMinor   = CINDEX_VERSION_MINOR,
+%           encodedVersion = CINDEX_VERSION]
 
 -- typedef void *CXIndex;
 newtype Index s = Index { unIndex :: Ptr () }
