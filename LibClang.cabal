@@ -66,7 +66,8 @@ Library
                    Clang.String,
                    Clang.Token,
                    Clang.TranslationUnit,
-                   Clang.Type
+                   Clang.Type,
+                   Clang.Version
   other-modules: Clang.Internal.BitFlags,
                  Clang.Internal.Monad,
                  Clang.Internal.FFI,
