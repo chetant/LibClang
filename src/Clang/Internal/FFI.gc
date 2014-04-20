@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeSynonymInstances #-}
@@ -338,13 +339,12 @@ module Clang.Internal.FFI
 ) where
 
 import Control.Applicative ((<$>), (<*>))
-import Control.Monad (forM_, when)
+import Control.Monad (forM_)
 import Control.Monad.Trans
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Unsafe as BU
 import Data.Hashable
 import qualified Data.Vector as DV
-import qualified Data.Vector.Generic as DVG
 import qualified Data.Vector.Storable as DVS
 import qualified Data.Vector.Storable.Mutable as DVSM
 import Data.Word
@@ -595,9 +595,9 @@ withCUnsavedFiles :: DV.Vector UnsavedFile -> (DVS.Vector CUnsavedFile -> IO a) 
 withCUnsavedFiles ufs f = do
     let len = DV.length ufs
     v <- DVSM.new len
-    go f v 0 len
+    go v 0 len
   where
-    go f v i len
+    go v i len
       | i == len  = f =<< DVS.unsafeFreeze v
       | otherwise = do let uf = DV.unsafeIndex ufs i
                            ufFilename = unsavedFilename uf
@@ -607,7 +607,7 @@ withCUnsavedFiles ufs f = do
                            let contentsLen = fromIntegral $ B.length ufContents
                                cuf = CUnsavedFile cufFilename cufContents contentsLen
                            DVSM.write v i cuf
-                           go f v (i + 1) len
+                           go v (i + 1) len
 
 %enum AvailabilityKind (Bounded, Enum, Eq, Ord, Read, Show) Int [CXAvailability_Available, CXAvailability_Deprecated, CXAvailability_NotAvailable, CXAvailability_NotAccessible]
 -- enum CXAvailabilityKind {
@@ -631,7 +631,6 @@ instance Storable Version where
   {-# INLINE alignment #-}
 
   peek p = do
-    let fromCInt = fromIntegral :: Num b => CInt -> b
     major <- fromCInt <$> peekByteOff p offsetCXVersionMajor
     minor <- fromCInt <$> peekByteOff p offsetCXVersionMinor
     subminor <- fromCInt <$> peekByteOff p offsetCXVersionSubminor
@@ -639,7 +638,6 @@ instance Storable Version where
   {-# INLINE peek #-}
 
   poke p (Version major minor subminor) = do
-    let toCInt = fromIntegral :: Integral a => a -> CInt
     pokeByteOff p offsetCXVersionMajor major
     pokeByteOff p offsetCXVersionMinor minor
     pokeByteOff p offsetCXVersionSubminor subminor
@@ -1305,33 +1303,37 @@ instance BitFlags TranslationUnitFlags where
 --                                             struct CXUnsavedFile *unsaved_files,
 --                                                      unsigned num_unsaved_files,
 --                                                             unsigned options);
-%fun unsafe_parseTranslationUnit :: Index s -> Maybe String -> Ptr CString -> Int -> Ptr CUnsavedFile -> Int -> Int -> IO (Maybe (TranslationUnit ()))
-%call (index i) (maybeT {nullPtr} (string s)) (ptr as) (int nas) (ptr ufs) (int nufs) (int i2)
+%fun unsafe_parseTranslationUnit :: Index s -> CString -> Ptr CString -> Int -> Ptr CUnsavedFile -> Int -> Int -> IO (Maybe (TranslationUnit ()))
+%call (index i) (ptr s) (ptr as) (int nas) (ptr ufs) (int nufs) (int i2)
 %code r = clang_parseTranslationUnit(i,s,as,nas,ufs,nufs,i2);
 %result (maybeT {nullPtr} (translationUnit r))
 
 parseTranslationUnit :: ClangBase m => Index s' -> Maybe String -> [String]
                      -> DV.Vector UnsavedFile -> Int -> ClangT s m (Maybe (TranslationUnit s))
-parseTranslationUnit idx sf as ufs opts = do
+parseTranslationUnit idx maySF as ufs opts = do
     mayTU <- liftIO $
-      withStringList as $ \asPtr asLen ->
-        withUnsavedFiles ufs $ \ufsPtr ufsLen ->
-          unsafe_parseTranslationUnit idx sf asPtr asLen ufsPtr ufsLen opts
+      withMaybeCString maySF $ \cSF ->
+        withStringList as $ \asPtr asLen ->
+          withUnsavedFiles ufs $ \ufsPtr ufsLen ->
+            unsafe_parseTranslationUnit idx cSF asPtr asLen ufsPtr ufsLen opts
     case mayTU of
       Just tu -> Just <$> registerTranslationUnit (return tu)
       Nothing -> return Nothing
 
+withMaybeCString :: Maybe String -> (CString -> IO a) -> IO a
+withMaybeCString (Just s) f = withCString s f
+withMaybeCString Nothing  f = f nullPtr
+
 withStringList :: [String] -> (Ptr CString -> Int -> IO a) -> IO a
 withStringList [] f = f nullPtr 0
-withStringList ss f = do
-    let len = length ss
-    allocaArray len $ \arr -> go f arr len arr ss
+withStringList strs f = do
+    let len = length strs
+    allocaArray len $ \arr -> go arr len arr strs
   where
-    go :: (Ptr CString -> Int -> IO a) -> Ptr CString -> Int -> Ptr CString -> [String] -> IO a
-    go f arr len _ [] = f arr len
-    go f arr len ptr (s : ss) = withCString s $ \cs -> do
+    go arr len _ [] = f arr len
+    go arr len ptr (s : ss) = withCString s $ \cs -> do
       poke ptr cs
-      go f arr len (advancePtr ptr 1) ss
+      go arr len (advancePtr ptr 1) ss
 
 -- void clang_setClangResourcesPath(CXIndex CIdx, const char* path);
 %fun clang_setClangResourcesPath :: Index s -> String -> IO ()
@@ -2302,7 +2304,7 @@ instance Storable PlatformAvailability where
     introduced <- peekByteOff p offsetCXPlatformAvailabilityIntroduced
     deprecated <- peekByteOff p offsetCXPlatformAvailabilityDeprecated
     obsoleted <- peekByteOff p offsetCXPlatformAvailabilityObsoleted
-    intUnavailable <- fromCInt <$> peekByteOff p offsetCXPlatformAvailabilityUnavailable
+    intUnavailable :: Int <- fromCInt <$> peekByteOff p offsetCXPlatformAvailabilityUnavailable
 
     (ClangString msgD msgF) <- peekByteOff p offsetCXPlatformAvailabilityMessage
     message <- B.packCString =<< getCStringPtr msgD msgF
@@ -2599,6 +2601,7 @@ data Type s = Type !TypeKind !(Ptr ()) !(Ptr ())
 instance ClangValue Type
 %dis type k p1 p2 = Type (typeKind k) (ptr p1) (ptr p2)
 
+getTypeKind :: Type s -> TypeKind
 getTypeKind (Type k _ _) = k
 
 -- CXType clang_getCursorType(CXCursor C);
@@ -4368,7 +4371,7 @@ instance Storable (Inclusion s) where
       let fromCUChar = fromIntegral :: Num b => CUChar -> b
       file <- File <$> peekByteOff p offsetInclusionInclusion
       sl <- peekByteOff p offsetInclusionLocation
-      isDirect <- fromCUChar <$> peekByteOff p offsetInclusionIsDirect
+      isDirect :: Int <- fromCUChar <$> peekByteOff p offsetInclusionIsDirect
       return $! Inclusion file sl (if isDirect == 0 then False else True)
     {-# INLINE peek #-}
 
@@ -4377,7 +4380,7 @@ instance Storable (Inclusion s) where
       pokeByteOff p offsetInclusionInclusion file
       pokeByteOff p offsetInclusionLocation sl
       pokeByteOff p offsetInclusionIsDirect
-           (toCUChar $ if isDirect then 1 else 0)
+           (toCUChar $ if isDirect then 1 :: Int else 0)
     {-# INLINE poke #-}
 
 type InclusionList s = DVS.Vector (Inclusion s)
