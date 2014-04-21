@@ -2,6 +2,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 -- | Functions for manipulating remappings.
+--
+-- This module is intended to be imported qualified.
 module Clang.Remapping
 ( getRemappings
 , getRemappingsFromFileList

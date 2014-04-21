@@ -4,6 +4,8 @@
 -- | This module contains functions for working with
 -- 'FFI.ClangString's, which represent strings that are part of the
 -- libclang AST or managed by its API.
+--
+-- This module is intended to be imported qualified.
 module Clang.String (
 -- * Conversions
   unpack
