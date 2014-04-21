@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-unused-matches #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -31,7 +32,6 @@ module Clang.Internal.FFI
 , getString
 , getByteString
 , unsafeGetByteString
-, getStringHash
 , File(..)
 , getFileName
 , getFileTime
@@ -427,6 +427,11 @@ always have the same phantom type parameter as the return value.
 -- Used with the Proxy type in Clang.Internal.Monad.
 %dis proxy = <id/id>
 
+-- Utility dis's.
+%dis int64 x  = %%Int64 ({HsInt64} x)
+%dis word32 x = %%Word32 ({HsWord32} x)
+%dis word64 x = %%Word64 ({HsWord64} x)
+
 -- Marshalling utility functions.
 fromCInt :: Num b => CInt -> b
 fromCInt = fromIntegral
@@ -668,6 +673,13 @@ instance Storable (ClangString s) where
     pokeByteOff p offsetCXStringFlags strFlags
   {-# INLINE poke #-}
 
+instance Hashable (ClangString s) where
+  hashWithSalt salt (ClangString p f) = (`hashWithSalt` f)
+                                      . (`hashWithSalt` pInt)
+                                      $ salt
+    where
+      pInt = (fromIntegral $ ptrToWordPtr p) :: Int    
+
 registerClangString :: ClangBase m => IO (ClangString ()) -> ClangT s m (ClangString s)
 registerClangString action = do
   (_, str) <- clangAllocate (action >>= return . unsafeCoerce)
@@ -704,12 +716,6 @@ unsafeGetByteString (ClangString d f) = liftIO $ getCStringPtr d f >>= BU.unsafe
 %     r = (char*) clang_getCString(str);
 %result (ptr r)
 
-%dis word32 x    = %%Word32 ({HsWord32} x)
-%dis word64 x    = %%Word64 ({HsWord64} x)
-
-getStringHash :: ClangString s -> WordPtr
-getStringHash (ClangString p _) = ptrToWordPtr p
-
 -- typedef void *CXFile;
 newtype File s = File { unFile :: Ptr () }
   deriving (Eq, Ord)
@@ -717,7 +723,7 @@ newtype File s = File { unFile :: Ptr () }
 instance ClangValue File
 
 instance Hashable (File s) where
-  hashWithSalt salt (File p) = let pInt = (fromIntegral $ ptrToWordPtr p) :: Int
+  hashWithSalt salt (File p) = let !pInt = (fromIntegral $ ptrToWordPtr p) :: Int
                                in  hashWithSalt salt pInt
 
 %dis file p = <unFile/File> (ptr p)
@@ -2636,8 +2642,6 @@ getTypeSpelling = registerClangString . unsafe_getTypeSpelling
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
 %     CXType r = clang_getEnumDeclIntegerType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
-
-%dis int64 x    = %%Int64 ({HsInt64} x)
 
 -- long long clang_getEnumConstantDeclValue(CXCursor);
 %fun clang_getEnumConstantDeclValue :: Cursor s -> IO Int64
