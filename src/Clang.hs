@@ -81,8 +81,7 @@ module Clang (
 , FFI.SourceRange
 , FFI.ClangString
 , FFI.Token
-, FFI.TokenKind
-, FFI.TokenList
+, FFI.TokenKind(..)
 , FFI.Index
 , FFI.ReparseFlags
 , FFI.SaveTranslationUnitFlags(..)

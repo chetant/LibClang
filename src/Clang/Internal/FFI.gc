@@ -2945,7 +2945,8 @@ type_getOffsetOf t field = liftIO $ B.useAsCString field $ \cField ->
 %     CXType r = clang_getIBOutletCollectionType(a);
 %result (type {r.kind} {r.data[0]} {r.data[1]})
 
--- We deliberately don't export the constructor. The only way to unwrap this is registerCursorList.
+-- We deliberately don't export the constructor for UnsafeCursorList.
+-- The only way to unwrap it is registerCursorList.
 type CursorList s = DVS.Vector (Cursor s)
 instance ClangValueList Cursor
 data UnsafeCursorList = UnsafeCursorList !(Ptr ()) !Int
@@ -3061,7 +3062,8 @@ instance Storable (ParentedCursor s) where
       pokeByteOff p offsetParentedCursorCursor child
     {-# INLINE poke #-}
 
--- We deliberately don't export the constructor. The only way to unwrap this is registerParentedCursorList.
+-- We deliberately don't export the constructor for UnsafeParentedCursorList.
+-- The only way to unwrap it is registerParentedCursorList.
 type ParentedCursorList s = DVS.Vector (ParentedCursor s)
 instance ClangValueList ParentedCursor
 data UnsafeParentedCursorList = UnsafeParentedCursorList !(Ptr ()) !Int
@@ -3909,7 +3911,13 @@ fullComment_getAsXML = registerClangString . unsafe_FullComment_getAsXML
 --   CXToken_Literal,
 --   CXToken_Comment
 -- } CXTokenKind;
-%enum TokenKind (Bounded, Enum, Eq, Ord, Read, Show) Int [CXToken_Punctuation, CXToken_Keyword, CXToken_Identifier, CXToken_Literal, CXToken_Comment]
+%enum TokenKind (Bounded, Enum, Eq, Ord, Read, Show) Int
+%  [ PunctuationToken = CXToken_Punctuation
+%  , KeywordToken     = CXToken_Keyword
+%  , IdentifierToken  = CXToken_Identifier
+%  , LiteralToken     = CXToken_Literal
+%  , CommentToken     = CXToken_Comment
+%  ]
 
 -- typedef struct {
 --   unsigned int_data[4];
@@ -3977,7 +3985,8 @@ getTokenSpelling = (registerClangString .) . unsafe_getTokenSpelling
 %     CXSourceRange r = clang_getTokenExtent(t, a);
 %result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
 
--- We deliberately don't export the constructor. The only way to unwrap this is registerCursorList.
+-- We deliberately don't export the constructor for UnsafeTokenList.
+-- The only way to unwrap it is registerTokenList.
 type TokenList s = DVS.Vector (Token s)
 instance ClangValueList Token
 data UnsafeTokenList = UnsafeTokenList !(Ptr ()) !Int
