@@ -230,7 +230,7 @@ libClangBuildHook pkg lbi usrHooks flags = do
                       ]
         libFile = getLibraryName bdir lbi'
     removeFile libFile
-    createArLibArchive verbosity arProg libFile staticObjs
+    createArLibArchive verbosity lbi' libFile staticObjs
 
 libClangCleanHook :: PackageDescription -> () -> UserHooks -> CleanFlags -> IO ()
 libClangCleanHook pkg v hooks flags = do
