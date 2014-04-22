@@ -75,7 +75,6 @@ module Clang (
 , FFI.Diagnostic
 , FFI.DiagnosticSet
 , FFI.File
-, FFI.FileUniqueId
 , FFI.Remapping
 , FFI.SourceLocation
 , FFI.SourceRange

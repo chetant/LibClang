@@ -35,7 +35,7 @@ module Clang.Internal.FFI
 , File(..)
 , getFileName
 , getFileTime
-, FileUniqueId(..)
+, UniqueId(..)
 , getFileUniqueID
 , isFileMultipleIncludeGuarded
 , getFile
@@ -755,24 +755,25 @@ foreign import ccall unsafe "clang-c/Index.h clang_getFileTime" clang_getFileTim
 getFileTime :: File s -> IO CTime
 getFileTime (File ptr) = clang_getFileTime ptr
 
-data FileUniqueId = FileUniqueId !Word64 !Word64 !Word64
+-- | A unique identifier that can be used to distinguish 'File's.
+data UniqueId = UniqueId !Word64 !Word64 !Word64
   deriving (Eq, Ord, Show)
 
-instance Hashable FileUniqueId where
-    hashWithSalt salt (FileUniqueId a b c) = (`hashWithSalt` a)
-                                           . (`hashWithSalt` b)
-                                           . (`hashWithSalt` c)
-                                           $ salt
+instance Hashable UniqueId where
+    hashWithSalt salt (UniqueId a b c) = (`hashWithSalt` a)
+                                       . (`hashWithSalt` b)
+                                       . (`hashWithSalt` c)
+                                       $ salt
     {-# INLINE hashWithSalt #-}
 
-maybeFileUniqueID :: (Int, Word64, Word64, Word64) -> Maybe FileUniqueId
+maybeFileUniqueID :: (Int, Word64, Word64, Word64) -> Maybe UniqueId
 maybeFileUniqueID (v, d1, d2, d3) | v /= 0    = Nothing
-                                  | otherwise = Just $ FileUniqueId d1 d2 d3
+                                  | otherwise = Just $ UniqueId d1 d2 d3
 
 %dis maybe_fileUniqueID v d1 d2 d3 = <id/maybeFileUniqueID> (int v) (word64 d1) (word64 d2) (word64 d3)
 
 -- int clang_getFileUniqueID(CXFile file, CXFileUniqueID *outID);
-%fun clang_getFileUniqueID :: File s -> IO (Maybe FileUniqueId)
+%fun clang_getFileUniqueID :: File s -> IO (Maybe UniqueId)
 %call (file f)
 %code CXFileUniqueID uid;
 %     int r = clang_getFileUniqueID(f, &uid);
