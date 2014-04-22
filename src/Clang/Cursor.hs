@@ -42,6 +42,7 @@ module Clang.Cursor
 , getTypeDeclaration
 , getNumArguments
 , getArgument
+, getUSR
 
 -- attribute function
 , getIBOutletCollectionType
@@ -203,6 +204,9 @@ getNumArguments c = liftIO $ FFI.cursor_getNumArguments c
 
 getArgument :: ClangBase m => FFI.Cursor s' -> Int -> ClangT s m (FFI.Cursor s)
 getArgument c i = liftIO $ FFI.cursor_getArgument mkProxy c i
+
+getUSR :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.ClangString s)
+getUSR = FFI.getCursorUSR
 
 -- attribute function
 

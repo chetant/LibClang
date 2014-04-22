@@ -55,7 +55,6 @@ Library
   exposed-modules: Clang,
                    Clang.Comment,
                    Clang.Completion,
-                   Clang.CrossReference,
                    Clang.Cursor,
                    Clang.Debug,
                    Clang.Diagnostic,
@@ -67,6 +66,7 @@ Library
                    Clang.Token,
                    Clang.TranslationUnit,
                    Clang.Type,
+                   Clang.USR,
                    Clang.Version
   other-modules: Clang.Internal.BitFlags,
                  Clang.Internal.Monad,
