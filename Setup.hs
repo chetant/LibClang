@@ -180,23 +180,36 @@ libClangBuildHook pkg lbi usrHooks flags = do
     notice verbosity "Relinking..."
 
     let componentLibs = concatMap componentLibNames $ componentsConfigs lbi'
-        libtool = runLibtool verbosity lbi'
-        bdir = buildDir lbi'
         libclangLibs = map (llvmLibDir </>) libclangLibrariesFiles
-
-        mergeLibraries libName = do
-          let finalLib = bdir </> libName
-              origLib = bdir </> libName <.> "orig"
-          copyFileVerbose verbosity finalLib origLib
-          libtool $ ["-static", "-o", finalLib] ++ (origLib : libclangLibs)
+        mergeLibs = mergeLibraries verbosity lbi' libclangLibs
 
     -- Merge the libclang static libraries into each Haskell static library.
     forM_ componentLibs $ \componentLib -> do
       when (withVanillaLib lbi') $
-        mergeLibraries $ mkLibName componentLib
+        mergeLibs $ mkLibName componentLib
 
       when (withProfLib lbi') $
-        mergeLibraries $ mkProfLibName componentLib
+        mergeLibs $ mkProfLibName componentLib
+
+mergeLibraries :: Verbosity -> LocalBuildInfo -> [FilePath] -> FilePath -> IO ()
+mergeLibraries verbosity lbi libclangLibs libName = do
+  let libtool = runLibtool verbosity lbi
+      ar = runAr verbosity lbi
+      bdir = buildDir lbi
+      finalLib = bdir </> libName
+      origLib = bdir </> libName <.> "orig"
+      allLibs = origLib : libclangLibs
+
+  copyFileVerbose verbosity finalLib origLib
+
+  if os == "darwin"
+     then libtool $ ["-static", "-o", finalLib] ++ allLibs
+     else ar ["-M"] $ arScript finalLib allLibs
+
+arScript :: FilePath -> [FilePath] -> String
+arScript finalLib allLibs = unlines $ ["CREATE " ++ finalLib]
+                                   ++ map ("ADDLIB " ++) allLibs
+                                   ++ ["SAVE", "END"]
 
 libClangCopyHook :: PackageDescription -> LocalBuildInfo -> UserHooks -> CopyFlags -> IO ()
 libClangCopyHook pkg lbi hooks flags = do
@@ -228,6 +241,15 @@ runLibtool verbosity lbi args = do
   output <- getDbProgramOutput verbosity libtoolProgram (withPrograms lbi) args
   when (verbosity >= deafening) $
     putStrLn output
+
+runAr :: Verbosity -> LocalBuildInfo -> [String] -> String -> IO ()
+runAr v lbi args script =
+    case lookupProgram arProgram (withPrograms lbi) of
+      Nothing    -> die "Couldn't find required program 'ar'"
+      Just cProg -> runProgramInvocation v (progWithStdin cProg)
+  where
+    progWithStdin prog = (programInvocation prog args') { progInvokeInput = Just script }
+    args' = if v >= deafening then "-v" : args else args
 
 mkStaticLib :: String -> String
 mkStaticLib lname = mkLibName (LibraryName lname)
