@@ -345,7 +345,7 @@ import Control.Monad.Trans
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Unsafe as BU
 import Data.Hashable
-import Data.Typeable
+import Data.Typeable (Typeable)
 import qualified Data.Vector as DV
 import qualified Data.Vector.Storable as DVS
 import qualified Data.Vector.Storable.Mutable as DVSM
