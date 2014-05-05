@@ -69,9 +69,6 @@ module Clang (
 , FFI.Version(..)
 , FFI.PlatformAvailability(..)
 , FFI.PlatformAvailabilityInfo(..)
-, FFI.DiagnosticSeverity(..)
-, FFI.DiagnosticDisplayOptions(..)
-, FFI.LoadDiagError(..)
 , FFI.Diagnostic
 , FFI.DiagnosticSet
 , FFI.File

@@ -19,6 +19,7 @@ module Clang.TranslationUnit
 , FFI.unsavedContents
 , FFI.newUnsavedFile
 , FFI.updateUnsavedContents
+, getDiagnosticSet
 ) where
 
 import Control.Applicative
@@ -108,3 +109,7 @@ setGlobalOptions i opts = liftIO $ FFI.cXIndex_setGlobalOptions i (orFlags opts)
 
 getGlobalOptions :: ClangBase m => FFI.Index s' -> ClangT s m [FFI.GlobalOptFlags]
 getGlobalOptions i = unFlags <$> liftIO (FFI.cXIndex_getGlobalOptions i)
+
+-- | Retrieve the complete set of diagnostics associated with the given translation unit.
+getDiagnosticSet :: ClangBase m => FFI.TranslationUnit s'-> ClangT s m (FFI.DiagnosticSet s)
+getDiagnosticSet = FFI.getDiagnosticSetFromTU

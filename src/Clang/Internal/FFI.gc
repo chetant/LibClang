@@ -58,18 +58,18 @@ module Clang.Internal.FFI
 , getFileLocation
 , getRangeStart
 , getRangeEnd
-, DiagnosticSeverity(..)
+, Severity(..)
 , Diagnostic
 , DiagnosticSet
 , getNumDiagnosticsInSet
 , getDiagnosticInSet
-, LoadDiagError(..)
+, LoadError(..)
 , loadDiagnostics
 , getChildDiagnostics
 , getNumDiagnostics
 , getDiagnostic
 , getDiagnosticSetFromTU
-, DiagnosticDisplayOptions(..)
+, DisplayOptions(..)
 , formatDiagnostic
 , defaultDiagnosticDisplayOptions
 , getDiagnosticSeverity
@@ -1000,12 +1000,14 @@ getPresumedLocation l = do
 --   CXDiagnostic_Error   = 3,
 --   CXDiagnostic_Fatal   = 4
 -- };
-%enum DiagnosticSeverity (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-% [ CXDiagnostic_Ignored
-% , CXDiagnostic_Note
-% , CXDiagnostic_Warning
-% , CXDiagnostic_Error
-% , CXDiagnostic_Fatal
+
+-- | The severity of a diagnostic.
+%enum Severity (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
+% [ SeverityIgnored = CXDiagnostic_Ignored
+% , SeverityNote    = CXDiagnostic_Note
+% , SeverityWarning = CXDiagnostic_Warning
+% , SeverityError   = CXDiagnostic_Error
+% , SeverityFatal   = CXDiagnostic_Fatal
 % ]
 
 -- typedef void* CXDiagnostic;
@@ -1075,17 +1077,19 @@ getDiagnosticInSet = (registerDiagnostic .) . unsafe_getDiagnosticInSet
 --   CXLoadDiag_CannotLoad = 2,
 --   CXLoadDiag_InvalidFile = 3
 -- };
-%enum LoadDiagError (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-% [ CXLoadDiag_None
-% , CXLoadDiag_Unknown
-% , CXLoadDiag_CannotLoad
-% , CXLoadDiag_InvalidFile
+
+-- | An error encountered while loading a serialized diagnostics bitcode file.
+%enum LoadError (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
+% [ LoadSuccessful   = CXLoadDiag_None
+% , LoadUnknownError = CXLoadDiag_Unknown
+% , LoadCannotOpen   = CXLoadDiag_CannotLoad
+% , LoadInvalidFile  = CXLoadDiag_InvalidFile
 % ]
 
 data LoadDiagsResult =
-  LoadDiagsResult LoadDiagError (ClangString ()) (DiagnosticSet ())
+  LoadDiagsResult LoadError (ClangString ()) (DiagnosticSet ())
 
-%dis loadDiagsResult err eStrData eStrFlags ds = LoadDiagsResult (loadDiagError err) (clangString (ptr eStrData) (word32 eStrFlags)) (diagSet ds)
+%dis loadDiagsResult err eStrData eStrFlags ds = LoadDiagsResult (loadError err) (clangString (ptr eStrData) (word32 eStrFlags)) (diagSet ds)
 
 -- CXDiagnosticSet clang_loadDiagnostics(const char *file,
 --                                       enum CXLoadDiag_Error *error,
@@ -1100,7 +1104,7 @@ data LoadDiagsResult =
 %result (loadDiagsResult err outData outFlags r)
 
 loadDiagnostics :: ClangBase m => FilePath
-                -> ClangT s m (Either (LoadDiagError, ClangString s) (DiagnosticSet s))
+                -> ClangT s m (Either (LoadError, ClangString s) (DiagnosticSet s))
 loadDiagnostics path = do
   result <- liftIO $ unsafe_loadDiagnostics path
   case result of
@@ -1152,22 +1156,24 @@ getDiagnosticSetFromTU = registerDiagnosticSet . unsafe_getDiagnosticSetFromTU
 --   CXDiagnostic_DisplayCategoryId = 0x10,
 --   CXDiagnostic_DisplayCategoryName = 0x20
 -- };
-%enum DiagnosticDisplayOptions (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-% [ CXDiagnostic_DisplaySourceLocation
-% , CXDiagnostic_DisplayColumn
-% , CXDiagnostic_DisplaySourceRanges
-% , CXDiagnostic_DisplayOption
-% , CXDiagnostic_DisplayCategoryId
-% , CXDiagnostic_DisplayCategoryName
+
+-- | Options for rendering of 'Diagnostic' values.
+%enum DisplayOptions (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
+% [ DisplaySourceLocation = CXDiagnostic_DisplaySourceLocation
+% , DisplayColumn         = CXDiagnostic_DisplayColumn
+% , DisplaySourceRanges   = CXDiagnostic_DisplaySourceRanges
+% , DisplayOption         = CXDiagnostic_DisplayOption
+% , DisplayCategoryId     = CXDiagnostic_DisplayCategoryId
+% , DisplayCategoryName   = CXDiagnostic_DisplayCategoryName
 % ]
 
-instance BitFlags DiagnosticDisplayOptions where
-  toBit Diagnostic_DisplaySourceLocation = 0x1
-  toBit Diagnostic_DisplayColumn         = 0x2
-  toBit Diagnostic_DisplaySourceRanges   = 0x4
-  toBit Diagnostic_DisplayOption         = 0x8
-  toBit Diagnostic_DisplayCategoryId     = 0x10
-  toBit Diagnostic_DisplayCategoryName   = 0x20
+instance BitFlags DisplayOptions where
+  toBit DisplaySourceLocation = 0x1
+  toBit DisplayColumn         = 0x2
+  toBit DisplaySourceRanges   = 0x4
+  toBit DisplayOption         = 0x8
+  toBit DisplayCategoryId     = 0x10
+  toBit DisplayCategoryName   = 0x20
 
 -- CXString clang_formatDiagnostic(CXDiagnostic Diagnostic, unsigned Options);
 %fun unsafe_formatDiagnostic :: Diagnostic s -> Int -> IO (ClangString ())
@@ -1184,10 +1190,10 @@ formatDiagnostic = (registerClangString .) . unsafe_formatDiagnostic
 %fun clang_defaultDiagnosticDisplayOptions :: IO Int
 
 -- clang_getDiagnosticSeverity(CXDiagnostic);
-%fun clang_getDiagnosticSeverity :: Diagnostic s -> IO DiagnosticSeverity
+%fun clang_getDiagnosticSeverity :: Diagnostic s -> IO Severity
 %call (diag d)
 %code enum CXDiagnosticSeverity s = clang_getDiagnosticSeverity(d);
-%result (diagnosticSeverity s)
+%result (severity s)
 
 -- CXSourceLocation clang_getDiagnosticLocation(CXDiagnostic);
 %fun clang_getDiagnosticLocation :: Proxy s -> Diagnostic s' -> IO (SourceLocation s)
