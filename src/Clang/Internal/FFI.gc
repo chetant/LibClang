@@ -4750,7 +4750,7 @@ codeCompleteAt tu f l c ufs os =
       unsafe_codeCompleteAt tu f l c ufsPtr ufsLen os
 
 -- This function, along with codeCompleteGetResult, exist to allow iteration over
--- the completion strings at the Haskell level. They're not (obviously) not real
+-- the completion strings at the Haskell level. They're (obviously) not real
 -- libclang functions.
 %fun codeCompleteGetNumResults :: CodeCompleteResults s -> IO Int
 %call (codeCompleteResults rs)
