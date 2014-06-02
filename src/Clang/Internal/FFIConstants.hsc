@@ -55,6 +55,10 @@ module Clang.Internal.FFIConstants
 , offsetCXPlatformAvailabilityObsoleted
 , offsetCXPlatformAvailabilityUnavailable
 , offsetCXPlatformAvailabilityMessage
+, sizeOfCXCodeCompleteResults
+, alignOfCXCodeCompleteResults
+, offsetCXCodeCompleteResultsResults
+, offsetCXCodeCompleteResultsNumResults
 ) where
 
 #include <stddef.h>
@@ -134,3 +138,9 @@ offsetCXPlatformAvailabilityDeprecated = (#const offsetof(CXPlatformAvailability
 offsetCXPlatformAvailabilityObsoleted = (#const offsetof(CXPlatformAvailability, Obsoleted)) :: Int
 offsetCXPlatformAvailabilityUnavailable = (#const offsetof(CXPlatformAvailability, Unavailable)) :: Int
 offsetCXPlatformAvailabilityMessage = (#const offsetof(CXPlatformAvailability, Message)) :: Int
+
+-- CXCodeCompleteResults constants.
+sizeOfCXCodeCompleteResults = (#const sizeof(CXString)) :: Int
+alignOfCXCodeCompleteResults = (#const 4) :: Int
+offsetCXCodeCompleteResultsResults = (#const offsetof(CXCodeCompleteResults, Results)) :: Int
+offsetCXCodeCompleteResultsNumResults = (#const offsetof(CXCodeCompleteResults, NumResults)) :: Int

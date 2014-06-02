@@ -50,6 +50,7 @@ Library
                    vector >= 0.10 && < 0.11
   hs-source-dirs:  src
   c-sources:       src/Clang/Internal/FFI_stub_ffi.c,
+                   cbits/utils.c,
                    cbits/visitors.c
   include-dirs:    cbits
   exposed-modules: Clang,

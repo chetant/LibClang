@@ -81,6 +81,8 @@ module Clang.Cursor
 
 -- Platform availability
 , getCursorPlatformAvailability
+
+, getCompletionString
 ) where
 
 import Control.Applicative
@@ -315,3 +317,10 @@ getCursorKindSpelling = FFI.getCursorKindSpelling
 getCursorPlatformAvailability :: ClangBase m => FFI.Cursor s'
                               -> ClangT s m (FFI.PlatformAvailabilityInfo s)
 getCursorPlatformAvailability = FFI.getCursorPlatformAvailability
+
+-- | Retrieve a completion string for an arbitrary declaration or macro
+-- definition cursor.
+--
+-- Completion strings can be manipulated using the functions in "Clang.Completion".
+getCompletionString :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.CompletionString s)
+getCompletionString = FFI.getCursorCompletionString

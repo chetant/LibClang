@@ -50,13 +50,7 @@ module Clang (
 , FFI.CommentKind (..)
 , FFI.CommentInlineCommandRenderKind (..)
 , FFI.CommentParamPassDirection (..)
-, FFI.CompletionString
-, FFI.CompletionResult
-, FFI.CompletionChunkKind(..)
-, FFI.CodeCompleteFlags(..)
-, FFI.CodeCompleteResults
 , FFI.AvailabilityKind(..)
-, FFI.CompletionContext(..)
 , FFI.CursorKind(..)
 , FFI.LinkageKind(..)
 , FFI.LanguageKind(..)
