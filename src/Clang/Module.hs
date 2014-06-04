@@ -46,5 +46,5 @@ getTopLevelHeaders :: ClangBase m => FFI.TranslationUnit s' -> FFI.Module s''
                    -> ClangT s m [FFI.File s]
 getTopLevelHeaders tu m = do
   numHeaders <- liftIO $ FFI.module_getNumTopLevelHeaders tu m
-  forM [0..numHeaders] $ \idx ->
+  forM [0..(numHeaders - 1)] $ \idx ->
     liftIO $ FFI.module_getTopLevelHeader mkProxy tu m idx
