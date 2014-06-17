@@ -2717,10 +2717,10 @@ getOverriddenCursors :: ClangBase m => Cursor s' -> ClangT s m (CursorList s)
 getOverriddenCursors = registerOverriddenList . unsafe_getOverriddenCursors
 
 -- CXFile clang_getIncludedFile(CXCursor cursor);
-%fun clang_getIncludedFile :: Proxy s -> Cursor s' -> IO (File s)
+%fun clang_getIncludedFile :: Proxy s -> Cursor s' -> IO (Maybe (File s))
 %call (proxy) (cursor k xdata p1 p2 p3)
 %code CXCursor a = {k, xdata, {p1, p2, p3}};
-%result (file {clang_getIncludedFile(a)})
+%result (maybe_file {clang_getIncludedFile(a)})
 
 -- CXCursor clang_getCursor(CXTranslationUnit, CXSourceLocation);
 %fun clang_getCursor :: Proxy s -> TranslationUnit s' -> SourceLocation s'' -> IO (Cursor s)

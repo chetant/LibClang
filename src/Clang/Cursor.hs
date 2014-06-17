@@ -129,7 +129,7 @@ getLexicalParent c = liftIO $ FFI.getCursorLexicalParent mkProxy c
 getOverriddenCursors :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.CursorList s)
 getOverriddenCursors = FFI.getOverriddenCursors
 
-getIncludedFile :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.File s)
+getIncludedFile :: ClangBase m => FFI.Cursor s' -> ClangT s m (Maybe (FFI.File s))
 getIncludedFile c = liftIO $ FFI.getIncludedFile mkProxy c
 
 getLocation :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.SourceLocation s)
