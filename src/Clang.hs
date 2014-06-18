@@ -46,10 +46,6 @@ module Clang (
 , clangScope
 
 -- * Clang AST types
-, FFI.Comment (..)
-, FFI.CommentKind (..)
-, FFI.CommentInlineCommandRenderKind (..)
-, FFI.CommentParamPassDirection (..)
 , FFI.AvailabilityKind(..)
 , FFI.CursorKind(..)
 , FFI.LinkageKind(..)

@@ -255,8 +255,8 @@ module Clang.Internal.FFI
 , getCursorReferenceNameRange
 , NameRefFlags(..)
 , CommentKind(..)
-, CommentInlineCommandRenderKind(..)
-, CommentParamPassDirection(..)
+, InlineCommandRenderStyle(..)
+, ParamPassDirectionKind(..)
 , comment_getKind
 , comment_getNumChildren
 , comment_getChild
@@ -3924,19 +3924,19 @@ instance BitFlags NameRefFlags where
 --   CXComment_FullComment = 12
 -- };
 %enum CommentKind (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ CXComment_Null
-%  , CXComment_Text
-%  , CXComment_InlineCommand
-%  , CXComment_HTMLStartTag
-%  , CXComment_HTMLEndTag
-%  , CXComment_Paragraph
-%  , CXComment_BlockCommand
-%  , CXComment_ParamCommand
-%  , CXComment_TParamCommand
-%  , CXComment_VerbatimBlockCommand
-%  , CXComment_VerbatimBlockLine
-%  , CXComment_VerbatimLine
-%  , CXComment_FullComment
+%  [ NullComment                 = CXComment_Null
+%  , TextComment                 = CXComment_Text
+%  , InlineCommandComment        = CXComment_InlineCommand
+%  , HTMLStartTagComment         = CXComment_HTMLStartTag
+%  , HTMLEndTagComment           = CXComment_HTMLEndTag
+%  , ParagraphComment            = CXComment_Paragraph
+%  , BlockCommandComment         = CXComment_BlockCommand
+%  , ParamCommandComment         = CXComment_ParamCommand
+%  , TParamCommandComment        = CXComment_TParamCommand
+%  , VerbatimBlockCommandComment = CXComment_VerbatimBlockCommand
+%  , VerbatimBlockLineComment    = CXComment_VerbatimBlockLine
+%  , VerbatimLineComment         = CXComment_VerbatimLine
+%  , FullComment                 = CXComment_FullComment
 %  ]
 
 -- enum CXCommentInlineCommandRenderKind {
@@ -3945,11 +3945,13 @@ instance BitFlags NameRefFlags where
 --   CXCommentInlineCommandRenderKind_Monospaced,
 --   CXCommentInlineCommandRenderKind_Emphasized
 -- };
-%enum CommentInlineCommandRenderKind (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ CXCommentInlineCommandRenderKind_Normal
-%  , CXCommentInlineCommandRenderKind_Bold
-%  , CXCommentInlineCommandRenderKind_Monospaced
-%  , CXCommentInlineCommandRenderKind_Emphasized
+
+-- | A rendering style which should be used for the associated inline command in the comment AST.
+%enum InlineCommandRenderStyle (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
+%  [ NormalInlineCommandRenderStyle     = CXCommentInlineCommandRenderKind_Normal
+%  , BoldInlineCommandRenderStyle       = CXCommentInlineCommandRenderKind_Bold
+%  , MonospacedInlineCommandRenderStyle = CXCommentInlineCommandRenderKind_Monospaced
+%  , EmphasizedInlineCommandRenderStyle = CXCommentInlineCommandRenderKind_Emphasized
 %  ]
 
 -- enum CXCommentParamPassDirection {
@@ -3957,10 +3959,12 @@ instance BitFlags NameRefFlags where
 --   CXCommentParamPassDirection_Out,
 --   CXCommentParamPassDirection_InOut
 -- };
-%enum CommentParamPassDirection (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ CXCommentParamPassDirection_In
-%  , CXCommentParamPassDirection_Out
-%  , CXCommentParamPassDirection_InOut
+
+-- | A parameter passing direction.
+%enum ParamPassDirectionKind (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
+%  [ InParamPassDirection    = CXCommentParamPassDirection_In
+%  , OutParamPassDirection   = CXCommentParamPassDirection_Out
+%  , InOutParamPassDirection = CXCommentParamPassDirection_InOut
 %  ]
 
 -- enum CXCommentKind clang_Comment_getKind(CXComment Comment);
@@ -4023,11 +4027,11 @@ inlineCommandComment_getCommandName :: ClangBase m => Comment s' -> ClangT s m (
 inlineCommandComment_getCommandName = registerClangString . unsafe_InlineCommandComment_getCommandName
 
 -- enum CXCommentInlineCommandRenderKind clang_InlineCommandComment_getRenderKind(CXComment Comment);
-%fun clang_InlineCommandComment_getRenderKind :: Comment s -> IO CommentInlineCommandRenderKind
+%fun clang_InlineCommandComment_getRenderKind :: Comment s -> IO InlineCommandRenderStyle
 %call (comment p1 p2)
 %code CXComment a = {p1, p2};
 %     enum CXCommentInlineCommandRenderKind r = clang_InlineCommandComment_getRenderKind(a);
-%result (commentInlineCommandRenderKind r)
+%result (inlineCommandRenderStyle r)
 
 -- unsigned clang_InlineCommandComment_getNumArgs(CXComment Comment);
 %fun clang_InlineCommandComment_getNumArgs :: Comment s -> IO Int
@@ -4170,11 +4174,11 @@ paramCommandComment_getParamName = registerClangString . unsafe_ParamCommandComm
 %result (bool r)
 
 -- enum CXCommentParamPassDirection clang_ParamCommandComment_getDirection(CXComment Comment);
-%fun clang_ParamCommandComment_getDirection :: Comment s -> IO CommentParamPassDirection
+%fun clang_ParamCommandComment_getDirection :: Comment s -> IO ParamPassDirectionKind
 %call (comment p1 p2)
 %code CXComment a = {p1, p2};
 %     enum CXCommentParamPassDirection r = clang_ParamCommandComment_getDirection(a);
-%result (commentParamPassDirection r)
+%result (paramPassDirectionKind r)
 
 -- CXString clang_TParamCommandComment_getParamName(CXComment Comment);
 %fun unsafe_TParamCommandComment_getParamName :: Comment s -> IO (ClangString ())

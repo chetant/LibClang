@@ -70,6 +70,7 @@ Library
                    Clang.USR,
                    Clang.Version
   other-modules: Clang.Internal.BitFlags,
+                 Clang.Internal.Comment,
                  Clang.Internal.Monad,
                  Clang.Internal.FFI,
                  Clang.Internal.FFIConstants,

@@ -90,6 +90,7 @@ import Control.Monad.IO.Class
 import GHC.Word
 
 import Clang.Internal.BitFlags
+import Clang.Internal.Comment
 import qualified Clang.Internal.FFI as FFI
 import Clang.Internal.Monad
 
@@ -281,8 +282,10 @@ getRawCommentText = FFI.cursor_getRawCommentText
 getBriefCommentText :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.ClangString s)
 getBriefCommentText = FFI.cursor_getBriefCommentText
 
-getParsedComment :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.Comment s)
-getParsedComment c = liftIO $ FFI.cursor_getParsedComment mkProxy c
+getParsedComment :: ClangBase m => FFI.Cursor s' -> ClangT s m (Maybe (ParsedComment s))
+getParsedComment c = do
+  comment <- liftIO $ FFI.cursor_getParsedComment mkProxy c
+  parseComment comment
 
 getModule :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.Module s)
 getModule c = liftIO $ FFI.cursor_getModule mkProxy c
