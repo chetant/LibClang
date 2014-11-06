@@ -60,6 +60,7 @@ Library
                    Clang.Debug,
                    Clang.Diagnostic,
                    Clang.File,
+                   Clang.Index,
                    Clang.Module,
                    Clang.Remapping,
                    Clang.Source,
@@ -67,6 +68,7 @@ Library
                    Clang.Token,
                    Clang.TranslationUnit,
                    Clang.Type,
+                   Clang.UnsavedFile,
                    Clang.USR,
                    Clang.Version
   other-modules: Clang.Internal.BitFlags,

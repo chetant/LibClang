@@ -69,13 +69,8 @@ module Clang (
 , FFI.Token
 , FFI.TokenKind(..)
 , FFI.Index
-, FFI.ReparseFlags
-, FFI.SaveTranslationUnitFlags(..)
 , FFI.TranslationUnit
-, FFI.TranslationUnitFlags(..)
 , FFI.UnsavedFile
-, FFI.GlobalOptFlags(..)
-, FFI.globalOpt_ThreadBackgroundPriorityForAll
 , FFI.Module (..)
 , FFI.Type
 , FFI.TypeKind(..)
@@ -85,10 +80,10 @@ module Clang (
 , FFI.RefQualifierKind(..)
 ) where
 
-import Control.Monad.Trans (lift)
 import qualified Data.Vector as DV
 
 import qualified Clang.Internal.FFI as FFI
+import qualified Clang.Index as Index
 import Clang.Internal.Monad
 import qualified Clang.TranslationUnit as TU
 
@@ -96,15 +91,15 @@ import qualified Clang.TranslationUnit as TU
 -- resulting AST using a callback.
 --
 -- More flexible alternatives to 'parseSourceFile' are available in
--- "Clang.TranslationUnit".
+-- "Clang.Index" and "Clang.TranslationUnit".
 parseSourceFile :: ClangBase m
                 => FilePath  -- ^ Source filename
                 -> [String]  -- ^ Clang-compatible compilation arguments
                 -> (forall s. FFI.TranslationUnit s -> ClangT s m a)  -- ^ Callback
                 -> m (Maybe a)
 parseSourceFile path args f =
-  TU.withCreateIndex False False $ \index ->
-    TU.withParse index (Just path) args DV.empty [] f
+  Index.withNew False False $ \index ->
+    TU.withParsed index (Just path) args DV.empty [] f
 
 -- | Gets an 'FFI.CursorList' of the children of this 'FFI.Cursor'.
 getChildren :: ClangBase m => FFI.Cursor s' -> ClangT s m (FFI.CursorList s)
@@ -170,9 +165,3 @@ getInclusions = FFI.getInclusions
 -- stack, you may find it useful to define your own 'Clang'-like
 -- type synonym.
 type Clang s a = ClangT s IO a
-
--- | Runs a monadic computation with libclang and frees all the
--- resources allocated by that computation immediately.
-clangScope :: ClangBase m => (forall s. ClangT s m a) -> ClangT s' m a
-clangScope = lift . runClangT
-{-# INLINEABLE clangScope #-}

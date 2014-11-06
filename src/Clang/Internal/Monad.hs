@@ -14,6 +14,7 @@ module Clang.Internal.Monad
 , ClangValueList(..)
 , Proxy
 , runClangT
+, clangScope
 , clangAllocate
 , mkProxy
 ) where
@@ -45,6 +46,12 @@ data Proxy s
 runClangT :: ClangBase m => (forall s. ClangT s m a) -> m a
 runClangT f = runResourceT . unClangT $ f
 {-# INLINEABLE runClangT #-}
+
+-- | Runs a monadic computation with libclang and frees all the
+-- resources allocated by that computation immediately.
+clangScope :: ClangBase m => (forall s. ClangT s m a) -> ClangT s' m a
+clangScope = lift . runClangT
+{-# INLINEABLE clangScope #-}
 
 clangAllocate :: ClangBase m => IO a -> (a -> IO ()) -> ClangT s m (ReleaseKey, a)
 clangAllocate = allocate
