@@ -820,10 +820,13 @@ maybeFileUniqueID (v, d1, d2, d3) | v /= 0    = Nothing
 --   unsigned int_data;
 -- } CXSourceLocation;
 data SourceLocation s = SourceLocation !(Ptr ()) !(Ptr ()) !Int
-                        deriving (Eq, Ord, Typeable)
+                        deriving (Ord, Typeable)
 
 instance ClangValue SourceLocation
 %dis sourceLocation p1 p2 d = SourceLocation (ptr p1) (ptr p2) (int d)
+
+instance Eq (SourceLocation s) where
+  a == b = unsafePerformIO $ equalLocations a b
 
 instance Storable (SourceLocation s) where
     sizeOf _ = sizeOfCXSourceLocation
@@ -853,10 +856,13 @@ instance Storable (SourceLocation s) where
 --   unsigned end_int_data;
 -- } CXSourceRange;
 data SourceRange s = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
-                     deriving (Eq, Ord, Typeable)
+                     deriving (Ord, Typeable)
 
 instance ClangValue SourceRange
 %dis sourceRange p1 p2 d1 d2 = SourceRange (ptr p1) (ptr p2) (int d1) (int d2)
+
+instance Eq (SourceRange s) where
+  a == b = unsafePerformIO $ equalRanges a b
 
 -- CXSourceLocation clang_getNullLocation();
 %fun clang_getNullLocation :: Proxy s -> IO (SourceLocation s)
