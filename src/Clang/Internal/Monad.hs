@@ -6,6 +6,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ImpredicativeTypes #-}
 
 module Clang.Internal.Monad
 ( ClangT
