@@ -218,9 +218,10 @@ libClangCopyHook pkg lbi hooks flags = do
   curDir <- getCurrentDirectory
   let llvmLibDir = curDir </> "build" </> "out" </> "lib"
       verbosity = fromFlag (copyVerbosity flags)
-      libCopyDir = libdir $ absoluteInstallDirs pkg lbi NoCopyDest
+      destdir = fromFlagOrDefault NoCopyDest $ copyDest flags
+      libCopyDir = libdir $ absoluteInstallDirs pkg lbi destdir
 
-  notice verbosity "Installing libclang shared libraries..."
+  notice verbosity $ "Installing libclang shared libraries (" ++ show libCopyDir ++ ")..."
   copyFiles verbosity libCopyDir $ map ((llvmLibDir,) . mkSharedLib) libclangSharedLibraries
 
 libClangCleanHook :: PackageDescription -> () -> UserHooks -> CleanFlags -> IO ()
