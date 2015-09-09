@@ -1,11 +1,10 @@
 import System.Environment(getArgs)
 import Control.Monad.IO.Class(liftIO)
-import Clang.String(unpack)
-import Clang.TranslationUnit(withCreateIndex, withParse, TranslationUnitFlags(..))
-import Clang.File(getName)
-import Clang.Traversal(getInclusions, Inclusion(..))
-import qualified Data.Vector as DV(empty)
 import qualified Data.Vector.Storable as DVS(mapM_)
+
+import Clang.String(unpack)
+import Clang.File(getName)
+import Clang(parseSourceFile, getInclusions, Inclusion(..))
 
 test tu = getInclusions tu >>= DVS.mapM_ printInclusion
     where printInclusion (Inclusion fname _ _) = do
@@ -14,5 +13,4 @@ test tu = getInclusions tu >>= DVS.mapM_ printInclusion
 
 main = do
   (arg:args) <- getArgs
-  withCreateIndex False False $ \index -> 
-      withParse index (Just arg) args DV.empty [TranslationUnit_None] test (error "No TXUnit!")
+  parseSourceFile arg args test
