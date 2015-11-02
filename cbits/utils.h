@@ -8,3 +8,5 @@ unsigned codeCompleteGetNumResults(CXCodeCompleteResults* results);
 enum CXCursorKind codeCompleteGetResult(CXCodeCompleteResults* results,
                                         unsigned index,
                                         CXCompletionString* stringOut);
+
+void freeClangString(void* data, unsigned flags);

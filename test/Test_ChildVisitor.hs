@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 import System.Environment(getArgs)
 import Control.Monad.IO.Class(liftIO)
 import Text.Printf(printf)

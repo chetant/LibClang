@@ -85,7 +85,6 @@ module Clang.Cursor
 , getCompletionString
 ) where
 
-import Control.Applicative
 import Control.Monad.IO.Class
 import GHC.Word
 
