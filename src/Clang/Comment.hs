@@ -29,7 +29,6 @@ module Clang.Comment
 , FFI.InlineCommandRenderStyle (..)
 ) where
 
-import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Maybe
@@ -66,10 +65,10 @@ getTagCommentAsString (HTMLEndTagComment c _)       = Just <$> FFI.hTMLTagCommen
 getTagCommentAsString _                             = return Nothing
 
 -- | Converts the given 'FullComment' to an HTML fragment.
--- 
+--
 -- Specific details of HTML layout are subject to change.  Don't try to parse
 -- this HTML back into an AST; use other APIs instead.
--- 
+--
 -- Currently the following CSS classes are used:
 --
 -- * \"para-brief\" for \'brief\' paragraph and equivalent commands;
@@ -77,7 +76,7 @@ getTagCommentAsString _                             = return Nothing
 -- * \"para-returns\" for \'returns\' paragraph and equivalent commands;
 --
 -- * \"word-returns\" for the \"Returns\" word in a \'returns\' paragraph.
--- 
+--
 -- Function argument documentation is rendered as a \<dl\> list with arguments
 -- sorted in function prototype order. The following CSS classes are used:
 --
@@ -87,7 +86,7 @@ getTagCommentAsString _                             = return Nothing
 --
 -- * \"param-name-index-invalid\" and \"param-descr-index-invalid\" are used if
 --   parameter index is invalid.
--- 
+--
 -- Template parameter documentation is rendered as a \<dl\> list with
 -- parameters sorted in template parameter list order. The following CSS classes are used:
 --

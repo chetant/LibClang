@@ -22,6 +22,12 @@ module Clang.Internal.FFIConstants
 , offsetCXSourceLocationP1
 , offsetCXSourceLocationP2
 , offsetCXSourceLocationData
+, sizeOfCXSourceRange
+, alignOfCXSourceRange
+, offsetCXSourceRangeP1
+, offsetCXSourceRangeP2
+, offsetCXSourceRangeBegin
+, offsetCXSourceRangeEnd
 , sizeOfCXToken
 , alignOfCXToken
 , offsetCXTokenI1
@@ -93,6 +99,14 @@ alignOfCXSourceLocation = (#const 4) :: Int
 offsetCXSourceLocationP1 = (#const offsetof(CXSourceLocation, ptr_data)) :: Int
 offsetCXSourceLocationP2 = (#const offsetof(CXSourceLocation, ptr_data) + sizeof(void*)) :: Int
 offsetCXSourceLocationData = (#const offsetof(CXSourceLocation, int_data)) :: Int
+
+-- SourceRange constants.
+sizeOfCXSourceRange = (#const sizeof(CXSourceRange)) :: Int
+alignOfCXSourceRange = (#const 4) :: Int
+offsetCXSourceRangeP1 = (#const offsetof(CXSourceRange, ptr_data)) :: Int
+offsetCXSourceRangeP2 = (#const offsetof(CXSourceRange, ptr_data) + sizeof(void*)) :: Int
+offsetCXSourceRangeBegin= (#const offsetof(CXSourceRange, begin_int_data)) :: Int
+offsetCXSourceRangeEnd = (#const offsetof(CXSourceRange, end_int_data) + sizeof(unsigned)) :: Int
 
 -- CXToken constants.
 sizeOfCXToken = (#const sizeof(CXToken)) :: Int

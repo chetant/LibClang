@@ -15,3 +15,10 @@ enum CXCursorKind codeCompleteGetResult(CXCodeCompleteResults* results,
   *stringOut = results->Results[index].CompletionString;
   return results->Results[index].CursorKind;
 }
+
+void freeClangString(void* data, unsigned flags) {
+  CXString str;
+  str.data = data;
+  str.private_flags = flags;
+  clang_disposeString(str);
+}

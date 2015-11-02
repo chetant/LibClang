@@ -11,7 +11,7 @@
 --
 -- This module is intended to be imported qualified.
 module Clang.TranslationUnit
-( 
+(
 
 -- * Creating a translation unit
   withParsed
@@ -35,7 +35,6 @@ module Clang.TranslationUnit
 
 import Control.Monad.IO.Class
 import Data.Maybe (fromMaybe)
-import Data.Traversable (traverse)
 import qualified Data.Vector as DV
 import System.FilePath ((</>))
 
@@ -129,7 +128,7 @@ iterReparse f tu = do
     ParseComplete finalVal -> return $ Just finalVal
   where
     makeFlags = orFlags . (fromMaybe [FFI.DefaultReparseFlags])
-    
+
 
 -- | A callback for use with 'withReparsing'.
 type ReparsingCallback m r = forall s. FFI.TranslationUnit s

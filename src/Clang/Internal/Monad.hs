@@ -20,7 +20,6 @@ module Clang.Internal.Monad
 , mkProxy
 ) where
 
-import Control.Applicative
 import Control.Monad.Base
 import Control.Monad.Trans
 import Control.Monad.Trans.Resource
