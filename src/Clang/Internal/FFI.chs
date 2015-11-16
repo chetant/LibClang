@@ -2882,6 +2882,7 @@ unsafe_getOverriddenCursors c = do
   cPtr <- cursorToRawCursor c
   cxListPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr (Cursor s)))))
   n <- clang_getOverriddenCursors (castPtr cPtr) (castPtr cxListPtr)
+  free cxListPtr
   return (toCursorList (cxListPtr, (fromIntegral n)))
 
 getOverriddenCursors :: ClangBase m => Cursor s' -> ClangT s m (CursorList s)
@@ -3459,6 +3460,7 @@ unsafe_getChildren c =
    cxListPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr ()))))
    n <- getChildren' (castPtr cPtr) cxListPtr
    cxList <- peek cxListPtr
+   free cxListPtr
    return (toCursorList (cxList, fromIntegral n))
 
 getChildren :: ClangBase m => Cursor s' -> ClangT s m (CursorList s)
@@ -3474,6 +3476,7 @@ unsafe_getDescendants c =
    cxListPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Cursor s))))
    n <- getDescendants' (castPtr cPtr) cxListPtr
    cxList <- peek cxListPtr
+   free cxListPtr
    return (toCursorList (cxList, fromIntegral n))
 
 getDescendants :: ClangBase m => Cursor s' -> ClangT s m (CursorList s)
@@ -3486,6 +3489,7 @@ unsafe_getDeclarations t = do
    cxListPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr (Cursor ())))))
    n <- getDeclarations' (unTranslationUnit t) cxListPtr
    cxList <- peek cxListPtr
+   free cxListPtr
    return (toCursorList (cxList, fromIntegral n))
 
 getDeclarations :: ClangBase m => TranslationUnit s' -> ClangT s m (CursorList s)
@@ -3498,6 +3502,7 @@ unsafe_getReferences t = do
    cxListPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr ()))))
    n <- getReferences' (unTranslationUnit t) cxListPtr
    cxList <- peek cxListPtr
+   free cxListPtr
    return (toCursorList (cxList, fromIntegral n))
 
 getReferences :: ClangBase m => TranslationUnit s' -> ClangT s m (CursorList s)
@@ -3509,13 +3514,13 @@ getReferences = registerCursorList . unsafe_getReferences
 {# fun getDeclarationsAndReferences as getDeclarationsAndReferences'
      { id `Ptr ()', id `Ptr (Ptr ())', alloca- `CUInt' peek*, id `Ptr (Ptr ())' , alloca- `CUInt' peek* } -> `()' #}
 unsafe_getDeclarationsAndReferences :: TranslationUnit s -> IO (UnsafeCursorList, UnsafeCursorList)
-unsafe_getDeclarationsAndReferences t = do
-   declsPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr ()))))
-   refsPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr ()))))
-   (nDecls, nRefs) <- getDeclarationsAndReferences' (unTranslationUnit t) declsPtr refsPtr
+unsafe_getDeclarationsAndReferences t =
+  alloca (\(declsPtr :: Ptr (Ptr ())) ->
+  alloca (\(refsPtr :: Ptr (Ptr ())) -> do
+   (nDecls, nRefs) <- getDeclarationsAndReferences' (unTranslationUnit t) (castPtr declsPtr) (castPtr refsPtr)
    decls <- peek declsPtr
    refs <- peek refsPtr
-   return ((toCursorList (decls, fromIntegral nDecls)), (toCursorList (refs, fromIntegral nRefs)))
+   return ((toCursorList (decls, fromIntegral nDecls)), (toCursorList (refs, fromIntegral nRefs)))))
 
 -- %fun unsafe_getDeclarationsAndReferences :: TranslationUnit s -> IO (UnsafeCursorList, UnsafeCursorList)
 -- %call (translationUnit t)
@@ -3598,6 +3603,7 @@ unsafe_getParentedDescendants c =
    cxListPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr ()))))
    n <- getParentedDescendants' (castPtr cPtr) cxListPtr
    cxList <- peek cxListPtr
+   free cxListPtr
    return (toParentedCursorList (cxList, fromIntegral n))
 
 getParentedDescendants :: ClangBase m => Cursor s' -> ClangT s m (ParentedCursorList s)
@@ -3610,6 +3616,7 @@ unsafe_getParentedDeclarations t = do
    cxListPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr (Cursor ())))))
    n <- getParentedDeclarations' (unTranslationUnit t) (castPtr cxListPtr)
    cxList <- peek cxListPtr
+   free cxListPtr
    return (toParentedCursorList (cxList, fromIntegral n))
 
 getParentedDeclarations :: ClangBase m => TranslationUnit s' -> ClangT s m (ParentedCursorList s)
@@ -3622,6 +3629,7 @@ unsafe_getParentedReferences t = do
    cxListPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr ()))))
    n <- getParentedReferences' (unTranslationUnit t) cxListPtr
    cxList <- peek cxListPtr
+   free cxListPtr
    return (toParentedCursorList (cxList, fromIntegral n))
 
 getParentedReferences :: ClangBase m => TranslationUnit s' -> ClangT s m (ParentedCursorList s)
@@ -3641,6 +3649,8 @@ unsafe_getParentedDeclarationsAndReferences t = do
    (nDecls, nRefs) <- getParentedDeclarationsAndReferences' (unTranslationUnit t) declsPtr refsPtr
    decls <- peek declsPtr
    refs <- peek refsPtr
+   free declsPtr
+   free refsPtr
    return ((toParentedCursorList (decls, fromIntegral nDecls)), (toParentedCursorList (refs, fromIntegral nRefs)))
 
 getParentedDeclarationsAndReferences :: ClangBase m => TranslationUnit s'
@@ -5145,6 +5155,7 @@ unsafe_getInclusions tu = do
   iPtrPtr <- mallocBytes {#sizeof PtrPtrInclusion #}
   n <- getInclusions' (unTranslationUnit tu) (castPtr iPtrPtr)
   firstInclusion <- peek (castPtr iPtrPtr :: Ptr (Ptr ()))
+  free iPtrPtr
   return (toInclusionList (firstInclusion, fromIntegral n))
 
 
@@ -5224,6 +5235,8 @@ unsafe_remap_getFilenames remaps idx = do
     clang_remap_getFilenames (unRemapping remaps) idx origPtr txPtr
     orig <- peek (castPtr origPtr)
     tx <- peek (castPtr txPtr)
+    free origPtr
+    free txPtr
     return (orig, tx)
 
 remap_getFilenames :: ClangBase m => Remapping s' -> Int -> ClangT s m (ClangString s, ClangString s)
