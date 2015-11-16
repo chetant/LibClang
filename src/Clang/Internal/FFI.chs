@@ -10,6 +10,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE CPP #-}
 
 module Clang.Internal.FFI
 ( versionMajor
@@ -33,6 +34,8 @@ module Clang.Internal.FFI
 , getString
 , getByteString
 , unsafeGetByteString
+, rawCXStringToClangString
+, clangStringToRawCXString
 , File(..)
 , getFileName
 , getFileTime
@@ -88,7 +91,7 @@ module Clang.Internal.FFI
 , TranslationUnitFlags(..)
 , defaultEditingTranslationUnitOptions
 , parseTranslationUnit
-, setClangResourcesPath 
+, setClangResourcesPath
 , SaveTranslationUnitFlags(..)
 , defaultSaveOptions
 , saveTranslationUnit
@@ -264,9 +267,9 @@ module Clang.Internal.FFI
 , inlineContentComment_hasTrailingNewline
 , textComment_getText
 , inlineCommandComment_getCommandName
-, inlineCommandComment_getRenderKind 
-, inlineCommandComment_getNumArgs 
-, inlineCommandComment_getArgText 
+, inlineCommandComment_getRenderKind
+, inlineCommandComment_getNumArgs
+, inlineCommandComment_getArgText
 , hTMLTagComment_getTagName
 , hTMLStartTagComment_isSelfClosing
 , hTMLStartTag_getNumAttrs
@@ -289,7 +292,7 @@ module Clang.Internal.FFI
 , verbatimLineComment_getText
 , hTMLTagComment_getAsString
 , fullComment_getAsHTML
-, fullComment_getAsXML 
+, fullComment_getAsXML
 , TokenKind(..)
 , Token
 , TokenList
@@ -341,7 +344,6 @@ module Clang.Internal.FFI
 , remap_getFilenames
 ) where
 
-import Control.Applicative ((<$>), (<*>))
 import Control.Monad (forM_)
 import Control.Monad.Trans
 import qualified Data.ByteString as B
@@ -353,25 +355,22 @@ import qualified Data.Vector.Storable as DVS
 import qualified Data.Vector.Storable.Mutable as DVSM
 import Data.Word
 import Foreign.C
+import Foreign
 import Foreign.ForeignPtr.Unsafe (unsafeForeignPtrToPtr)
-import Foreign.GreenCard
 import Unsafe.Coerce (unsafeCoerce)  -- With GHC 7.8 we can use the safer 'coerce'.
+import System.IO.Unsafe(unsafePerformIO)
 
 import Clang.Internal.BitFlags
 import Clang.Internal.FFIConstants
 import Clang.Internal.Monad
 
-%#include <inttypes.h>
-%#include <stdlib.h>
-%#include <stddef.h>
-%#include <clang-c/Index.h>
-%#include <stdio.h>
-%#include "utils.h"
-%#include "visitors.h"
-
-%prefix CX
-%prefix CX_
-%prefix clang_
+#include <inttypes.h>
+#include <stdlib.h>
+#include <stddef.h>
+#include <clang-c/Index.h>
+#include <stdio.h>
+#include "utils.h"
+#include "visitors.h"
 
 {-
 LibClang uses two strategies to create safe, deterministic
@@ -429,14 +428,6 @@ Of course, this doesn't apply to the Proxy parameter, which must
 always have the same phantom type parameter as the return value.
 -}
 
--- Used with the Proxy type in Clang.Internal.Monad.
-%dis proxy = <id/id>
-
--- Utility dis's.
-%dis int64 x  = %%Int64 ({HsInt64} x)
-%dis word32 x = %%Word32 ({HsWord32} x)
-%dis word64 x = %%Word64 ({HsWord64} x)
-
 -- Marshalling utility functions.
 fromCInt :: Num b => CInt -> b
 fromCInt = fromIntegral
@@ -445,9 +436,12 @@ toCInt :: Integral a => a -> CInt
 toCInt = fromIntegral
 
 -- Version information.
-%const Int [versionMajor   = CINDEX_VERSION_MAJOR,
-%           versionMinor   = CINDEX_VERSION_MINOR,
-%           encodedVersion = CINDEX_VERSION]
+versionMajor :: Int
+versionMajor   = {# const CINDEX_VERSION_MAJOR #}
+versionMinor :: Int
+versionMinor   = {# const CINDEX_VERSION_MINOR #}
+encodedVersion :: Int
+encodedVersion = {# const CINDEX_VERSION #}
 
 -- typedef void *CXIndex;
 newtype Index s = Index { unIndex :: Ptr () }
@@ -458,21 +452,19 @@ instance ClangValue Index
 mkIndex :: Ptr () -> Index ()
 mkIndex = Index
 
-%dis index i = <unIndex/mkIndex> (ptr i)
-
 -- CXIndex clang_createIndex(int excludeDeclarationsFromPCH, int displayDiagnostics);
-%fun unsafe_createIndex :: Bool -> Bool -> IO (Index ())
-%call (bool a) (bool b)
-%code CXIndex r = clang_createIndex(a, b);
-%result (index r)
+{# fun clang_createIndex { `CInt', `CInt' } -> `Ptr ()' #}
+unsafe_createIndex :: Bool -> Bool -> IO (Index ())
+unsafe_createIndex a b = clang_createIndex (fromBool a) (fromBool b) >>= return . mkIndex
 
 createIndex :: ClangBase m => Bool -> Bool -> ClangT s m (Index s)
 createIndex = (registerIndex .) . unsafe_createIndex
 
+
 -- void clang_disposeIndex(CXIndex index);
-%fun clang_disposeIndex :: Index s -> IO ()
-%call (index i)
-%code clang_disposeIndex(i);
+{# fun clang_disposeIndex { `Ptr ()' } -> `()' #}
+disposeIndex :: Index s -> IO ()
+disposeIndex index = clang_disposeIndex (unIndex index)
 
 registerIndex :: ClangBase m => IO (Index ()) -> ClangT s m (Index s)
 registerIndex action = do
@@ -488,15 +480,18 @@ registerIndex action = do
 --   CXGlobalOpt_ThreadBackgroundPriorityForAll =
 --       CXGlobalOpt_ThreadBackgroundPriorityForIndexing |
 --       CXGlobalOpt_ThreadBackgroundPriorityForEditing
--- 
+--
 -- } CXGlobalOptFlags;
 
 -- | Options that apply globally to every translation unit within an index.
-%enum GlobalIndexOptions (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%   [ DefaultGlobalIndexOptions = CXGlobalOpt_None
-%   , ThreadBackgroundPriorityForIndexing = CXGlobalOpt_ThreadBackgroundPriorityForIndexing
-%   , ThreadBackgroundPriorityForEditing = CXGlobalOpt_ThreadBackgroundPriorityForEditing
-%   ]
+#c
+enum GlobalIndexOptions
+   { DefaultGlobalIndexOptions = CXGlobalOpt_None
+   , ThreadBackgroundPriorityForIndexing = CXGlobalOpt_ThreadBackgroundPriorityForIndexing
+   , ThreadBackgroundPriorityForEditing = CXGlobalOpt_ThreadBackgroundPriorityForEditing
+   };
+#endc
+{# enum GlobalIndexOptions{} deriving (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 instance BitFlags GlobalIndexOptions where
   toBit DefaultGlobalIndexOptions           = 0x0
@@ -509,15 +504,14 @@ threadBackgroundPriorityForAll = [ThreadBackgroundPriorityForEditing,
                                   ThreadBackgroundPriorityForIndexing]
 
 -- void clang_CXIndex_setGlobalOptions(CXIndex, unsigned options);
-%fun clang_CXIndex_setGlobalOptions :: Index s -> Int -> IO ()
-%call (index i) (int f)
-%code clang_CXIndex_setGlobalOptions(i, f);
+{# fun clang_CXIndex_setGlobalOptions { `Ptr ()', `Int' } -> `()' #}
+cXIndex_setGlobalOptions :: Index s -> Int -> IO ()
+cXIndex_setGlobalOptions index options = clang_CXIndex_setGlobalOptions (unIndex index) options
 
 -- unsigned clang_CXIndex_getGlobalOptions(CXIndex);
-%fun clang_CXIndex_getGlobalOptions :: Index s -> IO Int
-%call (index i)
-%code r = clang_CXIndex_getGlobalOptions(i);
-%result (int r)
+{# fun clang_CXIndex_getGlobalOptions { `Ptr ()' } -> `Int' #}
+cXIndex_getGlobalOptions :: Index s -> IO Int
+cXIndex_getGlobalOptions index = clang_CXIndex_getGlobalOptions (unIndex index)
 
 -- typedef struct CXTranslationUnitImpl *CXTranslationUnit;
 newtype TranslationUnit s = TranslationUnit { unTranslationUnit :: (Ptr ()) }
@@ -529,9 +523,9 @@ mkTranslationUnit :: Ptr () -> TranslationUnit ()
 mkTranslationUnit = TranslationUnit
 
 -- void clang_disposeTranslationUnit(CXTranslationUnit);
-%fun clang_disposeTranslationUnit :: TranslationUnit s -> IO ()
-%call (translationUnit t)
-%code clang_disposeTranslationUnit(t);
+{# fun clang_disposeTranslationUnit { `Ptr ()' } -> `()' #}
+disposeTranslationUnit :: TranslationUnit s -> IO ()
+disposeTranslationUnit t = clang_disposeTranslationUnit (unTranslationUnit t)
 
 registerTranslationUnit :: ClangBase m => IO (TranslationUnit ())
                         -> ClangT s m (TranslationUnit s)
@@ -540,8 +534,6 @@ registerTranslationUnit action = do
                            (\t -> disposeTranslationUnit t)
   return tu
 {-# INLINEABLE registerTranslationUnit #-}
-
-%dis translationUnit t = <unTranslationUnit/mkTranslationUnit> (ptr t)
 
 -- struct CXUnsavedFile {
 --   const char* Filename;
@@ -611,7 +603,7 @@ instance Storable CUnsavedFile where
       pokeByteOff p offsetCXUnsavedFileContents contents
       pokeByteOff p offsetCXUnsavedFileContentsLen contentsLen
     {-# INLINE poke #-}
-  
+
 
 withCUnsavedFiles :: DV.Vector UnsavedFile -> (DVS.Vector CUnsavedFile -> IO a) -> IO a
 withCUnsavedFiles ufs f = do
@@ -631,18 +623,15 @@ withCUnsavedFiles ufs f = do
                            DVSM.write v i cuf
                            go v (i + 1) len
 
--- enum CXAvailabilityKind {
---   CXAvailability_Available,
---   CXAvailability_Deprecated,
---   CXAvailability_NotAvailable,
---   CXAvailability_NotAccessible
--- };
-%enum AvailabilityKind (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-% [ CXAvailability_Available
-% , CXAvailability_Deprecated
-% , CXAvailability_NotAvailable
-% , CXAvailability_NotAccessible
-% ]
+#c
+enum AvailabilityKind {
+  Availability_Available = CXAvailability_Available,
+  Availability_Deprecated = CXAvailability_Deprecated,
+  Availability_NotAvailable = CXAvailability_NotAvailable,
+  Availability_NotAccessible = CXAvailability_NotAccessible
+};
+#endc
+{# enum AvailabilityKind{} deriving (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 data Version = Version
   { majorVersion    :: !Int
@@ -669,7 +658,7 @@ instance Storable Version where
     pokeByteOff p offsetCXVersionMinor minor
     pokeByteOff p offsetCXVersionSubminor subminor
   {-# INLINE poke #-}
-  
+
 -- typedef struct {
 --   const void *data;
 --   unsigned private_flags;
@@ -677,24 +666,41 @@ instance Storable Version where
 data ClangString s = ClangString !(Ptr ()) !Word32
                      deriving (Eq, Ord, Typeable)
 
+rawCXStringToClangString :: Ptr () -> IO (ClangString a)
+rawCXStringToClangString cs = do
+    ptrToCXStringStruct <- mallocBytes {# sizeof CXString #}
+    poke ptrToCXStringStruct (castPtr cs)
+    strData <- {#get CXString->data #} ptrToCXStringStruct
+    strFlags <- {#get CXString->private_flags #} ptrToCXStringStruct
+    free ptrToCXStringStruct
+    return $! ClangString strData (fromIntegral strFlags)
+
+clangStringToRawCXString :: ClangString a -> IO (Ptr ())
+clangStringToRawCXString (ClangString d f) = do
+    ptrToCXStringStruct <- mallocBytes {# sizeof CXString #}
+    {#set CXString->data #} ptrToCXStringStruct d
+    {#set CXString->private_flags #} ptrToCXStringStruct (fromIntegral f)
+    cxString <- peek (castPtr ptrToCXStringStruct :: Ptr (Ptr ()))
+    free ptrToCXStringStruct
+    return cxString
+
 instance ClangValue ClangString
 
 instance Storable (ClangString s) where
-  sizeOf _ = sizeOfCXString
+  sizeOf _ = {# sizeof CXString #} -- sizeOfCXString
   {-# INLINE sizeOf #-}
 
-  alignment _ = alignOfCXString
+  alignment _ = {# alignof CXString #} -- alignOfCXString
   {-# INLINE alignment #-}
 
   peek p = do
-    strData <- peekByteOff p offsetCXStringData
-    strFlags <- peekByteOff p offsetCXStringFlags
-    return $! ClangString strData strFlags
+    rawPtr <- peek (castPtr p :: Ptr (Ptr ()))
+    rawCXStringToClangString rawPtr
   {-# INLINE peek #-}
 
-  poke p (ClangString strData strFlags) = do
-    pokeByteOff p offsetCXStringData strData
-    pokeByteOff p offsetCXStringFlags strFlags
+  poke p clangString = do
+    rawPtr <- clangStringToRawCXString clangString
+    poke (castPtr p :: Ptr (Ptr ())) rawPtr
   {-# INLINE poke #-}
 
 instance Hashable (ClangString s) where
@@ -702,7 +708,7 @@ instance Hashable (ClangString s) where
                                       . (`hashWithSalt` pInt)
                                       $ salt
     where
-      pInt = (fromIntegral $ ptrToWordPtr p) :: Int    
+      pInt = (fromIntegral $ ptrToWordPtr p) :: Int
 
 registerClangString :: ClangBase m => IO (ClangString ()) -> ClangT s m (ClangString s)
 registerClangString action = do
@@ -711,13 +717,7 @@ registerClangString action = do
   return str
 {-# INLINEABLE registerClangString #-}
 
-%C void freeClangString(void* data, unsigned flags) {
-%    CXString str;
-%    str.data = data;
-%    str.private_flags = flags;
-%    clang_disposeString(str);
-%  }
-foreign import ccall unsafe "FFI_stub_ffi.h freeClangString" freeClangString :: Ptr () -> Word32 -> IO ()
+{#fun freeClangString { id `Ptr ()', `Word32' } -> `()' #}
 
 unmarshall_clangString :: Ptr () -> Word32 -> IO (ClangString ())
 unmarshall_clangString d f = return $ ClangString d f
@@ -732,13 +732,11 @@ unsafeGetByteString :: ClangBase m => ClangString s' -> ClangT s m B.ByteString
 unsafeGetByteString (ClangString d f) = liftIO $ getCStringPtr d f >>= BU.unsafePackCString
 
 -- const char *clang_getCString(ClangString string);
-%fun clang_getCStringPtr :: Ptr () -> Word32 -> IO CString
-%call (ptr d) (word32 f)
-%code CXString str;
-%     str.data = d;
-%     str.private_flags = f;
-%     r = (char*) clang_getCString(str);
-%result (ptr r)
+{# fun clang_getCString { id `Ptr ()' } -> `CString' id #}
+getCStringPtr :: Ptr () -> Word32 -> IO CString
+getCStringPtr d f = do
+ cxStringStruct <- clangStringToRawCXString (ClangString d f)
+ clang_getCString cxStringStruct
 
 -- typedef void *CXFile;
 newtype File s = File { unFile :: Ptr () }
@@ -750,8 +748,6 @@ instance Hashable (File s) where
   hashWithSalt salt (File p) = let !pInt = (fromIntegral $ ptrToWordPtr p) :: Int
                                in  hashWithSalt salt pInt
 
-%dis file p = <unFile/File> (ptr p)
-
 maybeFile :: File s' -> Maybe (File s)
 maybeFile (File p) | p == nullPtr = Nothing
 maybeFile f                       = Just (unsafeCoerce f)
@@ -760,15 +756,11 @@ unMaybeFile :: Maybe (File s') -> File s
 unMaybeFile (Just f) = unsafeCoerce f
 unMaybeFile Nothing  = File nullPtr
 
-%dis maybe_file f = <unMaybeFile/maybeFile> (file f)
 
 -- CXString clang_getFileName(CXFile SFile);
-%fun unsafe_getFileName :: File s -> IO (ClangString ())
-%call (file x)
-%code CXString out = clang_getFileName(x);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_getFileName { `Ptr ()' } -> `Ptr ()' id #}
+unsafe_getFileName :: File s -> IO (ClangString ())
+unsafe_getFileName x = clang_getFileName (unFile x) >>= rawCXStringToClangString
 
 getFileName :: ClangBase m => File s' -> ClangT s m (ClangString s)
 getFileName = registerClangString . unsafe_getFileName
@@ -794,26 +786,27 @@ maybeFileUniqueID :: (Int, Word64, Word64, Word64) -> Maybe UniqueId
 maybeFileUniqueID (v, d1, d2, d3) | v /= 0    = Nothing
                                   | otherwise = Just $ UniqueId d1 d2 d3
 
-%dis maybe_fileUniqueID v d1 d2 d3 = <id/maybeFileUniqueID> (int v) (word64 d1) (word64 d2) (word64 d3)
-
 -- int clang_getFileUniqueID(CXFile file, CXFileUniqueID *outID);
-%fun clang_getFileUniqueID :: File s -> IO (Maybe UniqueId)
-%call (file f)
-%code CXFileUniqueID uid;
-%     int r = clang_getFileUniqueID(f, &uid);
-%result (maybe_fileUniqueID r {uid.data[0]} {uid.data[1]} {uid.data[2]})
+{# fun clang_getFileUniqueID { `Ptr ()', `Ptr ()' } -> `CInt' id #}
+getFileUniqueID :: File s -> IO (Maybe UniqueId)
+getFileUniqueID f =
+  allocaArray 3 (ptrToFileUniqueId f)
+  where
+    ptrToFileUniqueId :: File s -> Ptr Word64 -> IO (Maybe UniqueId)
+    ptrToFileUniqueId f' ptr = do
+       res' <- clang_getFileUniqueID (unFile f') (castPtr ptr)
+       ds' <- peekArray 3 ptr
+       return (maybeFileUniqueID (fromIntegral res', ds' !! 0, ds' !! 1, ds' !! 2))
 
--- unsigned clang_isFileMultipleIncludeGuarded(CXTranslationUnit tu, CXFile file);
-%fun clang_isFileMultipleIncludeGuarded :: TranslationUnit s -> File s' -> IO Bool
-%call (translationUnit t) (file f)
-%code unsigned r = clang_isFileMultipleIncludeGuarded(t, f);
-%result (bool r)
+-- -- unsigned clang_isFileMultipleIncludeGuarded(CXTranslationUnit tu, CXFile file);
+{# fun clang_isFileMultipleIncludeGuarded { `Ptr ()', `Ptr ()' } -> `CInt' #}
+isFileMultipleIncludeGuarded :: TranslationUnit s -> File s' -> IO Bool
+isFileMultipleIncludeGuarded t f = clang_isFileMultipleIncludeGuarded (unTranslationUnit t) (unFile f) >>= return . (toBool :: Int -> Bool) . fromIntegral
 
 -- CXFile clang_getFile(CXTranslationUnit tu, const char *file_name);
-%fun clang_getFile :: Proxy s -> TranslationUnit s' -> String -> IO (File s)
-%call (proxy) (translationUnit t) (string s)
-%code CXFile r = clang_getFile(t, s);
-%result (file r)
+{# fun clang_getFile { `Ptr ()', `CString' } -> `Ptr ()' #}
+getFile:: Proxy s -> TranslationUnit s' -> String -> IO (File s)
+getFile _ t s = withCString s (\cs -> clang_getFile (unTranslationUnit t) cs >>= return . File)
 
 -- typedef struct {
 --   void *ptr_data[2];
@@ -822,8 +815,30 @@ maybeFileUniqueID (v, d1, d2, d3) | v /= 0    = Nothing
 data SourceLocation s = SourceLocation !(Ptr ()) !(Ptr ()) !Int
                         deriving (Ord, Typeable)
 
+rawSourceLocationToSourceLocation :: Ptr () -> IO (SourceLocation a)
+rawSourceLocationToSourceLocation cs = do
+    ptrToSourceLocationStruct <- mallocBytes {# sizeof CXSourceLocation #}
+    poke ptrToSourceLocationStruct (castPtr cs)
+    ptrArray <- {#get CXSourceLocation->ptr_data #} ptrToSourceLocationStruct >>= peekArray 2
+    intData <- {#get CXSourceLocation->int_data #} ptrToSourceLocationStruct
+    free ptrToSourceLocationStruct
+    return $! SourceLocation (ptrArray !! 0) (ptrArray !! 1) (fromIntegral intData)
+#c
+typedef void* PtrVoid;
+#endc
+
+sourceLocationToRawSourceLocation :: SourceLocation a -> IO (Ptr ())
+sourceLocationToRawSourceLocation (SourceLocation p0 p1 i) = do
+    ptrToSourceLocationStruct <- mallocBytes {# sizeof CXSourceLocation #}
+    ptrsArray <- mallocArray 2
+    pokeArray ptrsArray [p0,p1]
+    {#set CXSourceLocation->ptr_data #} ptrToSourceLocationStruct (castPtr ptrsArray)
+    {#set CXSourceLocation->int_data #} ptrToSourceLocationStruct (fromIntegral i)
+    sourceLocationStruct <- peek (castPtr ptrToSourceLocationStruct :: Ptr (Ptr ()))
+    free ptrToSourceLocationStruct
+    return sourceLocationStruct
+
 instance ClangValue SourceLocation
-%dis sourceLocation p1 p2 d = SourceLocation (ptr p1) (ptr p2) (int d)
 
 instance Eq (SourceLocation s) where
   a == b = unsafePerformIO $ equalLocations a b
@@ -836,18 +851,13 @@ instance Storable (SourceLocation s) where
     {-# INLINE alignment #-}
 
     peek p = do
-      let fromCUInt = fromIntegral :: Num b => CUInt -> b
-      p1 <- peekByteOff p offsetCXSourceLocationP1
-      p2 <- peekByteOff p offsetCXSourceLocationP2
-      d <- fromCUInt <$> peekByteOff p offsetCXSourceLocationData
-      return $! SourceLocation p1 p2 d
+      rawPtr <- peek (castPtr p :: Ptr (Ptr ()))
+      rawSourceLocationToSourceLocation rawPtr
     {-# INLINE peek #-}
 
-    poke p (SourceLocation p1 p2 d) = do
-      let toCUInt = fromIntegral :: Integral a => a -> CUInt
-      pokeByteOff p offsetCXSourceLocationP1 p1
-      pokeByteOff p offsetCXSourceLocationP2 p2
-      pokeByteOff p offsetCXSourceLocationData $ toCUInt d
+    poke p sourceLocation = do
+      rawPtr <- sourceLocationToRawSourceLocation sourceLocation
+      poke (castPtr p :: Ptr (Ptr ())) rawPtr
     {-# INLINE poke #-}
 
 -- typedef struct {
@@ -858,108 +868,156 @@ instance Storable (SourceLocation s) where
 data SourceRange s = SourceRange !(Ptr ()) !(Ptr ()) !Int !Int
                      deriving (Ord, Typeable)
 
+rawSourceRangeToSourceRange :: Ptr () -> IO (SourceRange a)
+rawSourceRangeToSourceRange cs = do
+    ptrToSourceRangeStruct <- mallocBytes {# sizeof CXSourceRange #}
+    poke ptrToSourceRangeStruct (castPtr cs)
+    ptrArray <- {#get CXSourceRange->ptr_data #} ptrToSourceRangeStruct >>= peekArray 2
+    beginIntData <- {#get CXSourceRange->begin_int_data #} ptrToSourceRangeStruct
+    endIntData <- {#get CXSourceRange->end_int_data #} ptrToSourceRangeStruct
+    free ptrToSourceRangeStruct
+    return $! SourceRange (ptrArray !! 0) (ptrArray !! 1) (fromIntegral beginIntData) (fromIntegral endIntData)
+
+sourceRangeToRawSourceRange :: SourceRange a -> IO (Ptr ())
+sourceRangeToRawSourceRange (SourceRange p0 p1 begin end) = do
+    ptrToSourceRangeStruct <- mallocBytes {# sizeof CXSourceRange #}
+    ptrsArray <- mallocArray 2
+    pokeArray ptrsArray [p0,p1]
+    {#set CXSourceRange->ptr_data #} ptrToSourceRangeStruct (castPtr ptrsArray)
+    {#set CXSourceRange->begin_int_data #} ptrToSourceRangeStruct (fromIntegral begin)
+    {#set CXSourceRange->end_int_data #} ptrToSourceRangeStruct (fromIntegral end)
+    sourceRangeStruct <- peek (castPtr ptrToSourceRangeStruct :: Ptr (Ptr ()))
+    free ptrToSourceRangeStruct
+    return sourceRangeStruct
+
 instance ClangValue SourceRange
-%dis sourceRange p1 p2 d1 d2 = SourceRange (ptr p1) (ptr p2) (int d1) (int d2)
 
 instance Eq (SourceRange s) where
   a == b = unsafePerformIO $ equalRanges a b
 
+instance Storable (SourceRange s) where
+    sizeOf _ = sizeOfCXSourceRange
+    {-# INLINE sizeOf #-}
+
+    alignment _ = alignOfCXSourceRange
+    {-# INLINE alignment #-}
+
+    peek p = do
+      rawPtr <- peek (castPtr p :: Ptr (Ptr ()))
+      rawSourceRangeToSourceRange rawPtr
+    {-# INLINE peek #-}
+
+    poke p sourceRange = do
+      rawPtr <- sourceRangeToRawSourceRange sourceRange
+      poke (castPtr p :: Ptr (Ptr ())) rawPtr
+    {-# INLINE poke #-}
+
 -- CXSourceLocation clang_getNullLocation();
-%fun clang_getNullLocation :: Proxy s -> IO (SourceLocation s)
-%call (proxy)
-%code CXSourceLocation r = clang_getNullLocation();
-%result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
+{# fun clang_getNullLocation { } -> `Ptr ()' id#}
+getNullLocation :: Proxy s -> IO (SourceLocation s)
+getNullLocation _ = clang_getNullLocation >>= rawSourceLocationToSourceLocation
 
 -- unsigned clang_equalLocations(CXSourceLocation loc1, CXSourceLocation loc2);
-%fun clang_equalLocations :: SourceLocation s -> SourceLocation s' -> IO Bool
-%call (sourceLocation p1 p2 d) (sourceLocation p12 p22 d2)
-%code CXSourceLocation l = {{p1, p2}, d};
-%     CXSourceLocation m = {{p12, p22}, d2};
-%result (bool {clang_equalLocations(l, m)})
+{# fun clang_equalLocations { id `Ptr ()' , id `Ptr ()' } -> `Bool' toBool #}
+equalLocations :: SourceLocation s -> SourceLocation s' -> IO Bool
+equalLocations s1 s2 = do
+    ptrS1 <- sourceLocationToRawSourceLocation s1
+    ptrS2 <- sourceLocationToRawSourceLocation s2
+    clang_equalLocations ptrS1 ptrS2
 
 -- CXSourceLocation clang_getLocation(CXTranslationUnit tu,
 --                                                   CXFile file,
 --                                                   unsigned line,
 --                                                   unsigned column);
-%fun clang_getLocation :: Proxy s -> TranslationUnit s' -> File s'' -> Int -> Int -> IO (SourceLocation s)
-%call (proxy) (translationUnit t) (file f) (int i) (int j)
-%code CXSourceLocation r = clang_getLocation((CXTranslationUnit)t, f, i, j);
-%result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
+{# fun clang_getLocation { `Ptr ()' , `Ptr ()', `Int', `Int' } -> `Ptr ()' id #}
+getLocation :: Proxy s -> TranslationUnit s' -> File s'' -> Int -> Int -> IO (SourceLocation s)
+getLocation _ t f i j = clang_getLocation (unTranslationUnit t) (unFile f) i j >>= rawSourceLocationToSourceLocation
 
 -- CXSourceLocation clang_getLocationForOffset(CXTranslationUnit tu,
 --                                                            CXFile file,
 --                                                            unsigned offset);
-%fun clang_getLocationForOffset :: Proxy s -> TranslationUnit s' -> File s'' -> Int -> IO (SourceLocation s)
-%call (proxy) (translationUnit t) (file f) (int i)
-%code CXSourceLocation r = clang_getLocationForOffset((CXTranslationUnit)t, f, i);
-%result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
+{# fun clang_getLocationForOffset { `Ptr ()', `Ptr ()', `Int' } -> `Ptr ()' id #}
+getLocationForOffset :: Proxy s -> TranslationUnit s' -> File s'' -> Int -> IO (SourceLocation s)
+getLocationForOffset _ t f i = clang_getLocationForOffset (unTranslationUnit t) (unFile f) i >>= rawSourceLocationToSourceLocation
 
 -- int clang_Location_isInSystemHeader(CXSourceLocation location);
-%fun clang_Location_isInSystemHeader :: SourceLocation s -> IO Bool
-%call (sourceLocation p1 p2 d)
-%code CXSourceLocation l = {{p1, p2}, d};
-%result (bool {clang_Location_isInSystemHeader(l)})
+{# fun clang_Location_isInSystemHeader { id `Ptr ()' } -> `Bool' toBool #}
+location_isInSystemHeader :: SourceLocation s -> IO Bool
+location_isInSystemHeader s = do
+     ptr <- sourceLocationToRawSourceLocation s
+     clang_Location_isInSystemHeader ptr
 
 -- int clang_Location_isFromMainFile(CXSourceLocation location);
-%fun clang_Location_isFromMainFile :: SourceLocation s -> IO Bool
-%call (sourceLocation p1 p2 d)
-%code CXSourceLocation l = {{p1, p2}, d};
-%result (bool {clang_Location_isFromMainFile(l)})
+{# fun clang_Location_isFromMainFile { id `Ptr ()' } -> `Bool' toBool #}
+location_isFromMainFile :: SourceLocation s -> IO Bool
+location_isFromMainFile s = do
+   ptr <- sourceLocationToRawSourceLocation s
+   clang_Location_isFromMainFile (castPtr ptr)
 
 -- CXSourceRange clang_getNullRange();
-%fun clang_getNullRange :: Proxy s -> IO (SourceRange s)
-%call (proxy)
-%code CXSourceRange r = clang_getNullRange();
-%result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
+{# fun clang_getNullRange { } -> `Ptr ()' id #}
+getNullRange :: Proxy s -> IO (SourceRange s)
+getNullRange _ = clang_getNullRange >>= rawSourceRangeToSourceRange
 
 -- CXSourceRange clang_getRange(CXSourceLocation begin, CXSourceLocation end);
-%fun clang_getRange :: Proxy s -> SourceLocation s' -> SourceLocation s'' -> IO (SourceRange s)
-%call (proxy) (sourceLocation p1 p2 d) (sourceLocation p12 p22 d2)
-%code CXSourceLocation l = {{p1, p2}, d};
-%     CXSourceLocation m = {{p12, p22}, d2};
-%     CXSourceRange r = clang_getRange(l, m);
-%result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
+{# fun clang_getRange { id `Ptr ()', id `Ptr ()' } -> `Ptr ()' id #}
+getRange :: Proxy s -> SourceLocation s' -> SourceLocation s'' -> IO (SourceRange s)
+getRange _ sl1 sl2 = do
+   ptrSl1 <- sourceLocationToRawSourceLocation sl1
+   ptrSl2 <- sourceLocationToRawSourceLocation sl2
+   (clang_getRange (castPtr ptrSl1) (castPtr ptrSl2) >>= rawSourceRangeToSourceRange)
 
 -- unsigned clang_equalRanges(CXSourceRange range1, CXSourceRange range2);
-%fun clang_equalRanges :: SourceRange s' -> SourceRange s'' -> IO Bool
-%call (sourceRange p1 p2 d1 d2) (sourceRange p12 p22 d12 d22)
-%code CXSourceRange r1 = {{p1, p2}, d1, d2};
-%     CXSourceRange r2 = {{p12, p22}, d12, d22};
-%     unsigned r = clang_equalRanges(r1, r2);
-%result (bool r)
+{# fun clang_equalRanges {id `Ptr ()', id `Ptr ()' } -> `Bool' toBool #}
+equalRanges :: SourceRange s' -> SourceRange s'' -> IO Bool
+equalRanges sr1 sr2 = do
+    p1 <- sourceRangeToRawSourceRange sr1
+    p2 <- sourceRangeToRawSourceRange sr2
+    clang_equalRanges (castPtr p1) (castPtr p2)
 
 -- int clang_Range_isNull(CXSourceRange range);
-%fun clang_Range_isNull :: SourceRange s -> IO Bool
-%call (sourceRange p1 p2 d1 d2)
-%code CXSourceRange r1 = {{p1, p2}, d1, d2};
-%result (bool {clang_Range_isNull(r1)})
+{# fun clang_Range_isNull {id `Ptr ()' } -> `Bool' toBool #}
+range_isNull :: SourceRange s -> IO Bool
+range_isNull s = sourceRangeToRawSourceRange s >>= clang_Range_isNull
+
+#c
+typedef CXFile** PtrPtrCXFile;
+#endc
 
 -- void clang_getExpansionLocation(CXSourceLocation location,
 --                                 CXFile *file,
 --                                 unsigned *line,
 --                                 unsigned *column,
 --                                 unsigned *offset);
-%fun clang_getExpansionLocation :: Proxy s -> SourceLocation s' -> IO (Maybe (File s), Int, Int, Int)
-%call (proxy) (sourceLocation p1 p2 d)
-%code CXSourceLocation l = {{p1, p2}, d};
-%     CXFile f;
-%     unsigned ln, c, o;
-%     clang_getExpansionLocation(l, &f, &ln, &c, &o);
-%result ((maybe_file f), (int ln), (int c), (int o))
+{# fun clang_getExpansionLocation { id `Ptr ()', id `Ptr (Ptr ())', id `Ptr CUInt', id `Ptr CUInt', id `Ptr CUInt' } -> `()' #}
+getExpansionLocation :: Proxy s -> SourceLocation s' -> IO (Maybe (File s), Int, Int, Int)
+getExpansionLocation _ s =
+  allocaBytes {#sizeof PtrPtrCXFile #} (\ptrToFilePtr ->
+  alloca (\(linePtr :: (Ptr CUInt)) ->
+  alloca (\(columnPtr :: (Ptr CUInt)) ->
+  alloca (\(offsetPtr :: (Ptr CUInt)) -> do
+    sourcePtr <- sourceLocationToRawSourceLocation s
+    clang_getExpansionLocation (castPtr sourcePtr) (castPtr ptrToFilePtr) (castPtr linePtr) (castPtr columnPtr) (castPtr offsetPtr)
+    filePtr <- {#get *CXFile #} ptrToFilePtr
+    let _maybeFile = maybeFile (File filePtr)
+    line <- peek linePtr
+    column <- peek columnPtr
+    offset <- peek offsetPtr
+    return (_maybeFile, fromIntegral line, fromIntegral column, fromIntegral offset)))))
 
 -- void clang_getPresumedLocation(CXSourceLocation location,
 --                                CXString *filename,
 --                                unsigned *line,
 --                                unsigned *column);
-%fun unsafe_getPresumedLocation :: SourceLocation s' -> IO (ClangString (), Int, Int)
-%call (sourceLocation p1 p2 d)
-%code CXSourceLocation l = {{p1, p2}, d};
-%     CXString f;
-%     unsigned ln, c;
-%     clang_getPresumedLocation(l, &f, &ln, &c);
-%     const void* outData = f.data;
-%     unsigned outFlags = f.private_flags;
-%result ((clangString (ptr outData) (word32 outFlags)), (int ln), (int c))
+
+{# fun clang_getPresumedLocation { id `Ptr ()', id `Ptr ()', alloca- `CUInt' peek*, alloca- `CUInt' peek* } -> `()' #}
+unsafe_getPresumedLocation :: SourceLocation s' -> IO (ClangString (), Int, Int)
+unsafe_getPresumedLocation s =
+  alloca (\(stringPtr :: (Ptr (ClangString ()))) -> do
+    locationPtr <- sourceLocationToRawSourceLocation s
+    (line, column) <- clang_getPresumedLocation (castPtr locationPtr) (castPtr stringPtr)
+    clangString <- peek stringPtr
+    return (clangString, fromIntegral line, fromIntegral column))
 
 getPresumedLocation :: ClangBase m => SourceLocation s' -> ClangT s m (ClangString s, Int, Int)
 getPresumedLocation l = do
@@ -971,40 +1029,60 @@ getPresumedLocation l = do
 --                                unsigned *line,
 --                                unsigned *column,
 --                                unsigned *offset);
-%fun clang_getSpellingLocation :: Proxy s -> SourceLocation s' -> IO (Maybe (File s), Int, Int, Int)
-%call (proxy) (sourceLocation p1 p2 d)
-%code CXSourceLocation l = {{p1, p2}, d};
-%     CXFile f;
-%     unsigned ln, c, o;
-%     clang_getSpellingLocation(l, &f, &ln, &c, &o);
-%result ((maybe_file f), (int ln), (int c), (int o))
+{# fun clang_getSpellingLocation { id `Ptr ()', id `Ptr (Ptr ())', id `Ptr CUInt', id `Ptr CUInt', id `Ptr CUInt' } -> `()' #}
+getSpellingLocation :: Proxy s -> SourceLocation s' -> IO (Maybe (File s), Int, Int, Int)
+getSpellingLocation _ s =
+  allocaBytes {# sizeof PtrPtrCXFile #} (\ptrToFilePtr ->
+  alloca (\(linePtr :: (Ptr CUInt)) ->
+  alloca (\(columnPtr :: (Ptr CUInt)) ->
+  alloca (\(offsetPtr :: (Ptr CUInt)) -> do
+    sourcePtr <- sourceLocationToRawSourceLocation s
+    clang_getSpellingLocation (castPtr sourcePtr) (castPtr ptrToFilePtr) linePtr columnPtr offsetPtr
+    filePtr <- {#get *CXFile #} ptrToFilePtr
+    let _maybeFile = maybeFile (File filePtr)
+    line <- peek linePtr
+    column <- peek columnPtr
+    offset <- peek offsetPtr
+    return (_maybeFile, fromIntegral line, fromIntegral column, fromIntegral offset)))))
 
 -- void clang_getFileLocation(CXSourceLocation location,
 --                            CXFile *file,
 --                            unsigned *line,
 --                            unsigned *column,
 --                            unsigned *offset);
-%fun clang_getFileLocation :: Proxy s -> SourceLocation s' -> IO (Maybe (File s), Int, Int, Int)
-%call (proxy) (sourceLocation p1 p2 d)
-%code CXSourceLocation l = {{p1, p2}, d};
-%     CXFile f;
-%     unsigned ln, c, o;
-%     clang_getFileLocation(l, &f, &ln, &c, &o);
-%result ((maybe_file f), (int ln), (int c), (int o))
+{# fun clang_getFileLocation { id `Ptr ()', id `Ptr (Ptr ())', id `Ptr CUInt', id `Ptr CUInt', id `Ptr CUInt' } -> `()' #}
+getFileLocation :: Proxy s -> SourceLocation s' -> IO (Maybe (File s), Int, Int, Int)
+getFileLocation _ s =
+  allocaBytes {#sizeof PtrPtrCXFile #} (\ptrToFilePtr ->
+  alloca (\(linePtr :: (Ptr CUInt)) ->
+  alloca (\(columnPtr :: (Ptr CUInt)) ->
+  alloca (\(offsetPtr :: (Ptr CUInt)) -> do
+    sourcePtr <- sourceLocationToRawSourceLocation s
+    clang_getFileLocation (castPtr sourcePtr) ptrToFilePtr (castPtr linePtr) (castPtr columnPtr) (castPtr offsetPtr)
+    filePtr <- {#get *CXFile #} ptrToFilePtr
+    let _maybeFile = maybeFile (File filePtr)
+    line <- peek linePtr
+    column <- peek columnPtr
+    offset <- peek offsetPtr
+    return (_maybeFile, fromIntegral line, fromIntegral column, fromIntegral offset)))))
 
 -- CXSourceLocation clang_getRangeStart(CXSourceRange range);
-%fun clang_getRangeStart :: Proxy s -> SourceRange s' -> IO (SourceLocation s)
-%call (proxy) (sourceRange p1 p2 d1 d2)
-%code CXSourceRange a = {{p1, p2}, d1, d2};
-%     CXSourceLocation r = clang_getRangeStart(a);
-%result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
+{# fun clang_getRangeStart { id `Ptr ()' } -> `Ptr ()' id #}
+getRangeStart :: Proxy s -> SourceRange s' -> IO (SourceLocation s)
+getRangeStart _ sr = do
+  srPtr <- sourceRangeToRawSourceRange sr
+  slPtr <- clang_getRangeStart (castPtr srPtr)
+  sl <- rawSourceLocationToSourceLocation slPtr
+  return sl
 
 -- CXSourceLocation clang_getRangeEnd(CXSourceRange range);
-%fun clang_getRangeEnd :: Proxy s -> SourceRange s' -> IO (SourceLocation s)
-%call (proxy) (sourceRange p1 p2 d1 d2)
-%code CXSourceRange a = {{p1, p2}, d1, d2};
-%     CXSourceLocation r = clang_getRangeEnd(a);
-%result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
+{# fun clang_getRangeEnd { id `Ptr ()' } -> `Ptr ()' id #}
+getRangeEnd :: Proxy s -> SourceRange s' -> IO (SourceLocation s)
+getRangeEnd _ sr = do
+  srPtr <- sourceRangeToRawSourceRange sr
+  slPtr <- clang_getRangeEnd (castPtr srPtr)
+  sl <- rawSourceLocationToSourceLocation slPtr
+  return sl
 
 -- enum CXDiagnosticSeverity {
 --   CXDiagnostic_Ignored = 0,
@@ -1015,13 +1093,16 @@ getPresumedLocation l = do
 -- };
 
 -- | The severity of a diagnostic.
-%enum Severity (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-% [ SeverityIgnored = CXDiagnostic_Ignored
-% , SeverityNote    = CXDiagnostic_Note
-% , SeverityWarning = CXDiagnostic_Warning
-% , SeverityError   = CXDiagnostic_Error
-% , SeverityFatal   = CXDiagnostic_Fatal
-% ]
+#c
+enum Severity
+ { SeverityIgnored = CXDiagnostic_Ignored
+ , SeverityNote    = CXDiagnostic_Note
+ , SeverityWarning = CXDiagnostic_Warning
+ , SeverityError   = CXDiagnostic_Error
+ , SeverityFatal   = CXDiagnostic_Fatal
+ };
+#endc
+{# enum Severity {} deriving  (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 -- typedef void* CXDiagnostic;
 newtype Diagnostic s = Diagnostic { unDiagnostic :: Ptr () }
@@ -1033,9 +1114,9 @@ mkDiagnostic :: Ptr () -> Diagnostic ()
 mkDiagnostic = Diagnostic
 
 -- void clang_disposeDiagnostic(CXDiagnostic);
-%fun clang_disposeDiagnostic :: Diagnostic s -> IO ()
-%call (diag d)
-%code clang_disposeDiagnostic(d);
+{# fun clang_disposeDiagnostic { id `Ptr ()' } -> `()' #}
+disposeDiagnostic:: Diagnostic s -> IO ()
+disposeDiagnostic d = clang_disposeDiagnostic (unDiagnostic d)
 
 registerDiagnostic :: ClangBase m => IO (Diagnostic ()) -> ClangT s m (Diagnostic s)
 registerDiagnostic action = do
@@ -1043,8 +1124,6 @@ registerDiagnostic action = do
                             (\i -> disposeDiagnostic i)
   return idx
 {-# INLINEABLE registerDiagnostic #-}
-
-%dis diag i = <unDiagnostic/mkDiagnostic> (ptr i)
 
 -- typedef void* CXDiagnosticSet;
 newtype DiagnosticSet s = DiagnosticSet { unDiagnosticSet :: Ptr () }
@@ -1056,9 +1135,9 @@ mkDiagnosticSet :: Ptr () -> DiagnosticSet ()
 mkDiagnosticSet = DiagnosticSet
 
 -- void clang_disposeDiagnosticSet(CXDiagnosticSet);
-%fun clang_disposeDiagnosticSet :: DiagnosticSet s -> IO ()
-%call (diagSet d)
-%code clang_disposeDiagnosticSet(d);
+{# fun clang_disposeDiagnosticSet { id `Ptr ()' } -> `()' #}
+disposeDiagnosticSet :: DiagnosticSet s -> IO ()
+disposeDiagnosticSet s = clang_disposeDiagnosticSet (unDiagnosticSet s)
 
 registerDiagnosticSet :: ClangBase m => IO (DiagnosticSet ()) -> ClangT s m (DiagnosticSet s)
 registerDiagnosticSet action = do
@@ -1067,19 +1146,15 @@ registerDiagnosticSet action = do
   return idx
 {-# INLINEABLE registerDiagnosticSet #-}
 
-%dis diagSet i = <unDiagnosticSet/mkDiagnosticSet> (ptr i)
-
 -- unsigned clang_getNumDiagnosticsInSet(CXDiagnosticSet Diags);
-%fun clang_getNumDiagnosticsInSet :: DiagnosticSet s -> IO Int
-%call (diagSet d)
-%code unsigned r = clang_getNumDiagnosticsInSet(d);
-%result (int r)
+{# fun clang_getNumDiagnosticsInSet { id `Ptr ()' } -> `Int' #}
+getNumDiagnosticsInSet :: DiagnosticSet s -> IO Int
+getNumDiagnosticsInSet s = clang_getNumDiagnosticsInSet (unDiagnosticSet s)
 
--- CXDiagnostic clang_getDiagnosticInSet(CXDiagnosticSet Diags, unsigned Index);  
-%fun unsafe_getDiagnosticInSet :: DiagnosticSet s -> Int -> IO (Diagnostic ())
-%call (diagSet d) (int i)
-%code CXDiagnostic r = clang_getDiagnosticInSet(d, i);
-%result (diag r)
+-- CXDiagnostic clang_getDiagnosticInSet(CXDiagnosticSet Diags, unsigned Index);
+{# fun clang_getDiagnosticInSet { id `Ptr ()', `Int' } -> `Ptr ()' id #}
+unsafe_getDiagnosticInSet :: DiagnosticSet s -> Int -> IO (Diagnostic ())
+unsafe_getDiagnosticInSet s i = clang_getDiagnosticInSet (unDiagnosticSet s) i >>= return . mkDiagnostic
 
 getDiagnosticInSet :: ClangBase m => DiagnosticSet s' -> Int -> ClangT s m (Diagnostic s)
 getDiagnosticInSet = (registerDiagnostic .) . unsafe_getDiagnosticInSet
@@ -1092,29 +1167,31 @@ getDiagnosticInSet = (registerDiagnostic .) . unsafe_getDiagnosticInSet
 -- };
 
 -- | An error encountered while loading a serialized diagnostics bitcode file.
-%enum LoadError (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-% [ LoadSuccessful   = CXLoadDiag_None
-% , LoadUnknownError = CXLoadDiag_Unknown
-% , LoadCannotOpen   = CXLoadDiag_CannotLoad
-% , LoadInvalidFile  = CXLoadDiag_InvalidFile
-% ]
+#c
+enum LoadError
+ { LoadSuccessful   = CXLoadDiag_None
+ , LoadUnknownError = CXLoadDiag_Unknown
+ , LoadCannotOpen   = CXLoadDiag_CannotLoad
+ , LoadInvalidFile  = CXLoadDiag_InvalidFile
+ };
+#endc
+{# enum LoadError {} deriving (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 data LoadDiagsResult =
   LoadDiagsResult LoadError (ClangString ()) (DiagnosticSet ())
 
-%dis loadDiagsResult err eStrData eStrFlags ds = LoadDiagsResult (loadError err) (clangString (ptr eStrData) (word32 eStrFlags)) (diagSet ds)
-
 -- CXDiagnosticSet clang_loadDiagnostics(const char *file,
 --                                       enum CXLoadDiag_Error *error,
 --                                       CXString *errorString);
-%fun unsafe_loadDiagnostics :: FilePath -> IO LoadDiagsResult
-%call (string file)
-%code enum CXLoadDiag_Error err;
-%     CXString errStr;
-%     CXDiagnosticSet r = clang_loadDiagnostics(file, &err, &errStr);
-%     const void* outData = errStr.data;
-%     unsigned outFlags = errStr.private_flags;
-%result (loadDiagsResult err outData outFlags r)
+{# fun clang_loadDiagnostics {`CString', alloca- `CInt' peek*, `Ptr ()' } -> `Ptr ()' id #}
+unsafe_loadDiagnostics :: FilePath -> IO LoadDiagsResult
+unsafe_loadDiagnostics file = withCString file (\cString -> alloca (go cString))
+  where
+    go :: CString -> Ptr (ClangString ()) -> IO LoadDiagsResult
+    go str ptr = do
+       (diagnosticSetPtr, err) <- clang_loadDiagnostics str (castPtr ptr)
+       errString <- peek (castPtr ptr)
+       return (LoadDiagsResult (toEnum (fromIntegral err)) errString (DiagnosticSet diagnosticSetPtr))
 
 loadDiagnostics :: ClangBase m => FilePath
                 -> ClangT s m (Either (LoadError, ClangString s) (DiagnosticSet s))
@@ -1126,10 +1203,9 @@ loadDiagnostics path = do
       | otherwise    -> Right <$> registerDiagnosticSet (return ds)
 
 -- CXDiagnosticSet clang_getChildDiagnostics(CXDiagnostic D);
-%fun unsafe_getChildDiagnostics :: Diagnostic s' -> IO (DiagnosticSet ())
-%call (diag d)
-%code CXDiagnosticSet r = clang_getChildDiagnostics(d);
-%result (diagSet r)
+{# fun clang_getChildDiagnostics { `Ptr ()' } -> `Ptr ()' id #}
+unsafe_getChildDiagnostics :: Diagnostic s' -> IO (DiagnosticSet ())
+unsafe_getChildDiagnostics d = clang_getChildDiagnostics (unDiagnostic d) >>= return . mkDiagnosticSet
 
 -- Note that as a special case, the DiagnosticSet returned by this
 -- function does not need to be freed, so we intentionally don't
@@ -1138,25 +1214,25 @@ getChildDiagnostics :: ClangBase m => Diagnostic s' -> ClangT s m (DiagnosticSet
 getChildDiagnostics = unsafeCoerce <$> unsafe_getChildDiagnostics
 
 -- unsigned clang_getNumDiagnostics(CXTranslationUnit Unit);
-%fun clang_getNumDiagnostics :: TranslationUnit s -> IO Int
-%call (translationUnit t)
-%code unsigned r = clang_getNumDiagnostics((CXTranslationUnit)t);
-%result (int r)
+{# fun clang_getNumDiagnostics { `Ptr ()' } -> `CUInt' id#}
+getNumDiagnostics :: TranslationUnit s -> IO Int
+getNumDiagnostics t = clang_getNumDiagnostics (unTranslationUnit t) >>= return . fromIntegral
 
 -- CXDiagnostic clang_getDiagnostic(CXTranslationUnit Unit, unsigned Index);
-%fun unsafe_getDiagnostic :: TranslationUnit s -> Int -> IO (Diagnostic ())
-%call (translationUnit t) (int i)
-%code CXDiagnostic r = clang_getDiagnostic((CXTranslationUnit)t, i);
-%result (diag r)
+{# fun clang_getDiagnostic { `Ptr ()', `CUInt' } -> `Ptr ()' id #}
+unsafe_getDiagnostic :: TranslationUnit s -> Int -> IO (Diagnostic ())
+unsafe_getDiagnostic t i = clang_getDiagnostic (unTranslationUnit t) (fromIntegral i) >>= return . mkDiagnostic
 
 getDiagnostic :: ClangBase m => TranslationUnit s' -> Int -> ClangT s m (Diagnostic s)
 getDiagnostic = (registerDiagnostic .) . unsafe_getDiagnostic
 
--- CXDiagnosticSet clang_getDiagnosticSetFromTU(CXTranslationUnit Unit);  
-%fun unsafe_getDiagnosticSetFromTU :: TranslationUnit s -> IO (DiagnosticSet ())
-%call (translationUnit t)
-%code CXDiagnosticSet r = clang_getDiagnosticSetFromTU(t);
-%result (diagSet r)
+-- CXDiagnosticSet clang_getDiagnosticSetFromTU(CXTranslationUnit Unit);
+{# fun clang_getDiagnosticSetFromTU { `Ptr ()' } -> `Ptr ()' id #}
+unsafe_getDiagnosticSetFromTU :: TranslationUnit s -> IO (DiagnosticSet ())
+unsafe_getDiagnosticSetFromTU t = do
+  set <- clang_getDiagnosticSetFromTU (unTranslationUnit t)
+  i <- getNumDiagnosticsInSet (mkDiagnosticSet set)
+  return (mkDiagnosticSet set)
 
 getDiagnosticSetFromTU :: ClangBase m => TranslationUnit s' -> ClangT s m (DiagnosticSet s)
 getDiagnosticSetFromTU = registerDiagnosticSet . unsafe_getDiagnosticSetFromTU
@@ -1171,14 +1247,17 @@ getDiagnosticSetFromTU = registerDiagnosticSet . unsafe_getDiagnosticSetFromTU
 -- };
 
 -- | Options for rendering of 'Diagnostic' values.
-%enum DisplayOptions (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-% [ DisplaySourceLocation = CXDiagnostic_DisplaySourceLocation
-% , DisplayColumn         = CXDiagnostic_DisplayColumn
-% , DisplaySourceRanges   = CXDiagnostic_DisplaySourceRanges
-% , DisplayOption         = CXDiagnostic_DisplayOption
-% , DisplayCategoryId     = CXDiagnostic_DisplayCategoryId
-% , DisplayCategoryName   = CXDiagnostic_DisplayCategoryName
-% ]
+#c
+enum DisplayOptions
+ { DisplaySourceLocation = CXDiagnostic_DisplaySourceLocation
+ , DisplayColumn         = CXDiagnostic_DisplayColumn
+ , DisplaySourceRanges   = CXDiagnostic_DisplaySourceRanges
+ , DisplayOption         = CXDiagnostic_DisplayOption
+ , DisplayCategoryId     = CXDiagnostic_DisplayCategoryId
+ , DisplayCategoryName   = CXDiagnostic_DisplayCategoryName
+ };
+#endc
+{#enum DisplayOptions {} deriving  (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 instance BitFlags DisplayOptions where
   toBit DisplaySourceLocation = 0x1
@@ -1189,53 +1268,46 @@ instance BitFlags DisplayOptions where
   toBit DisplayCategoryName   = 0x20
 
 -- CXString clang_formatDiagnostic(CXDiagnostic Diagnostic, unsigned Options);
-%fun unsafe_formatDiagnostic :: Diagnostic s -> Int -> IO (ClangString ())
-%call (diag d) (int i)
-%code CXString out = clang_formatDiagnostic(d, i);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_formatDiagnostic { `Ptr ()' , `Int' } -> `Ptr ()' id #}
+unsafe_formatDiagnostic :: Diagnostic s -> Int -> IO (ClangString ())
+unsafe_formatDiagnostic d i = clang_formatDiagnostic (unDiagnostic d) (fromIntegral i) >>= rawCXStringToClangString
 
 formatDiagnostic :: ClangBase m => Diagnostic s' -> Int -> ClangT s m (ClangString s)
 formatDiagnostic = (registerClangString .) . unsafe_formatDiagnostic
 
 -- unsigned clang_defaultDiagnosticDisplayOptions(void);
-%fun clang_defaultDiagnosticDisplayOptions :: IO Int
+{# fun clang_defaultDiagnosticDisplayOptions { } -> `CUInt' #}
+defaultDiagnosticDisplayOptions :: IO Int
+defaultDiagnosticDisplayOptions = clang_defaultDiagnosticDisplayOptions >>= return . fromIntegral
 
 -- clang_getDiagnosticSeverity(CXDiagnostic);
-%fun clang_getDiagnosticSeverity :: Diagnostic s -> IO Severity
-%call (diag d)
-%code enum CXDiagnosticSeverity s = clang_getDiagnosticSeverity(d);
-%result (severity s)
+{# fun clang_getDiagnosticSeverity {id `Ptr ()' } -> `CInt' #}
+getDiagnosticSeverity :: Diagnostic s -> IO Severity
+getDiagnosticSeverity d = clang_getDiagnosticSeverity (unDiagnostic d) >>= return . toEnum . fromIntegral
 
 -- CXSourceLocation clang_getDiagnosticLocation(CXDiagnostic);
-%fun clang_getDiagnosticLocation :: Proxy s -> Diagnostic s' -> IO (SourceLocation s)
-%call (proxy) (diag d)
-%code CXSourceLocation r = clang_getDiagnosticLocation(d);
-%result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
+{# fun clang_getDiagnosticLocation {id `Ptr ()' } -> `Ptr ()' id #}
+getDiagnosticLocation :: Proxy s -> Diagnostic s' -> IO (SourceLocation s)
+getDiagnosticLocation _ d = clang_getDiagnosticLocation (unDiagnostic d) >>= rawSourceLocationToSourceLocation
 
 -- CXString clang_getDiagnosticSpelling(CXDiagnostic);
-%fun unsafe_getDiagnosticSpelling :: Diagnostic s -> IO (ClangString ())
-%call (diag d)
-%code CXString out = clang_getDiagnosticSpelling(d);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_getDiagnosticSpelling  { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_getDiagnosticSpelling :: Diagnostic s -> IO (ClangString ())
+unsafe_getDiagnosticSpelling d = clang_getDiagnosticSpelling (unDiagnostic d) >>= rawCXStringToClangString
 
 getDiagnosticSpelling :: ClangBase m => Diagnostic s' -> ClangT s m (ClangString s)
 getDiagnosticSpelling = registerClangString . unsafe_getDiagnosticSpelling
 
 -- CXString clang_getDiagnosticOption(CXDiagnostic Diag,
 --                                                   CXString *Disable);
-%fun unsafe_getDiagnosticOption :: Diagnostic s -> IO (ClangString (), ClangString ())
-%call (diag d)
-%code CXString a;
-%     CXString out = clang_getDiagnosticOption(d, &a);
-%     const void* aData = a.data;
-%     unsigned aFlags = a.private_flags;
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result ((clangString (ptr outData) (word32 outFlags)), (clangString (ptr aData) (word32 aFlags)))
+{# fun clang_getDiagnosticOption { id `Ptr ()', id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_getDiagnosticOption :: Diagnostic s -> IO (ClangString (), ClangString ())
+unsafe_getDiagnosticOption d =
+  alloca (\(disableCXStringPtr :: (Ptr (ClangString ()))) -> do
+    diagnosticOptionPtr <- clang_getDiagnosticOption (unDiagnostic d) (castPtr disableCXStringPtr)
+    disableCXString <- peek disableCXStringPtr
+    diagnosticOption <- peek (castPtr diagnosticOptionPtr)
+    return (diagnosticOption, disableCXString))
 
 getDiagnosticOption :: ClangBase m => Diagnostic s' -> ClangT s m (ClangString s, ClangString s)
 getDiagnosticOption d = do
@@ -1243,51 +1315,45 @@ getDiagnosticOption d = do
   (,) <$> registerClangString (return a) <*> registerClangString (return b)
 
 -- unsigned clang_getDiagnosticCategory(CXDiagnostic);
-%fun clang_getDiagnosticCategory :: Diagnostic s -> IO Int
-%call (diag d)
-%code int c = clang_getDiagnosticCategory(d);
-%result (int c)
+{# fun clang_getDiagnosticCategory { id `Ptr ()' } -> `Int' #}
+getDiagnosticCategory :: Diagnostic s -> IO Int
+getDiagnosticCategory d = clang_getDiagnosticCategory (unDiagnostic d)
 
 -- CXString clang_getDiagnosticCategoryText(CXDiagnostic);
-%fun unsafe_getDiagnosticCategoryText :: Diagnostic s -> IO (ClangString ())
-%call (diag d)
-%code CXString out = clang_getDiagnosticCategoryText(d);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_getDiagnosticCategoryText { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_getDiagnosticCategoryText :: Diagnostic s -> IO (ClangString ())
+unsafe_getDiagnosticCategoryText d = clang_getDiagnosticCategoryText (unDiagnostic d) >>= rawCXStringToClangString
 
 getDiagnosticCategoryText :: ClangBase m => Diagnostic s' -> ClangT s m (ClangString s)
 getDiagnosticCategoryText = registerClangString . unsafe_getDiagnosticCategoryText
 
 -- unsigned clang_getDiagnosticNumRanges(CXDiagnostic);
-%fun clang_getDiagnosticNumRanges :: Diagnostic s -> IO Int
-%call (diag d)
-%code int nr = clang_getDiagnosticNumRanges(d);
-%result (int nr)
+{# fun clang_getDiagnosticNumRanges { id `Ptr ()' } -> `Int' #}
+getDiagnosticNumRanges :: Diagnostic s -> IO Int
+getDiagnosticNumRanges d = clang_getDiagnosticNumRanges (unDiagnostic d)
 
 -- CXSourceRange clang_getDiagnosticRange(CXDiagnostic Diagnostic,
 --                                                       unsigned Range);
-%fun clang_getDiagnosticRange :: Diagnostic s' -> Int -> IO (SourceRange s)
-%call (diag d) (int i)
-%code CXSourceRange r = clang_getDiagnosticRange(d, i);
-%result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
+{# fun clang_getDiagnosticRange { id `Ptr ()', `Int' } -> `Ptr ()' id #}
+getDiagnosticRange :: Diagnostic s' -> Int -> IO (SourceRange s)
+getDiagnosticRange d i = clang_getDiagnosticRange (unDiagnostic d) i >>= rawSourceRangeToSourceRange
 
 -- unsigned clang_getDiagnosticNumFixIts(CXDiagnostic Diagnostic);
-%fun clang_getDiagnosticNumFixIts :: Diagnostic s -> IO Int
-%call (diag d)
-%code int nf = clang_getDiagnosticNumFixIts(d);
-%result (int nf)
+{# fun clang_getDiagnosticNumFixIts { id `Ptr ()' } -> `Int' #}
+getDiagnosticNumFixIts :: Diagnostic s -> IO Int
+getDiagnosticNumFixIts d = clang_getDiagnosticNumFixIts (unDiagnostic d)
 
 -- CXString clang_getDiagnosticFixIt(CXDiagnostic Diagnostic,
 --                                                  unsigned FixIt,
 --                                                CXSourceRange *ReplacementRange);
-%fun unsafe_getDiagnosticFixIt :: Diagnostic s' -> Int -> IO (SourceRange s, ClangString ())
-%call (diag d) (int i)
-%code CXSourceRange a;
-%     CXString out = clang_getDiagnosticFixIt(d, i, &a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result ((sourceRange {a.ptr_data[0]} {a.ptr_data[1]} {a.begin_int_data} {a.end_int_data}), (clangString (ptr outData) (word32 outFlags)))
+{# fun clang_getDiagnosticFixIt { id `Ptr ()', `Int', id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_getDiagnosticFixIt :: Diagnostic s' -> Int -> IO (SourceRange s, ClangString ())
+unsafe_getDiagnosticFixIt d i =
+  alloca (\(replacementRangePtr :: (Ptr (SourceRange s))) -> do
+     clangStringPtr <- clang_getDiagnosticFixIt (unDiagnostic d) i (castPtr replacementRangePtr)
+     clangString <- rawCXStringToClangString clangStringPtr
+     replacementRange <- peek replacementRangePtr
+     return (replacementRange, clangString))
 
 getDiagnosticFixIt :: ClangBase m => Diagnostic s' -> Int
                    -> ClangT s m (SourceRange s, ClangString s)
@@ -1297,12 +1363,9 @@ getDiagnosticFixIt d i = do
 
 -- CXString
 -- clang_getTranslationUnitSpelling(CXTranslationUnit CTUnit);
-%fun unsafe_getTranslationUnitSpelling :: TranslationUnit s -> IO (ClangString ())
-%call (translationUnit t)
-%code CXString out = clang_getTranslationUnitSpelling(t);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_getTranslationUnitSpelling { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_getTranslationUnitSpelling :: TranslationUnit s -> IO (ClangString ())
+unsafe_getTranslationUnitSpelling t = clang_getTranslationUnitSpelling (unTranslationUnit t) >>= rawCXStringToClangString
 
 getTranslationUnitSpelling :: ClangBase m => TranslationUnit s' -> ClangT s m (ClangString s)
 getTranslationUnitSpelling = registerClangString . unsafe_getTranslationUnitSpelling
@@ -1314,10 +1377,12 @@ getTranslationUnitSpelling = registerClangString . unsafe_getTranslationUnitSpel
 --                                    const char * const *clang_command_line_args,
 --                                          unsigned num_unsaved_files,
 --                                          struct CXUnsavedFile *unsaved_files);
-%fun unsafe_createTranslationUnitFromSourceFile :: Index s -> String -> Int -> Ptr CString -> Int -> Ptr CUnsavedFile -> IO (TranslationUnit ())
-%call (index i) (string s) (int nas) (ptr as) (int nufs) (ptr ufs)
-%code r = clang_createTranslationUnitFromSourceFile(i,s,nas,as,nufs,ufs);
-%result (translationUnit r)
+{# fun clang_createTranslationUnitFromSourceFile { id `Ptr ()' , `CString' , `Int' , id `Ptr CString' , `Int' , id `Ptr ()' }  -> `Ptr ()' id #}
+unsafe_createTranslationUnitFromSourceFile :: Index s -> String -> Int -> Ptr CString -> Int -> Ptr CUnsavedFile -> IO (TranslationUnit ())
+unsafe_createTranslationUnitFromSourceFile i s nas as nufs ufs =
+  withCString s (\sPtr -> do
+     rPtr <- clang_createTranslationUnitFromSourceFile (unIndex i) sPtr nas as nufs (castPtr ufs)
+     return (mkTranslationUnit rPtr))
 
 createTranslationUnitFromSourceFile :: ClangBase m => Index s' -> String -> [String]
                                     -> DV.Vector UnsavedFile -> ClangT s m (TranslationUnit s)
@@ -1329,10 +1394,12 @@ createTranslationUnitFromSourceFile idx sf as ufs =
 
 -- CXTranslationUnit clang_createTranslationUnit(CXIndex,
 --                                              const char *ast_filename);
-%fun unsafe_createTranslationUnit :: Index s -> String -> IO (TranslationUnit ())
-%call (index i) (string s)
-%code CXTranslationUnit r = clang_createTranslationUnit(i, s);
-%result (translationUnit r)
+{# fun clang_createTranslationUnit { id `Ptr ()', `CString' } -> `Ptr ()' #}
+unsafe_createTranslationUnit :: Index s -> String -> IO (TranslationUnit ())
+unsafe_createTranslationUnit i s =
+  withCString s (\strPtr -> do
+   trPtr <- clang_createTranslationUnit (unIndex i) strPtr
+   return (mkTranslationUnit trPtr))
 
 createTranslationUnit :: ClangBase m => Index s' -> String -> ClangT s m (TranslationUnit s)
 createTranslationUnit = (registerTranslationUnit .) . unsafe_createTranslationUnit
@@ -1394,17 +1461,20 @@ createTranslationUnit = (registerTranslationUnit .) . unsafe_createTranslationUn
 -- * 'IncludeBriefCommentsInCodeCompletionFlag': Used to indicate that brief documentation
 --   comments should be included into the set of code completions returned from this
 --   translation unit.
-%enum TranslationUnitFlags (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ DefaultTranslationUnitFlags              = CXTranslationUnit_None
-%  , DetailedPreprocessingRecordFlag          = CXTranslationUnit_DetailedPreprocessingRecord
-%  , IncompleteFlag                           = CXTranslationUnit_Incomplete
-%  , PrecompiledPreambleFlag                  = CXTranslationUnit_PrecompiledPreamble
-%  , CacheCompletionResultsFlag               = CXTranslationUnit_CacheCompletionResults
-%  , ForSerializationFlag                     = CXTranslationUnit_ForSerialization
-%  , ChainedPCHFlag                           = CXTranslationUnit_CXXChainedPCH
-%  , SkipFunctionBodiesFlag                   = CXTranslationUnit_SkipFunctionBodies
-%  , IncludeBriefCommentsInCodeCompletionFlag = CXTranslationUnit_IncludeBriefCommentsInCodeCompletion
-%  ]
+#c
+enum TranslationUnitFlags
+  { DefaultTranslationUnitFlags              = CXTranslationUnit_None
+  , DetailedPreprocessingRecordFlag          = CXTranslationUnit_DetailedPreprocessingRecord
+  , IncompleteFlag                           = CXTranslationUnit_Incomplete
+  , PrecompiledPreambleFlag                  = CXTranslationUnit_PrecompiledPreamble
+  , CacheCompletionResultsFlag               = CXTranslationUnit_CacheCompletionResults
+  , ForSerializationFlag                     = CXTranslationUnit_ForSerialization
+  , ChainedPCHFlag                           = CXTranslationUnit_CXXChainedPCH
+  , SkipFunctionBodiesFlag                   = CXTranslationUnit_SkipFunctionBodies
+  , IncludeBriefCommentsInCodeCompletionFlag = CXTranslationUnit_IncludeBriefCommentsInCodeCompletion
+ };
+#endc
+{# enum TranslationUnitFlags {} deriving  (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 instance BitFlags TranslationUnitFlags where
   toBit DefaultTranslationUnitFlags              = 0x0
@@ -1418,7 +1488,11 @@ instance BitFlags TranslationUnitFlags where
   toBit IncludeBriefCommentsInCodeCompletionFlag = 0x80
 
 -- unsigned clang_defaultEditingTranslationUnitOptions(void);
-%fun clang_defaultEditingTranslationUnitOptions :: IO Int
+{# fun clang_defaultEditingTranslationUnitOptions as defaultEditingTranslationUnitOptions {} -> `Int' #}
+
+maybeTranslationUnit :: TranslationUnit s' -> Maybe (TranslationUnit s)
+maybeTranslationUnit (TranslationUnit p) | p == nullPtr = Nothing
+maybeTranslationUnit f                         = Just (unsafeCoerce f)
 
 -- CXTranslationUnit clang_parseTranslationUnit(CXIndex CIdx,
 --                                                     const char *source_filename,
@@ -1427,10 +1501,10 @@ instance BitFlags TranslationUnitFlags where
 --                                             struct CXUnsavedFile *unsaved_files,
 --                                                      unsigned num_unsaved_files,
 --                                                             unsigned options);
-%fun unsafe_parseTranslationUnit :: Index s -> CString -> Ptr CString -> Int -> Ptr CUnsavedFile -> Int -> Int -> IO (Maybe (TranslationUnit ()))
-%call (index i) (ptr s) (ptr as) (int nas) (ptr ufs) (int nufs) (int i2)
-%code r = clang_parseTranslationUnit(i,s,as,nas,ufs,nufs,i2);
-%result (maybeT {nullPtr} (translationUnit r))
+{# fun clang_parseTranslationUnit { id `Ptr ()', `CString' , id `Ptr CString', `Int', id `Ptr ()', `Int', `Int'}  -> `Ptr ()' id #}
+unsafe_parseTranslationUnit :: Index s -> CString -> Ptr CString -> Int -> Ptr CUnsavedFile -> Int -> Int -> IO (Maybe (TranslationUnit ()))
+unsafe_parseTranslationUnit i s as nas ufs nufs o =
+  clang_parseTranslationUnit (unIndex i) s as nas (castPtr ufs) nufs o >>= return . maybeTranslationUnit . mkTranslationUnit
 
 parseTranslationUnit :: ClangBase m => Index s' -> Maybe String -> [String]
                      -> DV.Vector UnsavedFile -> Int -> ClangT s m (Maybe (TranslationUnit s))
@@ -1460,62 +1534,69 @@ withStringList strs f = do
       go arr len (advancePtr ptr 1) ss
 
 -- void clang_setClangResourcesPath(CXIndex CIdx, const char* path);
-%fun clang_setClangResourcesPath :: Index s -> String -> IO ()
-%call (index i) (string s)
-%code clang_setClangResourcesPath(i, s);
+{# fun clang_setClangResourcesPath { id `Ptr ()' , `CString' } -> `()' #}
+setClangResourcesPath :: Index s -> String -> IO ()
+setClangResourcesPath i s =
+  withCString s (\stringPtr -> clang_setClangResourcesPath (unIndex i) stringPtr)
+
 
 -- enum CXSaveTranslationUnit_Flags {
 --   CXSaveTranslationUnit_None = 0x0
 -- };
 
 -- | Flags that control how a translation unit is saved.
-%enum SaveTranslationUnitFlags (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ DefaultSaveTranslationUnitFlags = CXSaveTranslationUnit_None
-%  ]
-
+#c
+enum SaveTranslationUnitFlags
+  {DefaultSaveTranslationUnitFlags = CXSaveTranslationUnit_None};
+#endc
+{# enum SaveTranslationUnitFlags {} deriving  (Bounded, Eq, Ord, Read, Show, Typeable) #}
 instance BitFlags SaveTranslationUnitFlags where
   toBit DefaultSaveTranslationUnitFlags = 0x0
 
 -- unsigned clang_defaultSaveOptions(CXTranslationUnit TU);
-%fun clang_defaultSaveOptions :: TranslationUnit s -> IO Int
-%call (translationUnit t)
-%code r = clang_defaultSaveOptions(t);
-%result (int r)
+{# fun clang_defaultSaveOptions { id `Ptr ()' } -> `Int' #}
+defaultSaveOptions :: TranslationUnit s -> IO Int
+defaultSaveOptions t = clang_defaultSaveOptions (unTranslationUnit t)
+
 
 -- int clang_saveTranslationUnit(CXTranslationUnit TU,
 --                                              const char *FileName,
 --                                              unsigned options);
-%fun clang_saveTranslationUnit :: TranslationUnit s -> String -> Int -> IO Bool
-%call (translationUnit t) (string s) (int i)
-%code unsigned r = clang_saveTranslationUnit(t, s, i);
-%result (bool {r!=0?0:1})
+{# fun clang_saveTranslationUnit { id `Ptr ()' , `CString', `Int' } -> `Int' #}
+saveTranslationUnit :: TranslationUnit s -> String -> Int -> IO Bool
+saveTranslationUnit t s i =
+ withCString s (\sPtr -> do
+   r <- clang_saveTranslationUnit (unTranslationUnit t) sPtr i
+   return (toBool ((if (r /= 0) then 0 else 1) :: Int)))
 
 -- enum CXReparse_Flags {
 --   CXReparse_None = 0x0
 -- };
 
 -- | Flags that control how a translation unit is reparsed.
-%enum ReparseFlags (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ DefaultReparseFlags = CXReparse_None
-%  ]
+#c
+enum ReparseFlags {
+  DefaultReparseFlags = CXReparse_None
+};
+#endc
+{# enum ReparseFlags {} deriving  (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 instance BitFlags ReparseFlags where
   toBit DefaultReparseFlags = 0x0
 
 -- unsigned clang_defaultReparseOptions(CXTranslationUnit TU);
-%fun clang_defaultReparseOptions :: TranslationUnit s -> IO Int
-%call (translationUnit t)
-%code r = clang_defaultReparseOptions(t);
-%result (int r)
+{# fun clang_defaultReparseOptions { id `Ptr ()' } -> `CUInt' #}
+defaultReparseOptions :: TranslationUnit s -> IO Int
+defaultReparseOptions t = clang_defaultReparseOptions (unTranslationUnit t) >>= return . fromIntegral
 
 -- int clang_reparseTranslationUnit(CXTranslationUnit TU,
 --                                                 unsigned num_unsaved_files,
 --                                           struct CXUnsavedFile *unsaved_files,
 --                                                 unsigned options);
-%fun unsafe_reparseTranslationUnit :: TranslationUnit s -> Ptr CUnsavedFile -> Int -> Int -> IO Bool
-%call (translationUnit t) (ptr ufs) (int nufs) (int i)
-%code r = clang_reparseTranslationUnit(t, nufs, ufs, i);
-%result (bool r)
+{# fun clang_reparseTranslationUnit { id `Ptr ()', `Int' , id `Ptr ()' , `Int' } -> `Bool' toBool #}
+unsafe_reparseTranslationUnit :: TranslationUnit s -> Ptr CUnsavedFile -> Int -> Int -> IO Bool
+unsafe_reparseTranslationUnit t ufs nufs i =
+  clang_reparseTranslationUnit (unTranslationUnit t) nufs (castPtr ufs) i
 
 reparseTranslationUnit :: ClangBase m => TranslationUnit s' -> DV.Vector UnsavedFile -> Int
                        -> ClangT s m Bool
@@ -1615,10 +1696,10 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --   CXCursor_ObjCDynamicDecl               = 38,
 --   /** \brief An access specifier. */
 --   CXCursor_CXXAccessSpecifier            = 39,
--- 
+
 --   CXCursor_FirstDecl                     = CXCursor_UnexposedDecl,
 --   CXCursor_LastDecl                      = CXCursor_CXXAccessSpecifier,
--- 
+
 --   /* References */
 --   CXCursor_FirstRef                      = 40, /* Decl references */
 --   CXCursor_ObjCSuperClassRef             = 40,
@@ -1641,7 +1722,7 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --    */
 --   CXCursor_TypeRef                       = 43,
 --   CXCursor_CXXBaseSpecifier              = 44,
---   /** 
+--   /**
 --    * \brief A reference to a class template, function template, template
 --    * template parameter, or class template partial specialization.
 --    */
@@ -1651,14 +1732,14 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --    */
 --   CXCursor_NamespaceRef                  = 46,
 --   /**
---    * \brief A reference to a member of a struct, union, or class that occurs in 
+--    * \brief A reference to a member of a struct, union, or class that occurs in
 --    * some non-expression context, e.g., a designated initializer.
 --    */
 --   CXCursor_MemberRef                     = 47,
 --   /**
 --    * \brief A reference to a labeled statement.
 --    *
---    * This cursor kind is used to describe the jump to "start_over" in the 
+--    * This cursor kind is used to describe the jump to "start_over" in the
 --    * goto statement in the following example:
 --    *
 --    * \code
@@ -1671,7 +1752,7 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --    * A label reference cursor refers to a label statement.
 --    */
 --   CXCursor_LabelRef                      = 48,
---   
+
 --   /**
 --    * \brief A reference to a set of overloaded functions or function templates
 --    * that has not yet been resolved to a specific function or function template.
@@ -1704,20 +1785,20 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --    * argument-dependent lookup (e.g., the "swap" function at the end of the
 --    * example).
 --    *
---    * The functions \c clang_getNumOverloadedDecls() and 
+--    * The functions \c clang_getNumOverloadedDecls() and
 --    * \c clang_getOverloadedDecl() can be used to retrieve the definitions
 --    * referenced by this cursor.
 --    */
 --   CXCursor_OverloadedDeclRef             = 49,
---   
+
 --   /*
---    * \brief A reference to a variable that occurs in some non-expression 
+--    * \brief A reference to a variable that occurs in some non-expression
 --    * context, e.g., a C++ lambda capture list.
 --    */
 --   CXCursor_VariableRef                   = 50,
---  
+
 --   CXCursor_LastRef                       = CXCursor_VariableRef,
--- 
+
 --   /* Error conditions */
 --   CXCursor_FirstInvalid                  = 70,
 --   CXCursor_InvalidFile                   = 70,
@@ -1725,10 +1806,10 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --   CXCursor_NotImplemented                = 72,
 --   CXCursor_InvalidCode                   = 73,
 --   CXCursor_LastInvalid                   = CXCursor_InvalidCode,
--- 
+
 --   /* Expressions */
 --   CXCursor_FirstExpr                     = 100,
--- 
+
 --   /**
 --    * \brief An expression whose specific kind is not exposed via this
 --    * interface.
@@ -1739,104 +1820,104 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --    * expression is not reported.
 --    */
 --   CXCursor_UnexposedExpr                 = 100,
--- 
+
 --   /**
 --    * \brief An expression that refers to some value declaration, such
 --    * as a function, varible, or enumerator.
 --    */
 --   CXCursor_DeclRefExpr                   = 101,
--- 
+
 --   /**
 --    * \brief An expression that refers to a member of a struct, union,
 --    * class, Objective-C class, etc.
 --    */
 --   CXCursor_MemberRefExpr                 = 102,
--- 
+
 --   /** \brief An expression that calls a function. */
 --   CXCursor_CallExpr                      = 103,
--- 
+
 --   /** \brief An expression that sends a message to an Objective-C
 --    object or class. */
 --   CXCursor_ObjCMessageExpr               = 104,
--- 
+
 --   /** \brief An expression that represents a block literal. */
 --   CXCursor_BlockExpr                     = 105,
--- 
+
 --   /** \brief An integer literal.
 --    */
 --   CXCursor_IntegerLiteral                = 106,
--- 
+
 --   /** \brief A floating point number literal.
 --    */
 --   CXCursor_FloatingLiteral               = 107,
--- 
+
 --   /** \brief An imaginary number literal.
 --    */
 --   CXCursor_ImaginaryLiteral              = 108,
--- 
+
 --   /** \brief A string literal.
 --    */
 --   CXCursor_StringLiteral                 = 109,
--- 
+
 --   /** \brief A character literal.
 --    */
 --   CXCursor_CharacterLiteral              = 110,
--- 
+
 --   /** \brief A parenthesized expression, e.g. "(1)".
 --    *
 --    * This AST node is only formed if full location information is requested.
 --    */
 --   CXCursor_ParenExpr                     = 111,
--- 
+
 --   /** \brief This represents the unary-expression's (except sizeof and
 --    * alignof).
 --    */
 --   CXCursor_UnaryOperator                 = 112,
--- 
+
 --   /** \brief [C99 6.5.2.1] Array Subscripting.
 --    */
 --   CXCursor_ArraySubscriptExpr            = 113,
--- 
+
 --   /** \brief A builtin binary operation expression such as "x + y" or
 --    * "x <= y".
 --    */
 --   CXCursor_BinaryOperator                = 114,
--- 
+
 --   /** \brief Compound assignment such as "+=".
 --    */
 --   CXCursor_CompoundAssignOperator        = 115,
--- 
+
 --   /** \brief The ?: ternary operator.
 --    */
 --   CXCursor_ConditionalOperator           = 116,
--- 
+
 --   /** \brief An explicit cast in C (C99 6.5.4) or a C-style cast in C++
 --    * (C++ [expr.cast]), which uses the syntax (Type)expr.
 --    *
 --    * For example: (int)f.
 --    */
 --   CXCursor_CStyleCastExpr                = 117,
--- 
+
 --   /** \brief [C99 6.5.2.5]
 --    */
 --   CXCursor_CompoundLiteralExpr           = 118,
--- 
+
 --   /** \brief Describes an C or C++ initializer list.
 --    */
 --   CXCursor_InitListExpr                  = 119,
--- 
+
 --   /** \brief The GNU address of label extension, representing &&label.
 --    */
 --   CXCursor_AddrLabelExpr                 = 120,
--- 
+
 --   /** \brief This is the GNU Statement Expression extension: ({int X=4; X;})
 --    */
 --   CXCursor_StmtExpr                      = 121,
--- 
+
 --   /** \brief Represents a C1X generic selection.
 --    */
 --   CXCursor_GenericSelectionExpr          = 122,
--- 
+
 --   /** \brief Implements the GNU __null extension, which is a name for a null
 --    * pointer constant that has integral type (e.g., int or long) and is the same
 --    * size and alignment as a pointer.
@@ -1846,23 +1927,23 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --    * match the size of a pointer).
 --    */
 --   CXCursor_GNUNullExpr                   = 123,
--- 
+
 --   /** \brief C++'s static_cast<> expression.
 --    */
 --   CXCursor_CXXStaticCastExpr             = 124,
--- 
+
 --   /** \brief C++'s dynamic_cast<> expression.
 --    */
 --   CXCursor_CXXDynamicCastExpr            = 125,
--- 
+
 --   /** \brief C++'s reinterpret_cast<> expression.
 --    */
 --   CXCursor_CXXReinterpretCastExpr        = 126,
--- 
+
 --   /** \brief C++'s const_cast<> expression.
 --    */
 --   CXCursor_CXXConstCastExpr              = 127,
--- 
+
 --   /** \brief Represents an explicit C++ type conversion that uses "functional"
 --    * notion (C++ [expr.type.conv]).
 --    *
@@ -1872,60 +1953,60 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --    * \endcode
 --    */
 --   CXCursor_CXXFunctionalCastExpr         = 128,
--- 
+
 --   /** \brief A C++ typeid expression (C++ [expr.typeid]).
 --    */
 --   CXCursor_CXXTypeidExpr                 = 129,
--- 
+
 --   /** \brief [C++ 2.13.5] C++ Boolean Literal.
 --    */
 --   CXCursor_CXXBoolLiteralExpr            = 130,
--- 
+
 --   /** \brief [C++0x 2.14.7] C++ Pointer Literal.
 --    */
 --   CXCursor_CXXNullPtrLiteralExpr         = 131,
--- 
+
 --   /** \brief Represents the "this" expression in C++
 --    */
 --   CXCursor_CXXThisExpr                   = 132,
--- 
+
 --   /** \brief [C++ 15] C++ Throw Expression.
 --    *
 --    * This handles 'throw' and 'throw' assignment-expression. When
 --    * assignment-expression isn't present, Op will be null.
 --    */
 --   CXCursor_CXXThrowExpr                  = 133,
--- 
+
 --   /** \brief A new expression for memory allocation and constructor calls, e.g:
 --    * "new CXXNewExpr(foo)".
 --    */
 --   CXCursor_CXXNewExpr                    = 134,
--- 
+
 --   /** \brief A delete expression for memory deallocation and destructor calls,
 --    * e.g. "delete[] pArray".
 --    */
 --   CXCursor_CXXDeleteExpr                 = 135,
--- 
+
 --   /** \brief A unary expression.
 --    */
 --   CXCursor_UnaryExpr                     = 136,
--- 
+
 --   /** \brief ObjCStringLiteral, used for Objective-C string literals i.e. "foo".
 --    */
 --   CXCursor_ObjCStringLiteral             = 137,
--- 
+
 --   /** \brief ObjCEncodeExpr, used for in Objective-C.
 --    */
 --   CXCursor_ObjCEncodeExpr                = 138,
--- 
+
 --   /** \brief ObjCSelectorExpr used for in Objective-C.
 --    */
 --   CXCursor_ObjCSelectorExpr              = 139,
--- 
+
 --   /** \brief Objective-C's protocol expression.
 --    */
 --   CXCursor_ObjCProtocolExpr              = 140,
--- 
+
 --   /** \brief An Objective-C "bridged" cast expression, which casts between
 --    * Objective-C pointers and C pointers, transferring ownership in the process.
 --    *
@@ -1934,7 +2015,7 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --    * \endcode
 --    */
 --   CXCursor_ObjCBridgedCastExpr           = 141,
--- 
+
 --   /** \brief Represents a C++0x pack expansion that produces a sequence of
 --    * expressions.
 --    *
@@ -1949,7 +2030,7 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --    * \endcode
 --    */
 --   CXCursor_PackExpansionExpr             = 142,
--- 
+
 --   /** \brief Represents an expression that computes the length of a parameter
 --    * pack.
 --    *
@@ -1961,7 +2042,7 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --    * \endcode
 --    */
 --   CXCursor_SizeOfPackExpr                = 143,
---
+
 --   /* \brief Represents a C++ lambda expression that produces a local function
 --    * object.
 --    *
@@ -1975,17 +2056,17 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --    * \endcode
 --    */
 --   CXCursor_LambdaExpr                    = 144,
---   
+
 --   /** \brief Objective-c Boolean Literal.
 --    */
 --   CXCursor_ObjCBoolLiteralExpr           = 145,
--- 
+
 --   /** \brief Represents the "self" expression in a ObjC method.
 --    */
 --   CXCursor_ObjCSelfExpr                  = 146,
--- 
+
 --   CXCursor_LastExpr                      = CXCursor_ObjCSelfExpr,
--- 
+
 --   /* Statements */
 --   CXCursor_FirstStmt                     = 200,
 --   /**
@@ -1998,10 +2079,10 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --    * reported.
 --    */
 --   CXCursor_UnexposedStmt                 = 200,
---   
---   /** \brief A labelled statement in a function. 
+
+--   /** \brief A labelled statement in a function.
 --    *
---    * This cursor kind is used to describe the "start_over:" label statement in 
+--    * This cursor kind is used to describe the "start_over:" label statement in
 --    * the following example:
 --    *
 --    * \code
@@ -2011,140 +2092,140 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --    *
 --    */
 --   CXCursor_LabelStmt                     = 201,
--- 
+
 --   /** \brief A group of statements like { stmt stmt }.
 --    *
 --    * This cursor kind is used to describe compound statements, e.g. function
 --    * bodies.
 --    */
 --   CXCursor_CompoundStmt                  = 202,
--- 
+
 --   /** \brief A case statment.
 --    */
 --   CXCursor_CaseStmt                      = 203,
--- 
+
 --   /** \brief A default statement.
 --    */
 --   CXCursor_DefaultStmt                   = 204,
--- 
+
 --   /** \brief An if statement
 --    */
 --   CXCursor_IfStmt                        = 205,
--- 
+
 --   /** \brief A switch statement.
 --    */
 --   CXCursor_SwitchStmt                    = 206,
--- 
+
 --   /** \brief A while statement.
 --    */
 --   CXCursor_WhileStmt                     = 207,
--- 
+
 --   /** \brief A do statement.
 --    */
 --   CXCursor_DoStmt                        = 208,
--- 
+
 --   /** \brief A for statement.
 --    */
 --   CXCursor_ForStmt                       = 209,
--- 
+
 --   /** \brief A goto statement.
 --    */
 --   CXCursor_GotoStmt                      = 210,
--- 
+
 --   /** \brief An indirect goto statement.
 --    */
 --   CXCursor_IndirectGotoStmt              = 211,
--- 
+
 --   /** \brief A continue statement.
 --    */
 --   CXCursor_ContinueStmt                  = 212,
--- 
+
 --   /** \brief A break statement.
 --    */
 --   CXCursor_BreakStmt                     = 213,
--- 
+
 --   /** \brief A return statement.
 --    */
 --   CXCursor_ReturnStmt                    = 214,
--- 
+
 --   /** \brief A GNU inline assembly statement extension.
 --    */
 --   CXCursor_GCCAsmStmt                    = 215,
 --   CXCursor_AsmStmt                       = CXCursor_GCCAsmStmt,
--- 
+
 --   /** \brief Objective-C's overall @try-@catc-@finall statement.
 --    */
 --   CXCursor_ObjCAtTryStmt                 = 216,
--- 
+
 --   /** \brief Objective-C's @catch statement.
 --    */
 --   CXCursor_ObjCAtCatchStmt               = 217,
--- 
+
 --   /** \brief Objective-C's @finally statement.
 --    */
 --   CXCursor_ObjCAtFinallyStmt             = 218,
--- 
+
 --   /** \brief Objective-C's @throw statement.
 --    */
 --   CXCursor_ObjCAtThrowStmt               = 219,
--- 
+
 --   /** \brief Objective-C's @synchronized statement.
 --    */
 --   CXCursor_ObjCAtSynchronizedStmt        = 220,
--- 
+
 --   /** \brief Objective-C's autorelease pool statement.
 --    */
 --   CXCursor_ObjCAutoreleasePoolStmt       = 221,
--- 
+
 --   /** \brief Objective-C's collection statement.
 --    */
 --   CXCursor_ObjCForCollectionStmt         = 222,
--- 
+
 --   /** \brief C++'s catch statement.
 --    */
 --   CXCursor_CXXCatchStmt                  = 223,
--- 
+
 --   /** \brief C++'s try statement.
 --    */
 --   CXCursor_CXXTryStmt                    = 224,
--- 
+
 --   /** \brief C++'s for (* : *) statement.
 --    */
 --   CXCursor_CXXForRangeStmt               = 225,
--- 
+
 --   /** \brief Windows Structured Exception Handling's try statement.
 --    */
 --   CXCursor_SEHTryStmt                    = 226,
--- 
+
 --   /** \brief Windows Structured Exception Handling's except statement.
 --    */
 --   CXCursor_SEHExceptStmt                 = 227,
--- 
+
 --   /** \brief Windows Structured Exception Handling's finally statement.
 --    */
 --   CXCursor_SEHFinallyStmt                = 228,
--- 
+
 --   /** \brief A MS inline assembly statement extension.
 --    */
 --   CXCursor_MSAsmStmt                     = 229,
---
+
 --   /** \brief The null satement ";": C99 6.8.3p3.
 --    *
 --    * This cursor kind is used to describe the null statement.
 --    */
 --   CXCursor_NullStmt                      = 230,
--- 
+
 --   /** \brief Adaptor class for mixing declarations with statements and
 --    * expressions.
 --    */
 --   CXCursor_DeclStmt                      = 231,
--- 
+
 --   /** \brief OpenMP parallel directive.
 --    */
 --   CXCursor_OMPParallelDirective          = 232,
--- 
+
 --   CXCursor_LastStmt                      = CXCursor_OMPParallelDirective,
--- 
+
 --   /**
 --    * \brief Cursor that represents the translation unit itself.
 --    *
@@ -2152,7 +2233,7 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --    * cursor for traversing the contents of a translation unit.
 --    */
 --   CXCursor_TranslationUnit               = 300,
--- 
+
 --   /* Attributes */
 --   CXCursor_FirstAttr                     = 400,
 --   /**
@@ -2160,7 +2241,7 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --    * interface.
 --    */
 --   CXCursor_UnexposedAttr                 = 400,
--- 
+
 --   CXCursor_IBActionAttr                  = 401,
 --   CXCursor_IBOutletAttr                  = 402,
 --   CXCursor_IBOutletCollectionAttr        = 403,
@@ -2170,7 +2251,7 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --   CXCursor_AsmLabelAttr                  = 407,
 --   CXCursor_PackedAttr                    = 408,
 --   CXCursor_LastAttr                      = CXCursor_PackedAttr,
---      
+
 --   /* Preprocessing */
 --   CXCursor_PreprocessingDirective        = 500,
 --   CXCursor_MacroDefinition               = 501,
@@ -2179,7 +2260,7 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --   CXCursor_InclusionDirective            = 503,
 --   CXCursor_FirstPreprocessing            = CXCursor_PreprocessingDirective,
 --   CXCursor_LastPreprocessing             = CXCursor_InclusionDirective
---
+
 --   /* Extra Declarations */
 --   /**
 --    * \brief A module import declaration.
@@ -2188,157 +2269,160 @@ reparseTranslationUnit tu ufs opts = liftIO $
 --   CXCursor_FirstExtraDecl                = CXCursor_ModuleImportDecl,
 --   CXCursor_LastExtraDecl                 = CXCursor_ModuleImportDecl
 -- };
-%enum CursorKind (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ UnexposedDeclCursor                      = CXCursor_UnexposedDecl
-%  , StructDeclCursor                         = CXCursor_StructDecl
-%  , UnionDeclCursor                          = CXCursor_UnionDecl
-%  , ClassDeclCursor                          = CXCursor_ClassDecl
-%  , EnumDeclCursor                           = CXCursor_EnumDecl
-%  , FieldDeclCursor                          = CXCursor_FieldDecl
-%  , EnumConstantDeclCursor                   = CXCursor_EnumConstantDecl
-%  , FunctionDeclCursor                       = CXCursor_FunctionDecl
-%  , VarDeclCursor                            = CXCursor_VarDecl
-%  , ParmDeclCursor                           = CXCursor_ParmDecl
-%  , ObjCInterfaceDeclCursor                  = CXCursor_ObjCInterfaceDecl
-%  , ObjCCategoryDeclCursor                   = CXCursor_ObjCCategoryDecl
-%  , ObjCProtocolDeclCursor                   = CXCursor_ObjCProtocolDecl
-%  , ObjCPropertyDeclCursor                   = CXCursor_ObjCPropertyDecl
-%  , ObjCIvarDeclCursor                       = CXCursor_ObjCIvarDecl
-%  , ObjCInstanceMethodDeclCursor             = CXCursor_ObjCInstanceMethodDecl
-%  , ObjCClassMethodDeclCursor                = CXCursor_ObjCClassMethodDecl
-%  , ObjCImplementationDeclCursor             = CXCursor_ObjCImplementationDecl
-%  , ObjCCategoryImplDeclCursor               = CXCursor_ObjCCategoryImplDecl
-%  , TypedefDeclCursor                        = CXCursor_TypedefDecl
-%  , CXXMethodCursor                          = CXCursor_CXXMethod
-%  , NamespaceCursor                          = CXCursor_Namespace
-%  , LinkageSpecCursor                        = CXCursor_LinkageSpec
-%  , ConstructorCursor                        = CXCursor_Constructor
-%  , DestructorCursor                         = CXCursor_Destructor
-%  , ConversionFunctionCursor                 = CXCursor_ConversionFunction
-%  , TemplateTypeParameterCursor              = CXCursor_TemplateTypeParameter
-%  , NonTypeTemplateParameterCursor           = CXCursor_NonTypeTemplateParameter
-%  , TemplateTemplateParameterCursor          = CXCursor_TemplateTemplateParameter
-%  , FunctionTemplateCursor                   = CXCursor_FunctionTemplate
-%  , ClassTemplateCursor                      = CXCursor_ClassTemplate
-%  , ClassTemplatePartialSpecializationCursor = CXCursor_ClassTemplatePartialSpecialization
-%  , NamespaceAliasCursor                     = CXCursor_NamespaceAlias
-%  , UsingDirectiveCursor                     = CXCursor_UsingDirective
-%  , UsingDeclarationCursor                   = CXCursor_UsingDeclaration
-%  , TypeAliasDeclCursor                      = CXCursor_TypeAliasDecl
-%  , ObjCSynthesizeDeclCursor                 = CXCursor_ObjCSynthesizeDecl
-%  , ObjCDynamicDeclCursor                    = CXCursor_ObjCDynamicDecl
-%  , CX_CXXAccessSpecifierCursor              = CXCursor_CXXAccessSpecifier
-%  , ObjCSuperClassRefCursor                  = CXCursor_ObjCSuperClassRef
-%  , ObjCProtocolRefCursor                    = CXCursor_ObjCProtocolRef
-%  , ObjCClassRefCursor                       = CXCursor_ObjCClassRef
-%  , TypeRefCursor                            = CXCursor_TypeRef
-%  , CXXBaseSpecifierCursor                   = CXCursor_CXXBaseSpecifier
-%  , TemplateRefCursor                        = CXCursor_TemplateRef
-%  , NamespaceRefCursor                       = CXCursor_NamespaceRef
-%  , MemberRefCursor                          = CXCursor_MemberRef
-%  , LabelRefCursor                           = CXCursor_LabelRef
-%  , OverloadedDeclRefCursor                  = CXCursor_OverloadedDeclRef
-%  , VariableRefCursor                        = CXCursor_VariableRef
-%  , InvalidFileCursor                        = CXCursor_InvalidFile
-%  , NoDeclFoundCursor                        = CXCursor_NoDeclFound
-%  , NotImplementedCursor                     = CXCursor_NotImplemented
-%  , InvalidCodeCursor                        = CXCursor_InvalidCode
-%  , UnexposedExprCursor                      = CXCursor_UnexposedExpr
-%  , DeclRefExprCursor                        = CXCursor_DeclRefExpr
-%  , MemberRefExprCursor                      = CXCursor_MemberRefExpr
-%  , CallExprCursor                           = CXCursor_CallExpr
-%  , ObjCMessageExprCursor                    = CXCursor_ObjCMessageExpr
-%  , BlockExprCursor                          = CXCursor_BlockExpr
-%  , IntegerLiteralCursor                     = CXCursor_IntegerLiteral
-%  , FloatingLiteralCursor                    = CXCursor_FloatingLiteral
-%  , ImaginaryLiteralCursor                   = CXCursor_ImaginaryLiteral
-%  , StringLiteralCursor                      = CXCursor_StringLiteral
-%  , CharacterLiteralCursor                   = CXCursor_CharacterLiteral
-%  , ParenExprCursor                          = CXCursor_ParenExpr
-%  , UnaryOperatorCursor                      = CXCursor_UnaryOperator
-%  , ArraySubscriptExprCursor                 = CXCursor_ArraySubscriptExpr
-%  , BinaryOperatorCursor                     = CXCursor_BinaryOperator
-%  , CompoundAssignOperatorCursor             = CXCursor_CompoundAssignOperator
-%  , ConditionalOperatorCursor                = CXCursor_ConditionalOperator
-%  , CStyleCastExprCursor                     = CXCursor_CStyleCastExpr
-%  , CompoundLiteralExprCursor                = CXCursor_CompoundLiteralExpr
-%  , InitListExprCursor                       = CXCursor_InitListExpr
-%  , AddrLabelExprCursor                      = CXCursor_AddrLabelExpr
-%  , StmtExprCursor                           = CXCursor_StmtExpr
-%  , GenericSelectionExprCursor               = CXCursor_GenericSelectionExpr
-%  , GNUNullExprCursor                        = CXCursor_GNUNullExpr
-%  , CXXStaticCastExprCursor                  = CXCursor_CXXStaticCastExpr
-%  , CXXDynamicCastExprCursor                 = CXCursor_CXXDynamicCastExpr
-%  , CXXReinterpretCastExprCursor             = CXCursor_CXXReinterpretCastExpr
-%  , CXXConstCastExprCursor                   = CXCursor_CXXConstCastExpr
-%  , CXXFunctionalCastExprCursor              = CXCursor_CXXFunctionalCastExpr
-%  , CXXTypeidExprCursor                      = CXCursor_CXXTypeidExpr
-%  , CXXBoolLiteralExprCursor                 = CXCursor_CXXBoolLiteralExpr
-%  , CXXNullPtrLiteralExprCursor              = CXCursor_CXXNullPtrLiteralExpr
-%  , CXXThisExprCursor                        = CXCursor_CXXThisExpr
-%  , CXXThrowExprCursor                       = CXCursor_CXXThrowExpr
-%  , CXXNewExprCursor                         = CXCursor_CXXNewExpr
-%  , CXXDeleteExprCursor                      = CXCursor_CXXDeleteExpr
-%  , UnaryExprCursor                          = CXCursor_UnaryExpr
-%  , ObjCStringLiteralCursor                  = CXCursor_ObjCStringLiteral
-%  , ObjCEncodeExprCursor                     = CXCursor_ObjCEncodeExpr
-%  , ObjCSelectorExprCursor                   = CXCursor_ObjCSelectorExpr
-%  , ObjCProtocolExprCursor                   = CXCursor_ObjCProtocolExpr
-%  , ObjCBridgedCastExprCursor                = CXCursor_ObjCBridgedCastExpr
-%  , PackExpansionExprCursor                  = CXCursor_PackExpansionExpr
-%  , SizeOfPackExprCursor                     = CXCursor_SizeOfPackExpr
-%  , LambdaExprCursor                         = CXCursor_LambdaExpr
-%  , ObjCBoolLiteralExprCursor                = CXCursor_ObjCBoolLiteralExpr
-%  , ObjCSelfExprCursor                       = CXCursor_ObjCSelfExpr
-%  , UnexposedStmtCursor                      = CXCursor_UnexposedStmt
-%  , LabelStmtCursor                          = CXCursor_LabelStmt
-%  , CompoundStmtCursor                       = CXCursor_CompoundStmt
-%  , CaseStmtCursor                           = CXCursor_CaseStmt
-%  , DefaultStmtCursor                        = CXCursor_DefaultStmt
-%  , IfStmtCursor                             = CXCursor_IfStmt
-%  , SwitchStmtCursor                         = CXCursor_SwitchStmt
-%  , WhileStmtCursor                          = CXCursor_WhileStmt
-%  , DoStmtCursor                             = CXCursor_DoStmt
-%  , ForStmtCursor                            = CXCursor_ForStmt
-%  , GotoStmtCursor                           = CXCursor_GotoStmt
-%  , IndirectGotoStmtCursor                   = CXCursor_IndirectGotoStmt
-%  , ContinueStmtCursor                       = CXCursor_ContinueStmt
-%  , BreakStmtCursor                          = CXCursor_BreakStmt
-%  , ReturnStmtCursor                         = CXCursor_ReturnStmt
-%  , AsmStmtCursor                            = CXCursor_AsmStmt
-%  , ObjCAtTryStmtCursor                      = CXCursor_ObjCAtTryStmt
-%  , ObjCAtCatchStmtCursor                    = CXCursor_ObjCAtCatchStmt
-%  , ObjCAtFinallyStmtCursor                  = CXCursor_ObjCAtFinallyStmt
-%  , ObjCAtThrowStmtCursor                    = CXCursor_ObjCAtThrowStmt
-%  , ObjCAtSynchronizedStmtCursor             = CXCursor_ObjCAtSynchronizedStmt
-%  , ObjCAutoreleasePoolStmtCursor            = CXCursor_ObjCAutoreleasePoolStmt
-%  , ObjCForCollectionStmtCursor              = CXCursor_ObjCForCollectionStmt
-%  , CXXCatchStmtCursor                       = CXCursor_CXXCatchStmt
-%  , CXXTryStmtCursor                         = CXCursor_CXXTryStmt
-%  , CXXForRangeStmtCursor                    = CXCursor_CXXForRangeStmt
-%  , SEHTryStmtCursor                         = CXCursor_SEHTryStmt
-%  , SEHExceptStmtCursor                      = CXCursor_SEHExceptStmt
-%  , SEHFinallyStmtCursor                     = CXCursor_SEHFinallyStmt
-%  , MSAsmStmtCursor                          = CXCursor_MSAsmStmt
-%  , NullStmtCursor                           = CXCursor_NullStmt
-%  , DeclStmtCursor                           = CXCursor_DeclStmt
-%  , OMPParallelDirectiveCursor               = CXCursor_OMPParallelDirective
-%  , TranslationUnitCursor                    = CXCursor_TranslationUnit
-%  , UnexposedAttrCursor                      = CXCursor_UnexposedAttr
-%  , IBActionAttrCursor                       = CXCursor_IBActionAttr
-%  , IBOutletAttrCursor                       = CXCursor_IBOutletAttr
-%  , IBOutletCollectionAttrCursor             = CXCursor_IBOutletCollectionAttr
-%  , CXXFinalAttrCursor                       = CXCursor_CXXFinalAttr
-%  , CXXOverrideAttrCursor                    = CXCursor_CXXOverrideAttr
-%  , AnnotateAttrCursor                       = CXCursor_AnnotateAttr
-%  , AsmLabelAttrCursor                       = CXCursor_AsmLabelAttr
-%  , PackedAttrCursor                         = CXCursor_PackedAttr
-%  , PreprocessingDirectiveCursor             = CXCursor_PreprocessingDirective
-%  , MacroDefinitionCursor                    = CXCursor_MacroDefinition
-%  , MacroExpansionCursor                     = CXCursor_MacroExpansion
-%  , InclusionDirectiveCursor                 = CXCursor_InclusionDirective
-%  , ModuleImportDeclCursor                   = CXCursor_ModuleImportDecl
-%  ]
+#c
+enum CursorKind
+  { UnexposedDeclCursor                      = CXCursor_UnexposedDecl
+  , StructDeclCursor                         = CXCursor_StructDecl
+  , UnionDeclCursor                          = CXCursor_UnionDecl
+  , ClassDeclCursor                          = CXCursor_ClassDecl
+  , EnumDeclCursor                           = CXCursor_EnumDecl
+  , FieldDeclCursor                          = CXCursor_FieldDecl
+  , EnumConstantDeclCursor                   = CXCursor_EnumConstantDecl
+  , FunctionDeclCursor                       = CXCursor_FunctionDecl
+  , VarDeclCursor                            = CXCursor_VarDecl
+  , ParmDeclCursor                           = CXCursor_ParmDecl
+  , ObjCInterfaceDeclCursor                  = CXCursor_ObjCInterfaceDecl
+  , ObjCCategoryDeclCursor                   = CXCursor_ObjCCategoryDecl
+  , ObjCProtocolDeclCursor                   = CXCursor_ObjCProtocolDecl
+  , ObjCPropertyDeclCursor                   = CXCursor_ObjCPropertyDecl
+  , ObjCIvarDeclCursor                       = CXCursor_ObjCIvarDecl
+  , ObjCInstanceMethodDeclCursor             = CXCursor_ObjCInstanceMethodDecl
+  , ObjCClassMethodDeclCursor                = CXCursor_ObjCClassMethodDecl
+  , ObjCImplementationDeclCursor             = CXCursor_ObjCImplementationDecl
+  , ObjCCategoryImplDeclCursor               = CXCursor_ObjCCategoryImplDecl
+  , TypedefDeclCursor                        = CXCursor_TypedefDecl
+  , CXXMethodCursor                          = CXCursor_CXXMethod
+  , NamespaceCursor                          = CXCursor_Namespace
+  , LinkageSpecCursor                        = CXCursor_LinkageSpec
+  , ConstructorCursor                        = CXCursor_Constructor
+  , DestructorCursor                         = CXCursor_Destructor
+  , ConversionFunctionCursor                 = CXCursor_ConversionFunction
+  , TemplateTypeParameterCursor              = CXCursor_TemplateTypeParameter
+  , NonTypeTemplateParameterCursor           = CXCursor_NonTypeTemplateParameter
+  , TemplateTemplateParameterCursor          = CXCursor_TemplateTemplateParameter
+  , FunctionTemplateCursor                   = CXCursor_FunctionTemplate
+  , ClassTemplateCursor                      = CXCursor_ClassTemplate
+  , ClassTemplatePartialSpecializationCursor = CXCursor_ClassTemplatePartialSpecialization
+  , NamespaceAliasCursor                     = CXCursor_NamespaceAlias
+  , UsingDirectiveCursor                     = CXCursor_UsingDirective
+  , UsingDeclarationCursor                   = CXCursor_UsingDeclaration
+  , TypeAliasDeclCursor                      = CXCursor_TypeAliasDecl
+  , ObjCSynthesizeDeclCursor                 = CXCursor_ObjCSynthesizeDecl
+  , ObjCDynamicDeclCursor                    = CXCursor_ObjCDynamicDecl
+  , CXXAccessSpecifierCursor                 = CXCursor_CXXAccessSpecifier
+  , ObjCSuperClassRefCursor                  = CXCursor_ObjCSuperClassRef
+  , ObjCProtocolRefCursor                    = CXCursor_ObjCProtocolRef
+  , ObjCClassRefCursor                       = CXCursor_ObjCClassRef
+  , TypeRefCursor                            = CXCursor_TypeRef
+  , CXXBaseSpecifierCursor                   = CXCursor_CXXBaseSpecifier
+  , TemplateRefCursor                        = CXCursor_TemplateRef
+  , NamespaceRefCursor                       = CXCursor_NamespaceRef
+  , MemberRefCursor                          = CXCursor_MemberRef
+  , LabelRefCursor                           = CXCursor_LabelRef
+  , OverloadedDeclRefCursor                  = CXCursor_OverloadedDeclRef
+  , VariableRefCursor                        = CXCursor_VariableRef
+  , InvalidFileCursor                        = CXCursor_InvalidFile
+  , NoDeclFoundCursor                        = CXCursor_NoDeclFound
+  , NotImplementedCursor                     = CXCursor_NotImplemented
+  , InvalidCodeCursor                        = CXCursor_InvalidCode
+  , UnexposedExprCursor                      = CXCursor_UnexposedExpr
+  , DeclRefExprCursor                        = CXCursor_DeclRefExpr
+  , MemberRefExprCursor                      = CXCursor_MemberRefExpr
+  , CallExprCursor                           = CXCursor_CallExpr
+  , ObjCMessageExprCursor                    = CXCursor_ObjCMessageExpr
+  , BlockExprCursor                          = CXCursor_BlockExpr
+  , IntegerLiteralCursor                     = CXCursor_IntegerLiteral
+  , FloatingLiteralCursor                    = CXCursor_FloatingLiteral
+  , ImaginaryLiteralCursor                   = CXCursor_ImaginaryLiteral
+  , StringLiteralCursor                      = CXCursor_StringLiteral
+  , CharacterLiteralCursor                   = CXCursor_CharacterLiteral
+  , ParenExprCursor                          = CXCursor_ParenExpr
+  , UnaryOperatorCursor                      = CXCursor_UnaryOperator
+  , ArraySubscriptExprCursor                 = CXCursor_ArraySubscriptExpr
+  , BinaryOperatorCursor                     = CXCursor_BinaryOperator
+  , CompoundAssignOperatorCursor             = CXCursor_CompoundAssignOperator
+  , ConditionalOperatorCursor                = CXCursor_ConditionalOperator
+  , CStyleCastExprCursor                     = CXCursor_CStyleCastExpr
+  , CompoundLiteralExprCursor                = CXCursor_CompoundLiteralExpr
+  , InitListExprCursor                       = CXCursor_InitListExpr
+  , AddrLabelExprCursor                      = CXCursor_AddrLabelExpr
+  , StmtExprCursor                           = CXCursor_StmtExpr
+  , GenericSelectionExprCursor               = CXCursor_GenericSelectionExpr
+  , GNUNullExprCursor                        = CXCursor_GNUNullExpr
+  , CXXStaticCastExprCursor                  = CXCursor_CXXStaticCastExpr
+  , CXXDynamicCastExprCursor                 = CXCursor_CXXDynamicCastExpr
+  , CXXReinterpretCastExprCursor             = CXCursor_CXXReinterpretCastExpr
+  , CXXConstCastExprCursor                   = CXCursor_CXXConstCastExpr
+  , CXXFunctionalCastExprCursor              = CXCursor_CXXFunctionalCastExpr
+  , CXXTypeidExprCursor                      = CXCursor_CXXTypeidExpr
+  , CXXBoolLiteralExprCursor                 = CXCursor_CXXBoolLiteralExpr
+  , CXXNullPtrLiteralExprCursor              = CXCursor_CXXNullPtrLiteralExpr
+  , CXXThisExprCursor                        = CXCursor_CXXThisExpr
+  , CXXThrowExprCursor                       = CXCursor_CXXThrowExpr
+  , CXXNewExprCursor                         = CXCursor_CXXNewExpr
+  , CXXDeleteExprCursor                      = CXCursor_CXXDeleteExpr
+  , UnaryExprCursor                          = CXCursor_UnaryExpr
+  , ObjCStringLiteralCursor                  = CXCursor_ObjCStringLiteral
+  , ObjCEncodeExprCursor                     = CXCursor_ObjCEncodeExpr
+  , ObjCSelectorExprCursor                   = CXCursor_ObjCSelectorExpr
+  , ObjCProtocolExprCursor                   = CXCursor_ObjCProtocolExpr
+  , ObjCBridgedCastExprCursor                = CXCursor_ObjCBridgedCastExpr
+  , PackExpansionExprCursor                  = CXCursor_PackExpansionExpr
+  , SizeOfPackExprCursor                     = CXCursor_SizeOfPackExpr
+  , LambdaExprCursor                         = CXCursor_LambdaExpr
+  , ObjCBoolLiteralExprCursor                = CXCursor_ObjCBoolLiteralExpr
+  , ObjCSelfExprCursor                       = CXCursor_ObjCSelfExpr
+  , UnexposedStmtCursor                      = CXCursor_UnexposedStmt
+  , LabelStmtCursor                          = CXCursor_LabelStmt
+  , CompoundStmtCursor                       = CXCursor_CompoundStmt
+  , CaseStmtCursor                           = CXCursor_CaseStmt
+  , DefaultStmtCursor                        = CXCursor_DefaultStmt
+  , IfStmtCursor                             = CXCursor_IfStmt
+  , SwitchStmtCursor                         = CXCursor_SwitchStmt
+  , WhileStmtCursor                          = CXCursor_WhileStmt
+  , DoStmtCursor                             = CXCursor_DoStmt
+  , ForStmtCursor                            = CXCursor_ForStmt
+  , GotoStmtCursor                           = CXCursor_GotoStmt
+  , IndirectGotoStmtCursor                   = CXCursor_IndirectGotoStmt
+  , ContinueStmtCursor                       = CXCursor_ContinueStmt
+  , BreakStmtCursor                          = CXCursor_BreakStmt
+  , ReturnStmtCursor                         = CXCursor_ReturnStmt
+  , AsmStmtCursor                            = CXCursor_AsmStmt
+  , ObjCAtTryStmtCursor                      = CXCursor_ObjCAtTryStmt
+  , ObjCAtCatchStmtCursor                    = CXCursor_ObjCAtCatchStmt
+  , ObjCAtFinallyStmtCursor                  = CXCursor_ObjCAtFinallyStmt
+  , ObjCAtThrowStmtCursor                    = CXCursor_ObjCAtThrowStmt
+  , ObjCAtSynchronizedStmtCursor             = CXCursor_ObjCAtSynchronizedStmt
+  , ObjCAutoreleasePoolStmtCursor            = CXCursor_ObjCAutoreleasePoolStmt
+  , ObjCForCollectionStmtCursor              = CXCursor_ObjCForCollectionStmt
+  , CXXCatchStmtCursor                       = CXCursor_CXXCatchStmt
+  , CXXTryStmtCursor                         = CXCursor_CXXTryStmt
+  , CXXForRangeStmtCursor                    = CXCursor_CXXForRangeStmt
+  , SEHTryStmtCursor                         = CXCursor_SEHTryStmt
+  , SEHExceptStmtCursor                      = CXCursor_SEHExceptStmt
+  , SEHFinallyStmtCursor                     = CXCursor_SEHFinallyStmt
+  , MSAsmStmtCursor                          = CXCursor_MSAsmStmt
+  , NullStmtCursor                           = CXCursor_NullStmt
+  , DeclStmtCursor                           = CXCursor_DeclStmt
+  , OMPParallelDirectiveCursor               = CXCursor_OMPParallelDirective
+  , TranslationUnitCursor                    = CXCursor_TranslationUnit
+  , UnexposedAttrCursor                      = CXCursor_UnexposedAttr
+  , IBActionAttrCursor                       = CXCursor_IBActionAttr
+  , IBOutletAttrCursor                       = CXCursor_IBOutletAttr
+  , IBOutletCollectionAttrCursor             = CXCursor_IBOutletCollectionAttr
+  , CXXFinalAttrCursor                       = CXCursor_CXXFinalAttr
+  , CXXOverrideAttrCursor                    = CXCursor_CXXOverrideAttr
+  , AnnotateAttrCursor                       = CXCursor_AnnotateAttr
+  , AsmLabelAttrCursor                       = CXCursor_AsmLabelAttr
+  , PackedAttrCursor                         = CXCursor_PackedAttr
+  , PreprocessingDirectiveCursor             = CXCursor_PreprocessingDirective
+  , MacroDefinitionCursor                    = CXCursor_MacroDefinition
+  , MacroExpansionCursor                     = CXCursor_MacroExpansion
+  , InclusionDirectiveCursor                 = CXCursor_InclusionDirective
+  , ModuleImportDeclCursor                   = CXCursor_ModuleImportDecl
+ };
+#endc
+{#enum CursorKind{} deriving (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 -- CursorKind ranges.
 firstDeclCursor, lastDeclCursor, firstRefCursor, lastRefCursor         :: CursorKind
@@ -2376,8 +2460,25 @@ macroInstantiationCursor = MacroExpansionCursor
 data Comment s = Comment !(Ptr ()) !(Ptr ())
                  deriving (Eq, Ord, Typeable)
 
+rawCommentToComment :: Ptr () -> IO (Comment a)
+rawCommentToComment cs = do
+    ptrToCommentStruct <- mallocBytes {# sizeof CXComment #}
+    poke ptrToCommentStruct (castPtr cs)
+    astNode <- {#get CXComment->ASTNode #} ptrToCommentStruct
+    tu <- {#get CXComment->TranslationUnit #} ptrToCommentStruct
+    free ptrToCommentStruct
+    return $! Comment astNode tu
+
+commentToRawComment :: Comment a -> IO (Ptr ())
+commentToRawComment (Comment astNode tu) = do
+    ptrToCommentStruct <- mallocBytes {# sizeof CXComment #}
+    {#set CXComment->ASTNode #} ptrToCommentStruct astNode
+    {#set CXComment->TranslationUnit #} ptrToCommentStruct tu
+    commentStruct <- peek (castPtr ptrToCommentStruct :: Ptr (Ptr ()))
+    free ptrToCommentStruct
+    return commentStruct
+
 instance ClangValue Comment
-%dis comment p1 p2 = Comment (ptr p1) (ptr p2)
 
 instance Storable (Comment s) where
     sizeOf _ = sizeOfCXComment
@@ -2387,14 +2488,13 @@ instance Storable (Comment s) where
     {-# INLINE alignment #-}
 
     peek p = do
-      p1 <- peekByteOff p offsetCXCommentASTNode
-      p2 <- peekByteOff p offsetCXCommentTranslationUnit
-      return $! Comment p1 p2
+      rawPtr <- peek (castPtr p :: Ptr (Ptr ()))
+      rawCommentToComment rawPtr
     {-# INLINE peek #-}
 
-    poke p (Comment p1 p2) = do
-      pokeByteOff p offsetCXCommentASTNode p1
-      pokeByteOff p offsetCXCommentTranslationUnit p2
+    poke p comment = do
+      rawPtr <- commentToRawComment comment
+      poke (castPtr p :: Ptr (Ptr ())) rawPtr
     {-# INLINE poke #-}
 
 -- typedef struct {
@@ -2404,9 +2504,30 @@ instance Storable (Comment s) where
 -- } CXCursor;
 data Cursor s = Cursor !CursorKind !Int !(Ptr ()) !(Ptr ()) !(Ptr ())
                 deriving (Ord, Typeable)
-                         
+
+rawCursorToCursor :: Ptr () -> IO (Cursor a)
+rawCursorToCursor cs = do
+    ptrToCursorStruct <- mallocBytes {# sizeof CXCursor #}
+    poke ptrToCursorStruct (castPtr cs)
+    cursorKind <- {#get CXCursor->kind #} ptrToCursorStruct
+    xdata <- {#get CXCursor->xdata #} ptrToCursorStruct
+    cursorData <- {#get CXCursor->data #} ptrToCursorStruct >>= peekArray 3
+    free ptrToCursorStruct
+    return $! Cursor (toEnum (fromIntegral cursorKind)) (fromIntegral xdata) (cursorData !! 0) (cursorData !! 1) (cursorData !! 2)
+
+cursorToRawCursor :: Cursor a -> IO (Ptr ())
+cursorToRawCursor (Cursor kind xdata p0 p1 p2) = do
+    ptrToCursorStruct <- mallocBytes {# sizeof CXCursor #}
+    ptrsArray <- mallocArray 3
+    pokeArray ptrsArray [p0,p1,p2]
+    {#set CXCursor->kind #} ptrToCursorStruct (fromIntegral (fromEnum kind))
+    {#set CXCursor->xdata #} ptrToCursorStruct (fromIntegral xdata)
+    {#set CXCursor->data #} ptrToCursorStruct (castPtr ptrsArray)
+    cursorStruct <- peek (castPtr ptrToCursorStruct :: Ptr (Ptr ()))
+    free ptrToCursorStruct
+    return cursorStruct
+
 instance ClangValue Cursor
-%dis cursor k xdata p1 p2 p3 = Cursor (cursorKind k) (int xdata) (ptr p1) (ptr p2) (ptr p3)
 
 instance Storable (Cursor s) where
     sizeOf _ = sizeOfCXCursor
@@ -2416,20 +2537,13 @@ instance Storable (Cursor s) where
     {-# INLINE alignment #-}
 
     peek p = do
-      k <- (unmarshall_CursorKind . fromCInt) <$> peekByteOff p offsetCXCursorKind
-      xdata <- fromCInt <$> peekByteOff p offsetCXCursorXData
-      p1 <- peekByteOff p offsetCXCursorP1
-      p2 <- peekByteOff p offsetCXCursorP2
-      p3 <- peekByteOff p offsetCXCursorP3
-      return $! Cursor k xdata p1 p2 p3
+      rawPtr <- peek (castPtr p :: Ptr (Ptr ()))
+      rawCursorToCursor rawPtr
     {-# INLINE peek #-}
 
-    poke p (Cursor k xdata p1 p2 p3) = do
-      pokeByteOff p offsetCXCursorKind $ (toCInt . marshall_CursorKind) k
-      pokeByteOff p offsetCXCursorXData $ toCInt xdata
-      pokeByteOff p offsetCXCursorP1 p1
-      pokeByteOff p offsetCXCursorP2 p2
-      pokeByteOff p offsetCXCursorP3 p3
+    poke p cursor = do
+      rawPtr <- cursorToRawCursor cursor
+      poke (castPtr p :: Ptr (Ptr ())) rawPtr
     {-# INLINE poke #-}
 
 instance Eq (Cursor s) where
@@ -2447,7 +2561,7 @@ instance Eq (Cursor s) where
 instance Hashable (Cursor s) where
     hashWithSalt salt (Cursor k _ p1 p2 _) =
       let p = if isExpression k || isStatement k then p2 else p1
-          kindHash = hashWithSalt salt (marshall_CursorKind k)
+          kindHash = hashWithSalt salt (fromEnum k)
           pAsInt = fromIntegral (ptrToIntPtr p) :: Int
       in hashWithSalt kindHash pAsInt
     {-# INLINE hash #-}
@@ -2459,10 +2573,9 @@ getNullCursor =
 {-# INLINE getNullCursor #-}
 
 -- CXCursor clang_getTranslationUnitCursor(CXTranslationUnit);
-%fun clang_getTranslationUnitCursor :: Proxy s -> TranslationUnit s' -> IO (Cursor s)
-%call (proxy) (translationUnit t)
-%code CXCursor r = clang_getTranslationUnitCursor(t);
-%result (cursor {r.kind}  {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
+{# fun clang_getTranslationUnitCursor { id `Ptr ()' } -> `Ptr ()' id #}
+getTranslationUnitCursor :: Proxy s -> TranslationUnit s' -> IO (Cursor s)
+getTranslationUnitCursor _ t = clang_getTranslationUnitCursor (unTranslationUnit t) >>= rawCursorToCursor
 
 -- int clang_Cursor_isNull(CXCursor);
 cursor_isNull :: Cursor s -> Bool
@@ -2478,13 +2591,11 @@ cursor_isNull (Cursor k xdata p1 p2 p3)
 {-# INLINE cursor_isNull #-}
 
 -- unsigned clang_hashCursor(CXCursor);
-%fun clang_hashCursor :: Cursor s -> IO Word32
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     unsigned r = clang_hashCursor(a);
-%result (word32 r)
+{# fun clang_hashCursor { id `Ptr ()' } -> `Word32' #}
+hashCursor :: Cursor s -> IO Word32
+hashCursor c = cursorToRawCursor c >>= clang_hashCursor
 {-# INLINEABLE hashCursor #-}
- 
+
 getCursorKind :: Cursor s -> CursorKind
 getCursorKind (Cursor k _ _ _ _) = k
 {-# INLINE getCursorKind #-}
@@ -2518,7 +2629,7 @@ isAttribute :: CursorKind -> Bool
 isAttribute k =
   (k >= firstAttrCursor && k <= lastAttrCursor)
 {-# INLINE isAttribute #-}
-  
+
 -- unsigned clang_isInvalid(enum CursorKind);
 isInvalid :: CursorKind -> Bool
 isInvalid k =
@@ -2550,27 +2661,28 @@ isUnexposed k =
 --   CXLinkage_UniqueExternal,
 --   CXLinkage_External
 -- };
-%enum LinkageKind (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ CXLinkage_Invalid
-%  , CXLinkage_NoLinkage
-%  , CXLinkage_Internal
-%  , CXLinkage_UniqueExternal
-%  , CXLinkage_External
-%  ]
+#c
+enum LinkageKind
+  { Linkage_Invalid        = CXLinkage_Invalid
+  , Linkage_NoLinkage      = CXLinkage_NoLinkage
+  , Linkage_Internal       = CXLinkage_Internal
+  , Linkage_UniqueExternal = CXLinkage_UniqueExternal
+  , Linkage_External       = CXLinkage_External
+ };
+#endc
+{#enum LinkageKind {} deriving (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 -- enum CXLinkageKind clang_getCursorLinkage(CXCursor cursor);
-%fun clang_getCursorLinkage :: Cursor s -> IO LinkageKind
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     enum CXLinkageKind r = clang_getCursorLinkage(a);
-%result (linkageKind r)
+{# fun clang_getCursorLinkage { id `Ptr ()' } -> `Int' #}
+getCursorLinkage :: Cursor s -> IO LinkageKind
+getCursorLinkage c =
+  cursorToRawCursor c >>= clang_getCursorLinkage >>= return . toEnum
 
 -- enum CXAvailabilityKind clang_getCursorAvailability(CXCursor cursor);
-%fun clang_getCursorAvailability :: Cursor s -> IO AvailabilityKind
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     enum CXAvailabilityKind r = clang_getCursorAvailability(a);
-%result (availabilityKind r)
+{# fun clang_getCursorAvailability { id `Ptr ()' } -> `Int' #}
+getCursorAvailability :: Cursor s -> IO AvailabilityKind
+getCursorAvailability c =
+  cursorToRawCursor c >>= clang_getCursorAvailability >>= return . toEnum
 
 data PlatformAvailability = PlatformAvailability
   { availabilityPlatform      :: !B.ByteString
@@ -2580,7 +2692,7 @@ data PlatformAvailability = PlatformAvailability
   , availabilityIsUnavailable :: !Bool
   , availabilityMessage       :: !B.ByteString
   } deriving (Eq, Ord, Typeable)
-  
+
 instance Storable PlatformAvailability where
   sizeOf _ = sizeOfCXPlatformAvailability
   {-# INLINE sizeOf #-}
@@ -2608,11 +2720,11 @@ instance Storable PlatformAvailability where
   -- Since we can't construct ClangStrings, we can't really poke these.
   poke _ _ = undefined
   {-# INLINE poke #-}
-  
+
 -- void clang_disposeCXPlatformAvailability(CXPlatformAvailability);
-%fun clang_disposeCXPlatformAvailability :: Ptr PlatformAvailability -> IO ()
-%call (ptr p)
-%code clang_disposeCXPlatformAvailability((CXPlatformAvailability*) p);
+{# fun clang_disposeCXPlatformAvailability { id `Ptr ()' } -> `()' #}
+disposeCXPlatformAvailability :: Ptr PlatformAvailability -> IO ()
+disposeCXPlatformAvailability p = clang_disposeCXPlatformAvailability (castPtr p)
 
 -- int clang_getCursorPlatformAvailability(CXCursor cursor,
 --                                         int *always_deprecated,
@@ -2621,21 +2733,21 @@ instance Storable PlatformAvailability where
 --                                         CXString *unavailable_message,
 --                                         CXPlatformAvailability *availability,
 --                                         int availability_size);
-%fun unsafe_getCursorPlatformAvailability :: Cursor s' -> Ptr PlatformAvailability -> Int -> IO (Bool, ClangString (), Bool, ClangString (), Int)
-%call (cursor k xdata p1 p2 p3) (ptr dest) (int destLen)
-%code CXCursor c = {k, xdata, {p1, p2, p3}};
-%     int ad;
-%     CXString dMsg;
-%     int au;
-%     CXString uMsg;
-%     int size = clang_getCursorPlatformAvailability(c, &ad, &dMsg, &au, &uMsg,
-%                                                    (CXPlatformAvailability*) dest,
-%                                                    destLen);
-%     const void* dMsgData = dMsg.data;
-%     unsigned dMsgFlags = dMsg.private_flags;
-%     const void* uMsgData = uMsg.data;
-%     unsigned uMsgFlags = uMsg.private_flags;
-%result (bool ad, clangString (ptr dMsgData) (word32 dMsgFlags), bool au, clangString (ptr uMsgData) (word32 uMsgFlags), int size)
+{# fun clang_getCursorPlatformAvailability { id `Ptr ()', alloca- `CInt' peek*, id `Ptr ()', alloca- `CInt' peek*, id `Ptr ()', id `Ptr ()', `Int' } -> `Int' #}
+unsafe_getCursorPlatformAvailability :: Cursor s' -> Ptr PlatformAvailability -> Int -> IO (Bool, ClangString (), Bool, ClangString (), Int)
+unsafe_getCursorPlatformAvailability c dest destLen =
+ alloca (\(dMsgPtr :: (Ptr (ClangString ()))) ->
+ alloca (\(uMsgPtr :: (Ptr (ClangString ()))) -> do
+   cPtr <- cursorToRawCursor c
+   (size, ad, au) <- clang_getCursorPlatformAvailability
+                       (castPtr cPtr)
+                       (castPtr dMsgPtr)
+                       (castPtr uMsgPtr)
+                       (castPtr dest)
+                       destLen
+   dm <- peek dMsgPtr
+   um <- peek uMsgPtr
+   return (toBool ad, dm, toBool au, um, size)))
 
 data PlatformAvailabilityInfo s = PlatformAvailabilityInfo
   { availabilityAlwaysDeprecated   :: !Bool
@@ -2646,7 +2758,7 @@ data PlatformAvailabilityInfo s = PlatformAvailabilityInfo
   } deriving (Eq, Ord, Typeable)
 
 instance ClangValue PlatformAvailabilityInfo
-  
+
 getCursorPlatformAvailability :: ClangBase m => Cursor s'
                               -> ClangT s m (PlatformAvailabilityInfo s)
 getCursorPlatformAvailability c = do
@@ -2664,33 +2776,34 @@ getCursorPlatformAvailability c = do
     return $ PlatformAvailabilityInfo ad dMsg' au uMsg' infos
   where
     maxPlatformAvailability = 32
-  
+
 -- enum CXLanguageKind {
 --   CXLanguage_Invalid = 0,
 --   CXLanguage_C,
 --   CXLanguage_ObjC,
 --   CXLanguage_CPlusPlus
 -- };
-%enum LanguageKind (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ CXLanguage_Invalid
-%  , CXLanguage_C
-%  , CXLanguage_ObjC
-%  , CXLanguage_CPlusPlus
-%  ]
+#c
+enum LanguageKind {
+    Language_Invalid   = CXLanguage_Invalid
+  , Language_C         = CXLanguage_C
+  , Language_ObjC      = CXLanguage_ObjC
+  , Language_CPlusPlus = CXLanguage_CPlusPlus
+  };
+#endc
+
+{#enum LanguageKind {} deriving (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 -- enum CXLanguageKind clang_getCursorLanguage(CXCursor cursor);
-%fun clang_getCursorLanguage :: Cursor s -> IO LanguageKind
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     enum CXLanguageKind r = clang_getCursorLanguage(a);
-%result (languageKind r)
+{# fun clang_getCursorLanguage { id `Ptr ()' } -> `Int' #}
+getCursorLanguage :: Cursor s -> IO LanguageKind
+getCursorLanguage c = cursorToRawCursor c >>= clang_getCursorLanguage >>= return . toEnum
 
 -- CXTranslationUnit clang_Cursor_getTranslationUnit(CXCursor);
-%fun unsafe_Cursor_getTranslationUnit :: Cursor s -> IO (TranslationUnit ())
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXTranslationUnit r = clang_Cursor_getTranslationUnit(a);
-%result (translationUnit r)
+{# fun clang_Cursor_getTranslationUnit { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_Cursor_getTranslationUnit :: Cursor s -> IO (TranslationUnit ())
+unsafe_Cursor_getTranslationUnit c =
+  cursorToRawCursor c >>= clang_Cursor_getTranslationUnit >>= return . mkTranslationUnit
 
 -- Note that we do not register the translation unit! This function
 -- never creates a 'new' translation unit, so we don't need to dispose
@@ -2706,9 +2819,9 @@ newtype CursorSet s = CursorSet { unCursorSet :: Ptr () }
 instance ClangValue CursorSet
 
 -- void clang_disposeCXCursorSet(CXCursorSet cset);
-%fun clang_disposeCXCursorSet :: CursorSet s -> IO ()
-%call (cursorSet cs)
-%code clang_disposeCXCursorSet(cs);
+{# fun clang_disposeCXCursorSet { id `Ptr ()' } -> `()' #}
+disposeCXCursorSet :: CursorSet s -> IO ()
+disposeCXCursorSet cs = clang_disposeCXCursorSet (unCursorSet cs)
 
 registerCursorSet :: ClangBase m => IO (CursorSet ()) -> ClangT s m (CursorSet s)
 registerCursorSet action = do
@@ -2717,47 +2830,45 @@ registerCursorSet action = do
   return idx
 {-# INLINEABLE registerCursorSet #-}
 
-%dis cursorSet cs = <unCursorSet/CursorSet> (ptr cs)
-
 -- CXCursorSet clang_createCXCursorSet();
-%fun unsafe_createCXCursorSet :: IO (CursorSet ())
-%code CXCursorSet cs = clang_createCXCursorSet();
-%result (cursorSet cs)
+{# fun clang_createCXCursorSet {} -> `Ptr ()' id #}
+unsafe_createCXCursorSet :: IO (CursorSet ())
+unsafe_createCXCursorSet = clang_createCXCursorSet >>= return . CursorSet
 
 createCXCursorSet :: ClangBase m => ClangT s m (CursorSet s)
 createCXCursorSet = registerCursorSet unsafe_createCXCursorSet
 
 -- unsigned clang_CXCursorSet_contains(CXCursorSet cset, CXCursor cursor);
-%fun clang_CXCursorSet_contains :: CursorSet s -> Cursor s' -> IO Bool
-%call (cursorSet cs) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%result (bool {clang_CXCursorSet_contains(cs, a)})
+{# fun clang_CXCursorSet_contains { id `Ptr ()' , id `Ptr ()' } -> `Bool' toBool #}
+cXCursorSet_contains :: CursorSet s -> Cursor s' -> IO Bool
+cXCursorSet_contains cs c =
+  cursorToRawCursor c >>= clang_CXCursorSet_contains (unCursorSet cs)
 
 -- unsigned clang_CXCursorSet_insert(CXCursorSet cset, CXCursor cursor);
-%fun clang_CXCursorSet_insert :: CursorSet s -> Cursor s' -> IO Bool
-%call (cursorSet cs) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%result (bool {clang_CXCursorSet_insert(cs, a)})
+{# fun clang_CXCursorSet_insert { id `Ptr ()', id `Ptr ()' } -> `Bool' toBool #}
+cXCursorSet_insert :: CursorSet s -> Cursor s' -> IO Bool
+cXCursorSet_insert cs c =
+  cursorToRawCursor c >>= clang_CXCursorSet_insert (unCursorSet cs)
 
 -- CXCursor clang_getCursorSemanticParent(CXCursor cursor);
-%fun clang_getCursorSemanticParent :: Proxy s -> Cursor s' -> IO (Cursor s)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXCursor r = clang_getCursorSemanticParent(a);
-%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
+{# fun clang_getCursorSemanticParent { id `Ptr ()' } -> `Ptr ()' id #}
+getCursorSemanticParent :: Proxy s -> Cursor s' -> IO (Cursor s)
+getCursorSemanticParent _ c =
+  cursorToRawCursor c >>= clang_getCursorSemanticParent >>= rawCursorToCursor
 
 -- CXCursor clang_getCursorLexicalParent(CXCursor cursor);
-%fun clang_getCursorLexicalParent :: Proxy s -> Cursor s' -> IO (Cursor s)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXCursor r = clang_getCursorLexicalParent(a);
-%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
+{# fun clang_getCursorLexicalParent { id `Ptr ()' } -> `Ptr ()' id #}
+getCursorLexicalParent :: Proxy s -> Cursor s' -> IO (Cursor s)
+getCursorLexicalParent _ c =
+  cursorToRawCursor c >>= clang_getCursorLexicalParent >>= rawCursorToCursor
 
 -- void clang_disposeOverriddenCursors(CXCursor *overridden);
-%fun disposeOverridden :: CursorList s -> IO ()
-%call (cursorList cs n)
-%code clang_disposeOverriddenCursors(cs);
-  
+{# fun clang_disposeOverriddenCursors { id `Ptr ()' } -> `()' #}
+disposeOverridden :: CursorList s -> IO ()
+disposeOverridden cl =
+ let (csPtr, _) = fromCursorList cl in
+ clang_disposeOverriddenCursors csPtr
+
 registerOverriddenList :: ClangBase m => IO UnsafeCursorList -> ClangT s m (CursorList s)
 registerOverriddenList action = do
     (_, cursorList) <- clangAllocate (action >>= cursorListToVector) disposeOverridden
@@ -2765,53 +2876,59 @@ registerOverriddenList action = do
 {-# INLINEABLE registerOverriddenList #-}
 
 -- void clang_getOverriddenCursors(CXCursor cursor, CXCursor **overridden, unsigned *num_overridden);
-%fun unsafe_getOverriddenCursors :: Cursor s -> IO UnsafeCursorList
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k , xdata, {p1, p2, p3}};
-%     CXCursor* overrides; unsigned count;
-%     clang_getOverriddenCursors(a, &overrides, &count);
-%result (cursorList overrides count)
+{# fun clang_getOverriddenCursors { id `Ptr ()', id `Ptr (Ptr ())', alloca- `CUInt' peek* } -> `()' #}
+unsafe_getOverriddenCursors :: Cursor s -> IO UnsafeCursorList
+unsafe_getOverriddenCursors c = do
+  cPtr <- cursorToRawCursor c
+  cxListPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr (Cursor s)))))
+  n <- clang_getOverriddenCursors (castPtr cPtr) (castPtr cxListPtr)
+  return (toCursorList (cxListPtr, (fromIntegral n)))
 
 getOverriddenCursors :: ClangBase m => Cursor s' -> ClangT s m (CursorList s)
 getOverriddenCursors = registerOverriddenList . unsafe_getOverriddenCursors
 
 -- CXFile clang_getIncludedFile(CXCursor cursor);
-%fun clang_getIncludedFile :: Proxy s -> Cursor s' -> IO (Maybe (File s))
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%result (maybe_file {clang_getIncludedFile(a)})
+{# fun clang_getIncludedFile { id `Ptr ()' } -> `Ptr ()' id #}
+getIncludedFile :: Proxy s -> Cursor s' -> IO (Maybe (File s))
+getIncludedFile _ c =
+  cursorToRawCursor c >>= clang_getIncludedFile >>= return . maybeFile . File . castPtr
 
 -- CXCursor clang_getCursor(CXTranslationUnit, CXSourceLocation);
-%fun clang_getCursor :: Proxy s -> TranslationUnit s' -> SourceLocation s'' -> IO (Cursor s)
-%call (proxy) (translationUnit t) (sourceLocation p1 p2 d)
-%code CXSourceLocation l = {{p1, p2}, d};
-%     CXCursor r = clang_getCursor(t, l);
-%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
+{# fun clang_getCursor { id `Ptr ()' , id `Ptr ()' } -> `Ptr ()' id #}
+getCursor :: Proxy s -> TranslationUnit s' -> SourceLocation s'' -> IO (Cursor s)
+getCursor _ t s =
+  sourceLocationToRawSourceLocation s >>= clang_getCursor (unTranslationUnit t) >>= rawCursorToCursor
 
 -- CXSourceLocation clang_getCursorLocation(CXCursor);
-%fun clang_getCursorLocation :: Proxy s -> Cursor s' -> IO (SourceLocation s)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXSourceLocation r = clang_getCursorLocation(a);
-%result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
+{# fun clang_getCursorLocation { id `Ptr ()' } -> `Ptr ()' id #}
+getCursorLocation :: Proxy s -> Cursor s' -> IO (SourceLocation s)
+getCursorLocation _ c =
+  cursorToRawCursor c >>= clang_getCursorLocation >>=  rawSourceLocationToSourceLocation
 {-# INLINEABLE getCursorLocation #-}
 
 -- Variant of clang_getCursorLocation that fuses a call to clang_getSpellingLocation.
-%fun clang_getCursorSpellingLocation :: Proxy s -> Cursor s' -> IO (Maybe (File s), Int, Int, Int)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXSourceLocation l = clang_getCursorLocation(a);
-%     CXFile f; unsigned ln, c, o;
-%     clang_getSpellingLocation(l, &f, &ln, &c, &o);
-%result ((maybe_file f), (int ln), (int c), (int o))
+getCursorSpellingLocation :: Proxy s -> Cursor s' -> IO (Maybe (File s), Int, Int, Int)
+getCursorSpellingLocation _ c =
+  allocaBytes {#sizeof PtrPtrCXFile #} (\ptrToFilePtr ->
+  alloca (\(linePtr :: (Ptr CUInt)) ->
+  alloca (\(columnPtr :: (Ptr CUInt)) ->
+  alloca (\(offsetPtr :: (Ptr CUInt)) -> do
+    cPtr <- cursorToRawCursor c
+    slPtr <- clang_getCursorLocation (castPtr cPtr)
+    clang_getSpellingLocation slPtr ptrToFilePtr linePtr columnPtr offsetPtr
+    filePtr <- {#get *CXFile #} ptrToFilePtr
+    let _maybeFile = maybeFile (File filePtr)
+    line <- peek linePtr
+    column <- peek columnPtr
+    offset <- peek offsetPtr
+    return (_maybeFile, fromIntegral line, fromIntegral column, fromIntegral offset)))))
 {-# INLINEABLE getCursorSpellingLocation #-}
 
 -- CXSourceRange clang_getCursorExtent(CXCursor);
-%fun clang_getCursorExtent :: Proxy s -> Cursor s' -> IO (SourceRange s)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXSourceRange r = clang_getCursorExtent(a);
-%result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
+{# fun clang_getCursorExtent { id `Ptr ()' } -> `Ptr ()' id #}
+getCursorExtent :: Proxy s -> Cursor s' -> IO (SourceRange s)
+getCursorExtent _ c =
+  cursorToRawCursor c >>= clang_getCursorExtent >>= rawSourceRangeToSourceRange
 {-# INLINEABLE getCursorExtent #-}
 
 -- enum CXTypeKind {
@@ -2867,56 +2984,59 @@ getOverriddenCursors = registerOverriddenList . unsafe_getOverriddenCursors
 --   CXType_MemberPointer = 117
 -- };
 
-%enum TypeKind (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ CXType_Invalid
-%  , CXType_Unexposed
-%  , CXType_Void
-%  , CXType_Bool
-%  , CXType_Char_U
-%  , CXType_UChar
-%  , CXType_Char16
-%  , CXType_Char32
-%  , CXType_UShort
-%  , CXType_UInt
-%  , CXType_ULong
-%  , CXType_ULongLong
-%  , CXType_UInt128
-%  , CXType_Char_S
-%  , CXType_SChar
-%  , CXType_WChar
-%  , CXType_Short
-%  , CXType_Int
-%  , CXType_Long
-%  , CXType_LongLong
-%  , CXType_Int128
-%  , CXType_Float
-%  , CXType_Double
-%  , CXType_LongDouble
-%  , CXType_NullPtr
-%  , CXType_Overload
-%  , CXType_Dependent
-%  , CXType_ObjCId
-%  , CXType_ObjCClass
-%  , CXType_ObjCSel
-%  , CXType_Complex
-%  , CXType_Pointer
-%  , CXType_BlockPointer
-%  , CXType_LValueReference
-%  , CXType_RValueReference
-%  , CXType_Record
-%  , CXType_Enum
-%  , CXType_Typedef
-%  , CXType_ObjCInterface
-%  , CXType_ObjCObjectPointer
-%  , CXType_FunctionNoProto
-%  , CXType_FunctionProto
-%  , CXType_ConstantArray
-%  , CXType_Vector
-%  , CXType_IncompleteArray
-%  , CXType_VariableArray
-%  , CXType_DependentSizedArray
-%  , CXType_MemberPointer
-%  ]
+#c
+enum TypeKind
+  { Type_Invalid             = CXType_Invalid
+  , Type_Unexposed           = CXType_Unexposed
+  , Type_Void                = CXType_Void
+  , Type_Bool                = CXType_Bool
+  , Type_Char_U              = CXType_Char_U
+  , Type_UChar               = CXType_UChar
+  , Type_Char16              = CXType_Char16
+  , Type_Char32              = CXType_Char32
+  , Type_UShort              = CXType_UShort
+  , Type_UInt                = CXType_UInt
+  , Type_ULong               = CXType_ULong
+  , Type_ULongLong           = CXType_ULongLong
+  , Type_UInt128             = CXType_UInt128
+  , Type_Char_S              = CXType_Char_S
+  , Type_SChar               = CXType_SChar
+  , Type_WChar               = CXType_WChar
+  , Type_Short               = CXType_Short
+  , Type_Int                 = CXType_Int
+  , Type_Long                = CXType_Long
+  , Type_LongLong            = CXType_LongLong
+  , Type_Int128              = CXType_Int128
+  , Type_Float               = CXType_Float
+  , Type_Double              = CXType_Double
+  , Type_LongDouble          = CXType_LongDouble
+  , Type_NullPtr             = CXType_NullPtr
+  , Type_Overload            = CXType_Overload
+  , Type_Dependent           = CXType_Dependent
+  , Type_ObjCId              = CXType_ObjCId
+  , Type_ObjCClass           = CXType_ObjCClass
+  , Type_ObjCSel             = CXType_ObjCSel
+  , Type_Complex             = CXType_Complex
+  , Type_Pointer             = CXType_Pointer
+  , Type_BlockPointer        = CXType_BlockPointer
+  , Type_LValueReference     = CXType_LValueReference
+  , Type_RValueReference     = CXType_RValueReference
+  , Type_Record              = CXType_Record
+  , Type_Enum                = CXType_Enum
+  , Type_Typedef             = CXType_Typedef
+  , Type_ObjCInterface       = CXType_ObjCInterface
+  , Type_ObjCObjectPointer   = CXType_ObjCObjectPointer
+  , Type_FunctionNoProto     = CXType_FunctionNoProto
+  , Type_FunctionProto       = CXType_FunctionProto
+  , Type_ConstantArray       = CXType_ConstantArray
+  , Type_Vector              = CXType_Vector
+  , Type_IncompleteArray     = CXType_IncompleteArray
+  , Type_VariableArray       = CXType_VariableArray
+  , Type_DependentSizedArray = CXType_DependentSizedArray
+  , Type_MemberPointer       = CXType_MemberPointer
+ };
+#endc
+{# enum TypeKind {} deriving (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 type_FirstBuiltin, type_LastBuiltin :: TypeKind
 type_FirstBuiltin = Type_Void
@@ -2938,22 +3058,25 @@ type_LastBuiltin  = Type_ObjCSel
 --   CXCallingConv_Invalid = 100,
 --   CXCallingConv_Unexposed = 200
 -- };
-%enum CallingConv (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ CXCallingConv_Default
-%  , CXCallingConv_C
-%  , CXCallingConv_X86StdCall
-%  , CXCallingConv_X86FastCall
-%  , CXCallingConv_X86ThisCall
-%  , CXCallingConv_X86Pascal
-%  , CXCallingConv_AAPCS
-%  , CXCallingConv_AAPCS_VFP
-%  , CXCallingConv_PnaclCall
-%  , CXCallingConv_IntelOclBicc
-%  , CXCallingConv_X86_64Win64
-%  , CXCallingConv_X86_64SysV
-%  , CXCallingConv_Invalid
-%  , CXCallingConv_Unexposed
-%  ]
+#c
+enum CallingConv
+  { CallingConv_Default     = CXCallingConv_Default
+  , CallingConv_C           = CXCallingConv_C
+  , CallingConv_X86StdCall  = CXCallingConv_X86StdCall
+  , CallingConv_X86FastCall = CXCallingConv_X86FastCall
+  , CallingConv_X86ThisCall = CXCallingConv_X86ThisCall
+  , CallingConv_X86Pascal   = CXCallingConv_X86Pascal
+  , CallingConv_AAPCS       = CXCallingConv_AAPCS
+  , CallingConv_AAPCS_VFP   = CXCallingConv_AAPCS_VFP
+  , CallingConv_PnaclCall   = CXCallingConv_PnaclCall
+  , CallingConv_IntelOclBic = CXCallingConv_IntelOclBicc
+  , CallingConv_X86_64Win64 = CXCallingConv_X86_64Win64
+  , CallingConv_X86_64SysV  = CXCallingConv_X86_64SysV
+  , CallingConv_Invalid     = CXCallingConv_Invalid
+  , CallingConv_Unexposed   = CXCallingConv_Unexposed
+ };
+#endc
+{# enum CallingConv {} deriving  (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 -- typedef struct {
 --   enum CXTypeKind kind;
@@ -2961,230 +3084,220 @@ type_LastBuiltin  = Type_ObjCSel
 -- } CXType;
 data Type s = Type !TypeKind !(Ptr ()) !(Ptr ())
               deriving (Eq, Ord, Typeable)
-                       
+
 instance ClangValue Type
-%dis type k p1 p2 = Type (typeKind k) (ptr p1) (ptr p2)
+-- %dis type k p1 p2 = Type (typeKind k) (ptr p1) (ptr p2)
 
 getTypeKind :: Type s -> TypeKind
 getTypeKind (Type k _ _) = k
 
+typeToPtr :: Type s -> IO (Ptr ())
+typeToPtr (Type k p1 p2) = do
+   typePtr <- mallocBytes {#sizeof CXType #}
+   {#set CXType->kind #} typePtr (fromIntegral (fromEnum k))
+   let voidPtrSize = sizeOf (undefined :: (Ptr ()))
+   dataPtr <- mallocBytes (voidPtrSize * 2)
+   poke dataPtr p1
+   poke (dataPtr `plusPtr` voidPtrSize) p2
+   poke (typePtr `plusPtr` {#offsetof CXType->data #}) dataPtr
+   return typePtr
+
+ptrToType :: Proxy s -> Ptr () -> IO (Type s)
+ptrToType _ structPtr = do
+  kindCInt <- {#get CXType->kind #} structPtr
+  dataPtr <- {#get CXType->data #} structPtr
+  let voidPtrSize = sizeOf (undefined :: (Ptr ()))
+  p1 <- peek dataPtr
+  p2 <- peek (dataPtr `plusPtr` voidPtrSize)
+  return (Type (toEnum (fromIntegral kindCInt)) p1 p2)
+
 -- CXType clang_getCursorType(CXCursor C);
-%fun clang_getCursorType :: Proxy s -> Cursor s' -> IO (Type s)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXType r = clang_getCursorType(a);
-%result (type {r.kind} {r.data[0]} {r.data[1]})
+{# fun clang_getCursorType { id `Ptr ()' } -> `Ptr ()' id #}
+getCursorType :: Proxy s -> Cursor s' -> IO (Type s)
+getCursorType proxy c =
+  cursorToRawCursor c >>= clang_getCursorType >>= ptrToType proxy
 
 -- CXString clang_getTypeSpelling(CXType CT);
-%fun unsafe_getTypeSpelling :: (Type s) -> IO (ClangString ())
-%call (type k p1 p2)
-%code CXType t = {k, {p1, p2}};
-%     CXString out = clang_getTypeSpelling(t);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_getTypeSpelling { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_getTypeSpelling :: (Type s) -> IO (ClangString ())
+unsafe_getTypeSpelling t = do
+ typePtr <- typeToPtr t
+ cxString <- clang_getTypeSpelling typePtr
+ rawCXStringToClangString cxString
 
 getTypeSpelling :: ClangBase m => (Type s') -> ClangT s m (ClangString s)
 getTypeSpelling = registerClangString . unsafe_getTypeSpelling
 
 -- CXType clang_getTypedefDeclUnderlyingType(CXCursor C);
-%fun clang_getTypedefDeclUnderlyingType :: Proxy s -> Cursor s' -> IO (Type s)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXType r = clang_getTypedefDeclUnderlyingType(a);
-%result (type {r.kind} {r.data[0]} {r.data[1]})
+{# fun clang_getTypedefDeclUnderlyingType { id `Ptr ()' } -> `Ptr ()' id #}
+getTypedefDeclUnderlyingType :: Proxy s -> Cursor s' -> IO (Type s)
+getTypedefDeclUnderlyingType proxy c =
+  cursorToRawCursor c >>= clang_getTypedefDeclUnderlyingType >>= ptrToType proxy
 
 -- CXType clang_getEnumDeclIntegerType(CXCursor C);
-%fun clang_getEnumDeclIntegerType :: Proxy s -> Cursor s' -> IO (Type s)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXType r = clang_getEnumDeclIntegerType(a);
-%result (type {r.kind} {r.data[0]} {r.data[1]})
+{# fun clang_getEnumDeclIntegerType { id `Ptr ()' } -> `Ptr ()' id #}
+getEnumDeclIntegerType :: Proxy s -> Cursor s' -> IO (Type s)
+getEnumDeclIntegerType proxy c =
+  cursorToRawCursor c >>= clang_getEnumDeclIntegerType >>= ptrToType proxy
 
 -- long long clang_getEnumConstantDeclValue(CXCursor);
-%fun clang_getEnumConstantDeclValue :: Cursor s -> IO Int64
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     r = clang_getEnumConstantDeclValue(a);
-%result (int64 r)
+{# fun clang_getEnumConstantDeclValue { id `Ptr ()' } -> `Int64' #}
+getEnumConstantDeclValue :: Cursor s -> IO Int64
+getEnumConstantDeclValue c =
+  cursorToRawCursor c >>= clang_getEnumConstantDeclValue
 
 -- unsigned long long clang_getEnumConstantDeclUnsignedValue(CXCursor);
-%fun clang_getEnumConstantDeclUnsignedValue :: Cursor s -> IO Word64
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     r = clang_getEnumConstantDeclUnsignedValue(a);
-%result (word64 r)
+{# fun clang_getEnumConstantDeclUnsignedValue { id `Ptr ()' } -> `Word64' #}
+getEnumConstantDeclUnsignedValue :: Cursor s -> IO Word64
+getEnumConstantDeclUnsignedValue c =
+  cursorToRawCursor c >>= clang_getEnumConstantDeclUnsignedValue
 
 -- int clang_getFieldDeclBitWidth(CXCursor C);
-%fun clang_getFieldDeclBitWidth :: Cursor s -> IO Int
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     r = clang_getFieldDeclBitWidth(a);
-%result (int r)
+-- %fun clang_getFieldDeclBitWidth :: Cursor s -> IO Int
+{# fun clang_getFieldDeclBitWidth { id `Ptr ()' } -> `Int' #}
+getFieldDeclBitWidth :: Cursor s -> IO Int
+getFieldDeclBitWidth c =
+  cursorToRawCursor c >>= clang_getFieldDeclBitWidth
 
 -- int clang_Cursor_getNumArguments(CXCursor C);
-%fun clang_cursor_getNumArguments :: Cursor s -> IO Int
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     r = clang_Cursor_getNumArguments(a);
-%result (int r)
+{# fun clang_Cursor_getNumArguments { id `Ptr ()' } -> `Int' #}
+cursor_getNumArguments :: Cursor s -> IO Int
+cursor_getNumArguments c =
+  cursorToRawCursor c >>= clang_Cursor_getNumArguments
 
 -- CXCursor clang_Cursor_getArgument(CXCursor C, unsigned i);
-%fun clang_cursor_getArgument :: Proxy s -> Cursor s' -> Int -> IO (Cursor s)
-%call (proxy) (cursor k xdata p1 p2 p3) (int i)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXCursor r = clang_Cursor_getArgument(a, i);
-%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
+{# fun clang_Cursor_getArgument { id `Ptr ()', `Int' } -> `Ptr ()' id #}
+cursor_getArgument :: Proxy s -> Cursor s' -> Int -> IO (Cursor s)
+cursor_getArgument _ c i =
+  cursorToRawCursor c >>= \cPtr -> clang_Cursor_getArgument cPtr i >>= rawCursorToCursor
 
 -- unsigned clang_equalTypes(CXType A, CXType B);
-%fun clang_equalTypes :: Type s -> Type s' -> IO Bool
-%call (type k p1 p2) (type k2 p12 p22)
-%code CXType a = {k, {p1, p2}};
-%     CXType b = {k2, {p12, p22}};
-%     r = clang_equalTypes(a, b);
-%result (bool r)
+{# fun clang_equalTypes { id `Ptr ()', id `Ptr ()' } -> `Bool' toBool #}
+equalTypes :: Type s -> Type s' -> IO Bool
+equalTypes t1 t2 = do
+  t1Ptr <- typeToPtr t1
+  t2Ptr <- typeToPtr t2
+  clang_equalTypes t1Ptr t2Ptr
 
 -- CXType clang_getCanonicalType(CXType T);
-%fun clang_getCanonicalType :: Proxy s -> Type s' -> IO (Type s)
-%call (proxy) (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     CXType r = clang_getCanonicalType(a);
-%result (type {r.kind} {r.data[0]} {r.data[1]})
+{# fun clang_getCanonicalType { id `Ptr ()' } -> `Ptr ()' id #}
+getCanonicalType :: Proxy s -> Type s' -> IO (Type s)
+getCanonicalType proxy t = do
+  tPtr <- typeToPtr t
+  cPtr <- clang_getCanonicalType tPtr
+  ptrToType proxy cPtr
 
 -- unsigned clang_isConstQualifiedType(CXType T);
-%fun clang_isConstQualifiedType :: Type s -> IO Bool
-%call (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     r = clang_isConstQualifiedType(a);
-%result (bool r)
+{# fun clang_isConstQualifiedType { id `Ptr ()' } -> `Bool' toBool #}
+isConstQualifiedType :: Type s -> IO Bool
+isConstQualifiedType t = do
+  tPtr <- typeToPtr t
+  clang_isConstQualifiedType tPtr
 
 -- unsigned clang_isVolatileQualifiedType(CXType T);
-%fun clang_isVolatileQualifiedType :: Type s -> IO Bool
-%call (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     r = clang_isVolatileQualifiedType(a);
-%result (bool r)
+{# fun clang_isVolatileQualifiedType { id `Ptr ()' } -> `Bool' toBool #}
+isVolatileQualifiedType :: Type s -> IO Bool
+isVolatileQualifiedType t = do
+  tPtr <- typeToPtr t
+  clang_isVolatileQualifiedType tPtr
 
 -- unsigned clang_isRestrictQualifiedType(CXType T);
-%fun clang_isRestrictQualifiedType :: Type s -> IO Bool
-%call (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     r = clang_isRestrictQualifiedType(a);
-%result (bool r)
+{# fun clang_isRestrictQualifiedType { id `Ptr ()' } -> `Bool' toBool #}
+isRestrictQualifiedType :: Type s -> IO Bool
+isRestrictQualifiedType t = do
+  tPtr <- typeToPtr t
+  clang_isRestrictQualifiedType tPtr
 
 -- CXType clang_getPointeeType(CXType T);
-%fun clang_getPointeeType :: Proxy s -> Type s' -> IO (Type s)
-%call (proxy) (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     CXType r = clang_getPointeeType(a);
-%result (type {r.kind} {r.data[0]} {r.data[1]})
+{# fun clang_getPointeeType { id `Ptr ()' } -> `Ptr ()' id #}
+getPointeeType :: Proxy s -> Type s' -> IO (Type s)
+getPointeeType proxy t = do
+  tPtr <- typeToPtr t
+  cPtr <- clang_getPointeeType tPtr
+  ptrToType proxy cPtr
 
 -- CXCursor clang_getTypeDeclaration(CXType T);
-%fun clang_getTypeDeclaration :: Proxy s -> Type s' -> IO (Cursor s)
-%call (proxy) (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     CXCursor r = clang_getTypeDeclaration(a);
-%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
+{# fun clang_getTypeDeclaration { id `Ptr ()' } -> `Ptr ()' id #}
+getTypeDeclaration :: Proxy s -> Type s' -> IO (Cursor s)
+getTypeDeclaration _ t = do
+  tPtr <- typeToPtr t
+  cPtr <- clang_getTypeDeclaration tPtr
+  rawCursorToCursor cPtr
 
 -- CXString clang_getDeclObjCTypeEncoding(CXCursor C);
-%fun unsafe_getDeclObjCTypeEncoding :: Cursor s -> IO (ClangString ())
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXString out = clang_getDeclObjCTypeEncoding(a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_getDeclObjCTypeEncoding { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_getDeclObjCTypeEncoding :: Cursor s -> IO (ClangString ())
+unsafe_getDeclObjCTypeEncoding c =
+  cursorToRawCursor c >>= clang_getDeclObjCTypeEncoding >>= rawCXStringToClangString
 
 getDeclObjCTypeEncoding :: ClangBase m => Cursor s' -> ClangT s m (ClangString s)
 getDeclObjCTypeEncoding = registerClangString . unsafe_getDeclObjCTypeEncoding
 
 -- CXString clang_getTypeKindSpelling(enum CXTypeKind K);
-%fun unsafe_getTypeKindSpelling :: TypeKind -> IO (ClangString ())
-%call (typeKind tk)
-%code CXString out = clang_getTypeKindSpelling(tk);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_getTypeKindSpelling { `CInt' } -> `Ptr ()' id #}
+unsafe_getTypeKindSpelling :: TypeKind -> IO (ClangString ())
+unsafe_getTypeKindSpelling tk = clang_getTypeKindSpelling (fromIntegral (fromEnum tk)) >>= rawCXStringToClangString
 
 getTypeKindSpelling :: ClangBase m => TypeKind -> ClangT s m (ClangString s)
 getTypeKindSpelling = registerClangString . unsafe_getTypeKindSpelling
 
 -- enum CXCallingConv clang_getFunctionTypeCallingConv(CXType T);
-%fun clang_getFunctionTypeCallingConv :: Type s' -> IO CallingConv
-%call (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     enum CXCallingConv r = clang_getFunctionTypeCallingConv(a);
-%result (callingConv r)
+{# fun clang_getFunctionTypeCallingConv { id `Ptr ()' } -> `CInt' id #}
+getFunctionTypeCallingConv :: Type s' -> IO CallingConv
+getFunctionTypeCallingConv t = typeToPtr t >>= clang_getFunctionTypeCallingConv >>= return . toEnum . fromIntegral
 
 -- CXType clang_getResultType(CXType T);
-%fun clang_getResultType :: Proxy s -> Type s' -> IO (Type s)
-%call (proxy) (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     CXType r = clang_getResultType(a);
-%result (type {r.kind} {r.data[0]} {r.data[1]})
+{# fun clang_getResultType { id `Ptr ()' } -> `Ptr ()' id #}
+getResultType :: Proxy s -> Type s' -> IO (Type s)
+getResultType proxy t = typeToPtr t >>= \p -> clang_getResultType p >>= ptrToType proxy
 
 -- CXType clang_getNumArgTypes(CXType T);
-%fun clang_getNumArgTypes :: Type s -> IO Int
-%call (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     r = clang_getNumArgTypes(a);
-%result (int r)
+{# fun clang_getNumArgTypes { id `Ptr ()' } -> `Int' #}
+getNumArgTypes :: Type s -> IO Int
+getNumArgTypes t = typeToPtr t >>= clang_getNumArgTypes
 
 -- CXType clang_getArgType(CXType T, int i);
-%fun clang_getArgType :: Proxy s -> Type s' -> Int -> IO (Type s)
-%call (proxy) (type k p1 p2) (int i)
-%code CXType a = {k, {p1, p2}};
-%     CXType r = clang_getArgType(a, i);
-%result (type {r.kind} {r.data[0]} {r.data[1]})
+{# fun clang_getArgType { id `Ptr ()', `Int' } -> `Ptr ()' id #}
+getArgType :: Proxy s -> Type s' -> Int -> IO (Type s)
+getArgType proxy t i = typeToPtr t >>= \p -> clang_getArgType p i >>= ptrToType proxy
 
 -- unsigned clang_isFunctionTypeVariadic(CXType T);
-%fun clang_isFunctionTypeVariadic :: Type s -> IO Bool
-%call (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     r = clang_isFunctionTypeVariadic(a);
-%result (bool r)
+{# fun clang_isFunctionTypeVariadic { id `Ptr ()' } -> `CUInt' id #}
+isFunctionTypeVariadic :: Type s -> IO Bool
+isFunctionTypeVariadic t = typeToPtr t >>= clang_isFunctionTypeVariadic >>= return . (toBool :: Int -> Bool) . fromIntegral
 
 -- CXType clang_getCursorResultType(CXCursor C);
-%fun clang_getCursorResultType :: Proxy s -> Cursor s' -> IO (Type s)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXType r = clang_getCursorResultType(a);
-%result (type {r.kind} {r.data[0]} {r.data[1]})
+{# fun clang_getCursorResultType { id `Ptr ()' } -> `Ptr ()' id #}
+getCursorResultType :: Proxy s -> Cursor s' -> IO (Type s)
+getCursorResultType p c =
+  cursorToRawCursor c >>= clang_getCursorResultType >>= ptrToType p
 
 -- unsigned clang_isPODType(CXType T);
-%fun clang_isPODType :: Type s -> IO Bool
-%call (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     r = clang_isPODType(a);
-%result (bool r)
+{# fun clang_isPODType { id `Ptr ()' } -> `Bool' toBool #}
+isPODType :: Type s -> IO Bool
+isPODType t = do
+  tPtr <- typeToPtr t
+  clang_isPODType tPtr
 
 -- CXType clang_getElementType(CXType T);
-%fun clang_getElementType :: Proxy s -> Type s' -> IO (Type s)
-%call (proxy) (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     CXType r = clang_getElementType(a);
-%result (type {r.kind} {r.data[0]} {r.data[1]})
+{# fun clang_getElementType { id `Ptr ()' } -> `Ptr ()' id #}
+getElementType :: Proxy s -> Type s' -> IO (Type s)
+getElementType proxy t = typeToPtr t >>= \p -> clang_getElementType p >>= ptrToType proxy
 
 -- long long clang_getNumElements(CXType T);
-%fun clang_getNumElements :: Type s -> IO Int64
-%call (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     long long r = clang_getNumElements(a);
-%result (int64 r)
+{# fun clang_getNumElements { id `Ptr ()' } -> `Int64' #}
+getNumElements :: Type s -> IO Int64
+getNumElements t = typeToPtr t >>= clang_getNumElements
 
 -- CXType clang_getArrayElementType(CXType T);
-%fun clang_getArrayElementType :: Proxy s -> Type s' -> IO (Type s)
-%call (proxy) (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     CXType r = clang_getArrayElementType(a);
-%result (type {r.kind} {r.data[0]} {r.data[1]})
+{# fun clang_getArrayElementType { id `Ptr ()' } -> `Ptr ()' id #}
+getArrayElementType :: Proxy s -> Type s' -> IO (Type s)
+getArrayElementType proxy t = typeToPtr t >>= \p -> clang_getArrayElementType p >>= ptrToType proxy
 
 -- long long clang_getArraySize(CXType T);
-%fun clang_getArraySize :: Type s -> IO Int64
-%call (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     long long r = clang_getArraySize(a);
-%result (int64 r)
+{# fun clang_getArraySize { id `Ptr ()' } -> `Int64' #}
+getArraySize :: Type s -> IO Int64
+getArraySize t = typeToPtr t >>= clang_getArraySize
 
 -- enum CXTypeLayoutError {
 --   CXTypeLayoutError_Invalid = -1,
@@ -3193,13 +3306,16 @@ getTypeKindSpelling = registerClangString . unsafe_getTypeKindSpelling
 --   CXTypeLayoutError_NotConstantSize = -4,
 --   CXTypeLayoutError_InvalidFieldName = -5
 -- };
-%enum TypeLayoutError (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ CXTypeLayoutError_Invalid
-%  , CXTypeLayoutError_Incomplete
-%  , CXTypeLayoutError_Dependent
-%  , CXTypeLayoutError_NotConstantSize
-%  , CXTypeLayoutError_InvalidFieldName
-%  ]
+#c
+enum TypeLayoutError
+  { TypeLayoutError_Invalid          = CXTypeLayoutError_Invalid
+  , TypeLayoutError_Incomplete       = CXTypeLayoutError_Incomplete
+  , TypeLayoutError_Dependent        = CXTypeLayoutError_Dependent
+  , TypeLayoutError_NotConstantSize  = CXTypeLayoutError_NotConstantSize
+  , TypeLayoutError_InvalidFieldName = CXTypeLayoutError_InvalidFieldName
+ };
+#endc
+{# enum TypeLayoutError {} deriving  (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 int64OrLayoutError :: Int64 -> Either TypeLayoutError Int64
 int64OrLayoutError v | v == -1   = Left TypeLayoutError_Invalid
@@ -3209,35 +3325,25 @@ int64OrLayoutError v | v == -1   = Left TypeLayoutError_Invalid
                      | v == -5   = Left TypeLayoutError_InvalidFieldName
                      | otherwise = Right v
 
-%dis int64_or_layoutError i = <id/int64OrLayoutError> (int64 i)
-
 -- long long clang_Type_getAlignOf(CXType T);
-%fun clang_Type_getAlignOf :: Type s -> IO (Either TypeLayoutError Int64)
-%call (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     long long r = clang_Type_getAlignOf(a);
-%result (int64_or_layoutError r)
+{# fun clang_Type_getAlignOf { id `Ptr ()' } -> `Int64' #}
+type_getAlignOf :: Type s -> IO (Either TypeLayoutError Int64)
+type_getAlignOf t = typeToPtr t >>= \p -> clang_Type_getAlignOf p >>= return . int64OrLayoutError
 
 -- CXType clang_Type_getClassType(CXType T);
-%fun clang_Type_getClassType :: Proxy s -> Type s' -> IO (Type s)
-%call (proxy) (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     CXType r = clang_Type_getClassType(a);
-%result (type {r.kind} {r.data[0]} {r.data[1]})
+{# fun clang_Type_getClassType { id `Ptr ()' } -> `Ptr ()' id #}
+type_getClassType :: Proxy s -> Type s' -> IO (Type s)
+type_getClassType proxy t = typeToPtr t >>= \p -> clang_getElementType p >>= ptrToType proxy
 
 -- long long clang_Type_getSizeOf(CXType T);
-%fun clang_Type_getSizeOf :: Type s -> IO (Either TypeLayoutError Int64)
-%call (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     long long r = clang_Type_getSizeOf(a);
-%result (int64_or_layoutError r)
+{# fun clang_Type_getSizeOf { id `Ptr ()' } -> `Int64' #}
+type_getSizeOf :: Type s -> IO (Either TypeLayoutError Int64)
+type_getSizeOf t = typeToPtr t >>= \p -> clang_Type_getSizeOf p >>= return . int64OrLayoutError
 
 -- long long clang_Type_getOffsetOf(CXType T, const char *S);
-%fun unsafe_Type_getOffsetOf :: Type s -> CString -> IO (Either TypeLayoutError Int64)
-%call (type k p1 p2) (ptr f)
-%code CXType a = {k, {p1, p2}};
-%     long long r = clang_Type_getOffsetOf(a, f);
-%result (int64_or_layoutError r)
+{# fun clang_Type_getOffsetOf { id `Ptr ()' , `CString' } -> `Int64' #}
+unsafe_Type_getOffsetOf :: Type s -> CString -> IO (Either TypeLayoutError Int64)
+unsafe_Type_getOffsetOf t s = typeToPtr t >>= \p -> clang_Type_getOffsetOf p s >>= return . int64OrLayoutError
 
 type_getOffsetOf :: ClangBase m => Type s' -> B.ByteString
                  -> ClangT s m (Either TypeLayoutError Int64)
@@ -3249,74 +3355,69 @@ type_getOffsetOf t field = liftIO $ B.useAsCString field $ \cField ->
 --   CXRefQualifier_LValue,
 --   CXRefQualifier_RValue
 -- };
-%enum RefQualifierKind (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ CXRefQualifier_None
-%  , CXRefQualifier_LValue
-%  , CXRefQualifier_RValue
-%  ]
+#c
+enum RefQualifierKind
+  { RefQualifier_None   = CXRefQualifier_None
+  , RefQualifier_LValue = CXRefQualifier_LValue
+  , RefQualifier_RValue = CXRefQualifier_RValue
+  };
+#endc
+{# enum RefQualifierKind {} deriving (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 -- enum CXRefQualifierKind clang_Type_getCXXRefQualifier(CXType T);
-%fun clang_Type_getCXXRefQualifier :: Type s -> IO RefQualifierKind
-%call (type k p1 p2)
-%code CXType a = {k, {p1, p2}};
-%     enum CXRefQualifierKind r = clang_Type_getCXXRefQualifier(a);
-%result (refQualifierKind r)
+{# fun clang_Type_getCXXRefQualifier { id `Ptr ()' } -> `Int' #}
+type_getCXXRefQualifier :: Type s -> IO RefQualifierKind
+type_getCXXRefQualifier t = typeToPtr t >>= \p -> clang_Type_getCXXRefQualifier p >>= return . toEnum
+
 
 -- unsigned clang_Cursor_isBitField(CXCursor C);
-%fun clang_isBitField :: Cursor s -> IO Bool
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     r = clang_Cursor_isBitField(a);
-%result (bool r)
+{# fun clang_Cursor_isBitField { id `Ptr ()' } -> `Bool' toBool #}
+isBitField :: Cursor s -> IO Bool
+isBitField c = cursorToRawCursor c >>= clang_Cursor_isBitField
 
 -- unsigned clang_isVirtualBase(CXCursor);
-%fun clang_isVirtualBase :: Cursor s -> IO Bool
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     r = clang_isVirtualBase(a);
-%result (bool r)
-    
+{# fun clang_isVirtualBase { id `Ptr ()' } -> `Bool' toBool #}
+isVirtualBase :: Cursor s -> IO Bool
+isVirtualBase c = cursorToRawCursor c >>= clang_Cursor_isBitField
+
 -- enum CX_CXXAccessSpecifier {
 --   CX_CXXInvalidAccessSpecifier,
 --   CX_CXXPublic,
 --   CX_CXXProtected,
 --   CX_CXXPrivate
 -- };
-%enum CXXAccessSpecifier (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ CX_CXXInvalidAccessSpecifier
-%  , CX_CXXPublic
-%  , CX_CXXProtected
-%  , CX_CXXPrivate
-%  ]
+#c
+enum CXXAccessSpecifier
+  { CXXInvalidAccessSpecifier = CX_CXXInvalidAccessSpecifier
+  , CXXPublic                 = CX_CXXPublic
+  , CXXProtected              = CX_CXXProtected
+  , CXXPrivate                = CX_CXXPrivate
+  };
+#endc
+
+{# enum CXXAccessSpecifier {} deriving  (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 -- enum CX_CXXAccessSpecifier clang_getCXXAccessSpecifier(CXCursor);
-%fun clang_getCXXAccessSpecifier :: Cursor s -> IO CXXAccessSpecifier
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     r = clang_getCXXAccessSpecifier(a);
-%result (cXXAccessSpecifier r)
+{# fun clang_getCXXAccessSpecifier { id `Ptr ()' } -> `Int' #}
+getCXXAccessSpecifier :: Cursor s -> IO CXXAccessSpecifier
+getCXXAccessSpecifier c = cursorToRawCursor c >>= clang_getCXXAccessSpecifier >>= return . toEnum
 
 -- unsigned clang_getNumOverloadedDecls(CXCursor cursor);
-%fun clang_getNumOverloadedDecls :: Cursor s -> IO Int
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     r = clang_getNumOverloadedDecls(a);
-%result (int r)
+{# fun clang_getNumOverloadedDecls { id `Ptr ()' } -> `CUInt' #}
+getNumOverloadedDecls :: Cursor s -> IO Int
+getNumOverloadedDecls c = cursorToRawCursor c >>= clang_getNumOverloadedDecls >>= return . fromIntegral
 
--- CXCursor clang_getOverloadedDecl(CXCursor cursor, 
+-- CXCursor clang_getOverloadedDecl(CXCursor cursor,
 --                                                 unsigned index);
-%fun clang_getOverloadedDecl :: Proxy s -> Cursor s' -> Int -> IO (Cursor s)
-%call (proxy) (cursor k xdata p1 p2 p3) (int i)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXCursor r = clang_getOverloadedDecl(a, i);
-%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
+{# fun clang_getOverloadedDecl { id `Ptr ()', `Int' } -> `Ptr ()' id #}
+getOverloadedDecl :: Proxy s -> Cursor s' -> Int -> IO (Cursor s)
+getOverloadedDecl _ c i = cursorToRawCursor c >>= \cPtr -> clang_getOverloadedDecl cPtr i >>= rawCursorToCursor
 
 -- CXType clang_getIBOutletCollectionType(CXCursor);
-%fun clang_getIBOutletCollectionType :: Proxy s -> Cursor s' -> IO (Type s)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXType r = clang_getIBOutletCollectionType(a);
-%result (type {r.kind} {r.data[0]} {r.data[1]})
+{# fun clang_getIBOutletCollectionType { id `Ptr ()' } -> `Ptr ()' id #}
+getIBOutletCollectionType :: Proxy s -> Cursor s' -> IO (Type s)
+getIBOutletCollectionType proxy c = cursorToRawCursor c >>= clang_getIBOutletCollectionType >>= ptrToType proxy
+
 
 -- We deliberately don't export the constructor for UnsafeCursorList.
 -- The only way to unwrap it is registerCursorList.
@@ -3325,9 +3426,9 @@ instance ClangValueList Cursor
 data UnsafeCursorList = UnsafeCursorList !(Ptr ()) !Int
 
 -- void freeCursorList(CXCursor* cursors);
-%fun freeCursorList :: CursorList s -> IO ()
-%call (cursorList cs n)
-%code freeCursorList(cs);
+{# fun freeCursorList as freeCursorList' { id `Ptr ()' } -> `()' #}
+freeCursorList :: CursorList s -> IO ()
+freeCursorList cl = let (ptr, _) = fromCursorList cl in freeCursorList' ptr
 
 registerCursorList :: ClangBase m => IO UnsafeCursorList -> ClangT s m (CursorList s)
 registerCursorList action = do
@@ -3348,48 +3449,56 @@ fromCursorList cs = let (p, _, _) = DVS.unsafeToForeignPtr cs in
 toCursorList :: (Ptr (), Int) -> UnsafeCursorList
 toCursorList (cs, n) = UnsafeCursorList cs n
 
-%dis cursorList cs n = <fromCursorList/toCursorList> (ptr cs) (int n)
-
 -- A more efficient alternative to clang_visitChildren.
 -- void getChildren(CXCursor parent, CXCursor** childrenOut, unsigned* countOut)
-%fun unsafe_getChildren :: Cursor s -> IO UnsafeCursorList
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor c = {k, xdata, {p1, p2, p3}};
-%     CXCursor* children; unsigned count;
-%     getChildren(c, &children, &count);
-%result (cursorList children count)
+{# fun getChildren as getChildren' { id `Ptr ()', id `Ptr (Ptr ())', alloca- `CUInt' peek* } -> `()' #}
+unsafe_getChildren :: Cursor s -> IO UnsafeCursorList
+unsafe_getChildren c =
+ do
+   cPtr <- cursorToRawCursor c
+   cxListPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr ()))))
+   n <- getChildren' (castPtr cPtr) cxListPtr
+   cxList <- peek cxListPtr
+   return (toCursorList (cxList, fromIntegral n))
 
 getChildren :: ClangBase m => Cursor s' -> ClangT s m (CursorList s)
 getChildren = registerCursorList . unsafe_getChildren
 
 -- Like getChildren, but gets all transitive descendants.
 -- void getDescendants(CXCursor parent, CXCursor** childrenOut, unsigned* countOut)
-%fun unsafe_getDescendants :: Cursor s -> IO UnsafeCursorList
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor c = {k, xdata, {p1, p2, p3}};
-%     CXCursor* children; unsigned count;
-%     getDescendants(c, &children, &count);
-%result (cursorList children count)
+{# fun getDescendants as getDescendants' { id `Ptr ()', id `Ptr (Ptr ())', alloca- `CUInt' peek* } -> `()' #}
+unsafe_getDescendants :: Cursor s -> IO UnsafeCursorList
+unsafe_getDescendants c =
+ do
+   cPtr <- cursorToRawCursor c
+   cxListPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Cursor s))))
+   n <- getDescendants' (castPtr cPtr) cxListPtr
+   cxList <- peek cxListPtr
+   return (toCursorList (cxList, fromIntegral n))
 
 getDescendants :: ClangBase m => Cursor s' -> ClangT s m (CursorList s)
 getDescendants = registerCursorList . unsafe_getDescendants
 
 -- void getDeclarations(CXTranslationUnit tu, CXCursor** declsOut, unsigned* declCountOut);
-%fun unsafe_getDeclarations :: TranslationUnit s -> IO UnsafeCursorList
-%call (translationUnit t)
-%code CXCursor* children; unsigned count;
-%     getDeclarations(t, &children, &count);
-%result (cursorList children count)
+{# fun getDeclarations as getDeclarations' { id `Ptr ()', id `Ptr (Ptr ())', alloca- `CUInt' peek* } -> `()' #}
+unsafe_getDeclarations :: TranslationUnit s -> IO UnsafeCursorList
+unsafe_getDeclarations t = do
+   cxListPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr (Cursor ())))))
+   n <- getDeclarations' (unTranslationUnit t) cxListPtr
+   cxList <- peek cxListPtr
+   return (toCursorList (cxList, fromIntegral n))
 
 getDeclarations :: ClangBase m => TranslationUnit s' -> ClangT s m (CursorList s)
 getDeclarations = registerCursorList . unsafe_getDeclarations
 
 -- void getReferences(CXTranslationUnit tu, CXCursor** declsOut, unsigned* declCountOut);
-%fun unsafe_getReferences :: TranslationUnit s -> IO UnsafeCursorList
-%call (translationUnit t)
-%code CXCursor* children; unsigned count;
-%     getReferences(t, &children, &count);
-%result (cursorList children count)
+{# fun getReferences as getReferences' { id `Ptr ()', id `Ptr (Ptr ())', alloca- `CUInt' peek* } -> `()' #}
+unsafe_getReferences :: TranslationUnit s -> IO UnsafeCursorList
+unsafe_getReferences t = do
+   cxListPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr ()))))
+   n <- getReferences' (unTranslationUnit t) cxListPtr
+   cxList <- peek cxListPtr
+   return (toCursorList (cxList, fromIntegral n))
 
 getReferences :: ClangBase m => TranslationUnit s' -> ClangT s m (CursorList s)
 getReferences = registerCursorList . unsafe_getReferences
@@ -3397,12 +3506,23 @@ getReferences = registerCursorList . unsafe_getReferences
 -- void getDeclarationsAndReferences(CXTranslationUnit tu,
 --                                   CXCursor** declsOut, unsigned* declCountOut,
 --                                   CXCursor** refsOut, unsigned* refCountOut);
-%fun unsafe_getDeclarationsAndReferences :: TranslationUnit s -> IO (UnsafeCursorList, UnsafeCursorList)
-%call (translationUnit t)
-%code CXCursor* decls; unsigned declCount;
-%     CXCursor* refs; unsigned refCount;
-%     getDeclarationsAndReferences(t, &decls, &declCount, &refs, &refCount);
-%result (cursorList decls declCount, cursorList refs refCount)
+{# fun getDeclarationsAndReferences as getDeclarationsAndReferences'
+     { id `Ptr ()', id `Ptr (Ptr ())', alloca- `CUInt' peek*, id `Ptr (Ptr ())' , alloca- `CUInt' peek* } -> `()' #}
+unsafe_getDeclarationsAndReferences :: TranslationUnit s -> IO (UnsafeCursorList, UnsafeCursorList)
+unsafe_getDeclarationsAndReferences t = do
+   declsPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr ()))))
+   refsPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr ()))))
+   (nDecls, nRefs) <- getDeclarationsAndReferences' (unTranslationUnit t) declsPtr refsPtr
+   decls <- peek declsPtr
+   refs <- peek refsPtr
+   return ((toCursorList (decls, fromIntegral nDecls)), (toCursorList (refs, fromIntegral nRefs)))
+
+-- %fun unsafe_getDeclarationsAndReferences :: TranslationUnit s -> IO (UnsafeCursorList, UnsafeCursorList)
+-- %call (translationUnit t)
+-- %code CXCursor* decls; unsigned declCount;
+-- %     CXCursor* refs; unsigned refCount;
+-- %     getDeclarationsAndReferences(t, &decls, &declCount, &refs, &refCount);
+-- %result (cursorList decls declCount, cursorList refs refCount)
 
 getDeclarationsAndReferences :: ClangBase m => TranslationUnit s'
                              -> ClangT s m (CursorList s, CursorList s)
@@ -3442,9 +3562,9 @@ instance ClangValueList ParentedCursor
 data UnsafeParentedCursorList = UnsafeParentedCursorList !(Ptr ()) !Int
 
 -- void freeParentedCursorList(struct ParentedCursor* parentedCursors);
-%fun freeParentedCursorList :: ParentedCursorList s -> IO ()
-%call (parentedCursorList cs n)
-%code freeParentedCursorList(cs);
+{# fun freeParentedCursorList as freeParentedCursorList' { id `Ptr ()' } -> `()' #}
+freeParentedCursorList :: ParentedCursorList s -> IO ()
+freeParentedCursorList pcl = let (pclPtr, _ ) = fromParentedCursorList pcl in freeParentedCursorList' pclPtr
 
 registerParentedCursorList :: ClangBase m => IO UnsafeParentedCursorList
                            -> ClangT s m (ParentedCursorList s)
@@ -3465,50 +3585,63 @@ fromParentedCursorList cs =
 toParentedCursorList :: (Ptr (), Int) -> UnsafeParentedCursorList
 toParentedCursorList (cs, n) = UnsafeParentedCursorList cs n
 
-%dis parentedCursorList cs n = <fromParentedCursorList/toParentedCursorList> (ptr cs) (int n)
+-- %dis parentedCursorList cs n = <fromParentedCursorList/toParentedCursorList> (ptr cs) (int n)
 
 -- Like getParentedDescendants, but pairs each descendant with its parent.
 -- void getParentedDescendants(CXCursor parent, struct ParentedCursor** descendantsOut,
 --                             unsigned* countOut)
-%fun unsafe_getParentedDescendants :: Cursor s -> IO UnsafeParentedCursorList
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor c = {k, xdata, {p1, p2, p3}};
-%     ParentedCursor* descendants; unsigned count;
-%     getParentedDescendants(c, &descendants, &count);
-%result (parentedCursorList descendants count)
+{# fun getParentedDescendants as getParentedDescendants' { id `Ptr ()', id `Ptr (Ptr ())', alloca- `CUInt' peek* } -> `()' #}
+unsafe_getParentedDescendants :: Cursor s -> IO UnsafeParentedCursorList
+unsafe_getParentedDescendants c =
+ do
+   cPtr <- cursorToRawCursor c
+   cxListPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr ()))))
+   n <- getParentedDescendants' (castPtr cPtr) cxListPtr
+   cxList <- peek cxListPtr
+   return (toParentedCursorList (cxList, fromIntegral n))
 
 getParentedDescendants :: ClangBase m => Cursor s' -> ClangT s m (ParentedCursorList s)
 getParentedDescendants = registerParentedCursorList . unsafe_getParentedDescendants
 
 -- void getParentedDeclarations(CXTranslationUnit tu, CXCursor** declsOut, unsigned* declCountOut);
-%fun unsafe_getParentedDeclarations :: TranslationUnit s -> IO UnsafeParentedCursorList
-%call (translationUnit t)
-%code ParentedCursor* children; unsigned count;
-%     getParentedDeclarations(t, &children, &count);
-%result (parentedCursorList children count)
+{# fun getParentedDeclarations as getParentedDeclarations' { id `Ptr ()', id `Ptr (Ptr ())', alloca- `CUInt' peek* } -> `()' #}
+unsafe_getParentedDeclarations :: TranslationUnit s -> IO UnsafeParentedCursorList
+unsafe_getParentedDeclarations t = do
+   cxListPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr (Cursor ())))))
+   n <- getParentedDeclarations' (unTranslationUnit t) (castPtr cxListPtr)
+   cxList <- peek cxListPtr
+   return (toParentedCursorList (cxList, fromIntegral n))
 
 getParentedDeclarations :: ClangBase m => TranslationUnit s' -> ClangT s m (ParentedCursorList s)
 getParentedDeclarations = registerParentedCursorList . unsafe_getParentedDeclarations
 
 -- void getParentedReferences(CXTranslationUnit tu, CXCursor** declsOut, unsigned* declCountOut);
-%fun unsafe_getParentedReferences :: TranslationUnit s -> IO UnsafeParentedCursorList
-%call (translationUnit t)
-%code ParentedCursor* children; unsigned count;
-%     getParentedReferences(t, &children, &count);
-%result (parentedCursorList children count)
+{# fun getParentedReferences as getParentedReferences' { id `Ptr ()', id `Ptr (Ptr ())', alloca- `CUInt' peek* } -> `()' #}
+unsafe_getParentedReferences :: TranslationUnit s -> IO UnsafeParentedCursorList
+unsafe_getParentedReferences t = do
+   cxListPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr ()))))
+   n <- getParentedReferences' (unTranslationUnit t) cxListPtr
+   cxList <- peek cxListPtr
+   return (toParentedCursorList (cxList, fromIntegral n))
 
 getParentedReferences :: ClangBase m => TranslationUnit s' -> ClangT s m (ParentedCursorList s)
 getParentedReferences = registerParentedCursorList . unsafe_getParentedReferences
 
--- void getDeclarationsAndReferences(CXTranslationUnit tu,
---                                   CXCursor** declsOut, unsigned* declCountOut,
---                                   CXCursor** refsOut, unsigned* refCountOut);
-%fun unsafe_getParentedDeclarationsAndReferences :: TranslationUnit s -> IO (UnsafeParentedCursorList, UnsafeParentedCursorList)
-%call (translationUnit t)
-%code ParentedCursor* decls; unsigned declCount;
-%     ParentedCursor* refs; unsigned refCount;
-%     getParentedDeclarationsAndReferences(t, &decls, &declCount, &refs, &refCount);
-%result (parentedCursorList decls declCount, parentedCursorList refs refCount)
+-- void getParentedDeclarationsAndReferences(CXTranslationUnit tu,
+--                                           ParentedCursor** declsOut,
+--                                           unsigned* declCountOut,
+--                                           ParentedCursor** refsOut,
+--                                           unsigned* refCountOut);
+{# fun getParentedDeclarationsAndReferences as getParentedDeclarationsAndReferences'
+     { id `Ptr ()', id `Ptr (Ptr ())', alloca- `CUInt' peek*, id `Ptr (Ptr ())' , alloca- `CUInt' peek* } -> `()' #}
+unsafe_getParentedDeclarationsAndReferences :: TranslationUnit s -> IO (UnsafeParentedCursorList, UnsafeParentedCursorList)
+unsafe_getParentedDeclarationsAndReferences t = do
+   declsPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr ()))))
+   refsPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr ()))))
+   (nDecls, nRefs) <- getParentedDeclarationsAndReferences' (unTranslationUnit t) declsPtr refsPtr
+   decls <- peek declsPtr
+   refs <- peek refsPtr
+   return ((toParentedCursorList (decls, fromIntegral nDecls)), (toParentedCursorList (refs, fromIntegral nRefs)))
 
 getParentedDeclarationsAndReferences :: ClangBase m => TranslationUnit s'
                                      -> ClangT s m (ParentedCursorList s, ParentedCursorList s)
@@ -3517,24 +3650,18 @@ getParentedDeclarationsAndReferences tu = do
   (,) <$> registerParentedCursorList (return ds) <*> registerParentedCursorList (return rs)
 
 -- CXString clang_getCursorUSR(CXCursor);
-%fun unsafe_getCursorUSR :: Cursor s -> IO (ClangString ())
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXString out = clang_getCursorUSR(a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_getCursorUSR { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_getCursorUSR :: Cursor s -> IO (ClangString ())
+unsafe_getCursorUSR c =
+  cursorToRawCursor c >>= clang_getCursorUSR >>= rawCXStringToClangString
 
 getCursorUSR :: ClangBase m => Cursor s' -> ClangT s m (ClangString s)
 getCursorUSR = registerClangString . unsafe_getCursorUSR
 
 -- CXString clang_constructUSR_ObjCClass(const char *class_name);
-%fun unsafe_constructUSR_ObjCClass :: String -> IO (ClangString ())
-%call (string s)
-%code CXString out = clang_constructUSR_ObjCClass(s);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_constructUSR_ObjCClass { `CString' } -> `Ptr ()' id #}
+unsafe_constructUSR_ObjCClass :: String -> IO (ClangString ())
+unsafe_constructUSR_ObjCClass s = withCString s (\sPtr -> clang_constructUSR_ObjCClass sPtr >>= rawCXStringToClangString)
 
 constructUSR_ObjCClass :: ClangBase m => String -> ClangT s m (ClangString s)
 constructUSR_ObjCClass = registerClangString . unsafe_constructUSR_ObjCClass
@@ -3542,39 +3669,32 @@ constructUSR_ObjCClass = registerClangString . unsafe_constructUSR_ObjCClass
 -- CXString
 --   clang_constructUSR_ObjCCategory(const char *class_name,
 --                                  const char *category_name);
-%fun unsafe_constructUSR_ObjCCategory :: String -> String -> IO (ClangString ())
-%call (string s) (string p)
-%code CXString out = clang_constructUSR_ObjCCategory(s, p);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_constructUSR_ObjCCategory { `CString', `CString' } -> `Ptr ()' id #}
+unsafe_constructUSR_ObjCCategory :: String -> String -> IO (ClangString ())
+unsafe_constructUSR_ObjCCategory s p =
+  withCString s (\sPtr ->
+  withCString p (\pPtr ->
+    clang_constructUSR_ObjCCategory sPtr pPtr >>= rawCXStringToClangString))
 
 constructUSR_ObjCCategory :: ClangBase m => String -> String -> ClangT s m (ClangString s)
 constructUSR_ObjCCategory = (registerClangString .) . unsafe_constructUSR_ObjCCategory
 
 -- CXString
 --   clang_constructUSR_ObjCProtocol(const char *protocol_name);
-%fun unsafe_constructUSR_ObjCProtocol :: String -> IO (ClangString ())
-%call (string s)
-%code CXString out = clang_constructUSR_ObjCProtocol(s);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_constructUSR_ObjCProtocol { `CString' } -> `Ptr ()' id #}
+unsafe_constructUSR_ObjCProtocol :: String -> IO (ClangString ())
+unsafe_constructUSR_ObjCProtocol s = withCString s (\sPtr -> clang_constructUSR_ObjCProtocol sPtr >>= rawCXStringToClangString)
 
 constructUSR_ObjCProtocol :: ClangBase m => String -> ClangT s m (ClangString s)
 constructUSR_ObjCProtocol = registerClangString . unsafe_constructUSR_ObjCProtocol
 
 -- CXString clang_constructUSR_ObjCIvar(const char *name,
 --                                                     CXString classUSR);
-%fun unsafe_constructUSR_ObjCIvar :: String -> Ptr () -> Word32 -> IO (ClangString ())
-%call (string s) (ptr d) (word32 f)
-%code CXString str;
-%     str.data = d;
-%     str.private_flags = f;
-%     CXString out = clang_constructUSR_ObjCIvar(s, str);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_constructUSR_ObjCIvar { `CString' , id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_constructUSR_ObjCIvar :: String -> Ptr () -> Word32 -> IO (ClangString ())
+unsafe_constructUSR_ObjCIvar s d f =
+  let clangString = ClangString  d f in
+  withCString s (\sPtr -> new clangString >>= \cs -> clang_constructUSR_ObjCIvar sPtr (castPtr cs) >>= rawCXStringToClangString)
 
 constructUSR_ObjCIvar :: ClangBase m => String -> ClangString s' -> ClangT s m (ClangString s)
 constructUSR_ObjCIvar s (ClangString d f) = registerClangString $ unsafe_constructUSR_ObjCIvar s d f
@@ -3582,15 +3702,11 @@ constructUSR_ObjCIvar s (ClangString d f) = registerClangString $ unsafe_constru
 -- CXString clang_constructUSR_ObjCMethod(const char *name,
 --                                                       unsigned isInstanceMethod,
 --                                                       CXString classUSR);
-%fun unsafe_constructUSR_ObjCMethod :: String -> Bool -> Ptr () -> Word32 -> IO (ClangString ())
-%call (string s) (bool b) (ptr d) (word32 f)
-%code CXString str;
-%     str.data = d;
-%     str.private_flags = f;
-%     CXString out = clang_constructUSR_ObjCMethod(s, b, str);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_constructUSR_ObjCMethod { `CString' , `CUInt' , id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_constructUSR_ObjCMethod :: String -> Bool -> Ptr () -> Word32 -> IO (ClangString ())
+unsafe_constructUSR_ObjCMethod s b d f =
+  let clangString = ClangString  d f in
+  withCString s (\sPtr -> (new clangString >>= \cs -> clang_constructUSR_ObjCMethod sPtr (fromIntegral ((fromBool b) :: Int)) (castPtr cs) >>= rawCXStringToClangString))
 
 constructUSR_ObjCMethod :: ClangBase m => String -> Bool -> ClangString s' -> ClangT s m (ClangString s)
 constructUSR_ObjCMethod s b (ClangString d f) =
@@ -3598,28 +3714,21 @@ constructUSR_ObjCMethod s b (ClangString d f) =
 
 -- CXString clang_constructUSR_ObjCProperty(const char *property,
 --                                                         CXString classUSR);
-%fun unsafe_constructUSR_ObjCProperty :: String -> Ptr () -> Word32 -> IO (ClangString ())
-%call (string s) (ptr d) (word32 f)
-%code CXString str;
-%     str.data = d;
-%     str.private_flags = f;
-%     CXString out = clang_constructUSR_ObjCProperty(s, str);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_constructUSR_ObjCProperty { `CString' , id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_constructUSR_ObjCProperty :: String -> Ptr () -> Word32 -> IO (ClangString ())
+unsafe_constructUSR_ObjCProperty s d f =
+  let clangString = ClangString  d f in
+  withCString s (\sPtr -> (new clangString >>= \cs -> clang_constructUSR_ObjCProperty sPtr (castPtr cs) >>= rawCXStringToClangString))
 
 constructUSR_ObjCProperty :: ClangBase m => String -> ClangString s' -> ClangT s m (ClangString s)
 constructUSR_ObjCProperty s (ClangString d f) =
   registerClangString $ unsafe_constructUSR_ObjCProperty s d f
 
 -- CXString clang_getCursorSpelling(CXCursor);
-%fun unsafe_getCursorSpelling :: Cursor s -> IO (ClangString ())
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXString out = clang_getCursorSpelling(a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_getCursorSpelling { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_getCursorSpelling :: Cursor s -> IO (ClangString ())
+unsafe_getCursorSpelling c =
+  cursorToRawCursor c >>= clang_getCursorSpelling >>= rawCXStringToClangString
 
 getCursorSpelling :: ClangBase m => Cursor s' -> ClangT s m (ClangString s)
 getCursorSpelling = registerClangString . unsafe_getCursorSpelling
@@ -3627,72 +3736,58 @@ getCursorSpelling = registerClangString . unsafe_getCursorSpelling
 -- CXSourceRange clang_Cursor_getSpellingNameRange(CXCursor,
 --                                                 unsigned pieceIndex,
 --                                                 unsigned options);
-%fun clang_Cursor_getSpellingNameRange :: Proxy s -> Cursor s' -> Int -> IO (SourceRange s)
-%call (proxy) (cursor k xdata p1 p2 p3) (int idx)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXSourceRange r = clang_Cursor_getSpellingNameRange(a, idx, 0);
-%result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
+{# fun clang_Cursor_getSpellingNameRange { id `Ptr ()', `Int', `Int' } -> `Ptr ()' id #}
+cursor_getSpellingNameRange :: Proxy s -> Cursor s' -> Int -> IO (SourceRange s)
+cursor_getSpellingNameRange _ c i =
+  cursorToRawCursor c >>= \cPtr -> clang_Cursor_getSpellingNameRange cPtr i 0 >>= rawSourceRangeToSourceRange
 
 -- CXString clang_getCursorDisplayName(CXCursor);
-%fun unsafe_getCursorDisplayName :: Cursor s -> IO (ClangString ())
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXString out = clang_getCursorDisplayName(a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_getCursorDisplayName { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_getCursorDisplayName :: Cursor s -> IO (ClangString ())
+unsafe_getCursorDisplayName c =
+  cursorToRawCursor c >>= clang_getCursorDisplayName >>= rawCXStringToClangString
 
 getCursorDisplayName :: ClangBase m => Cursor s' -> ClangT s m (ClangString s)
 getCursorDisplayName = registerClangString . unsafe_getCursorDisplayName
-  
+
 -- CXCursor clang_getCursorReferenced(CXCursor);
-%fun clang_getCursorReferenced :: Proxy s -> Cursor s' -> IO (Cursor s)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXCursor r = clang_getCursorReferenced(a);
-%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
+{# fun clang_getCursorReferenced { id `Ptr ()' } -> `Ptr ()' id #}
+getCursorReferenced :: Proxy s -> Cursor s' -> IO (Cursor s)
+getCursorReferenced _ c =
+  cursorToRawCursor c >>= clang_getCursorReferenced >>= rawCursorToCursor
 
 -- CXCursor clang_getCursorDefinition(CXCursor);
-%fun clang_getCursorDefinition :: Proxy s -> Cursor s' -> IO (Cursor s)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXCursor r = clang_getCursorDefinition(a);
-%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
+{# fun clang_getCursorDefinition { id `Ptr ()' } -> `Ptr ()' id #}
+getCursorDefinition :: Proxy s -> Cursor s' -> IO (Cursor s)
+getCursorDefinition _ c =
+  cursorToRawCursor c >>= clang_getCursorDefinition >>= rawCursorToCursor
 
 -- unsigned clang_isCursorDefinition(CXCursor);
-%fun clang_isCursorDefinition :: Cursor s -> IO Bool
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     r = clang_isCursorDefinition(a);
-%result (bool r)
+{# fun clang_isCursorDefinition { id `Ptr ()' } -> `Bool' toBool #}
+isCursorDefinition :: Cursor s -> IO Bool
+isCursorDefinition c = cursorToRawCursor c >>= clang_isCursorDefinition
 
 -- unsigned clang_Cursor_isDynamicCall(CXCursor);
-%fun clang_cursor_isDynamicCall :: Cursor s -> IO Bool
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     r = clang_Cursor_isDynamicCall(a);
-%result (bool r)
+{# fun clang_Cursor_isDynamicCall { id `Ptr ()' } -> `Bool' toBool #}
+cursor_isDynamicCall :: Cursor s -> IO Bool
+cursor_isDynamicCall c = cursorToRawCursor c >>= clang_Cursor_isDynamicCall
 
 -- CXCursor clang_getCanonicalCursor(CXCursor);
-%fun clang_getCanonicalCursor :: Proxy s -> Cursor s' -> IO (Cursor s)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXCursor r = clang_getCanonicalCursor(a);
-%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
+{# fun clang_getCanonicalCursor { id `Ptr ()' } -> `Ptr ()' id #}
+getCanonicalCursor :: Proxy s -> Cursor s' -> IO (Cursor s)
+getCanonicalCursor _ c =
+  cursorToRawCursor c >>= clang_getCanonicalCursor >>= rawCursorToCursor
 
 -- int clang_Cursor_getObjCSelectorIndex(CXCursor);
-%fun clang_Cursor_getObjCSelectorIndex :: Cursor s -> IO Int
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     int r = clang_Cursor_getObjCSelectorIndex(a);
-%result (int r)
+{# fun clang_Cursor_getObjCSelectorIndex { id `Ptr ()' } -> `Int'  #}
+cursor_getObjCSelectorIndex :: Cursor s -> IO Int
+cursor_getObjCSelectorIndex c = cursorToRawCursor c >>= clang_Cursor_getObjCSelectorIndex
 
 -- CXType clang_Cursor_getReceiverType(CXCursor C);
-%fun clang_Cursor_getReceiverType :: Proxy s -> Cursor s' -> IO (Type s)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXType r = clang_Cursor_getReceiverType(a);
-%result (type {r.kind} {r.data[0]} {r.data[1]})
+{# fun clang_Cursor_getReceiverType { id `Ptr ()' } -> `Ptr ()' id #}
+cursor_getReceiverType :: Proxy s -> Cursor s' -> IO (Type s)
+cursor_getReceiverType proxy c =
+  cursorToRawCursor c >>= clang_Cursor_getReceiverType >>= ptrToType proxy
 
 -- typedef enum {
 --   CXObjCPropertyAttr_noattr    = 0x00,
@@ -3710,21 +3805,24 @@ getCursorDisplayName = registerClangString . unsafe_getCursorDisplayName
 --   CXObjCPropertyAttr_unsafe_unretained = 0x800
 -- } CXObjCPropertyAttrKind;
 
-%enum ObjCPropertyAttrKind (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ CXObjCPropertyAttr_noattr
-%  , CXObjCPropertyAttr_readonly
-%  , CXObjCPropertyAttr_getter
-%  , CXObjCPropertyAttr_assign
-%  , CXObjCPropertyAttr_readwrite
-%  , CXObjCPropertyAttr_retain
-%  , CXObjCPropertyAttr_copy
-%  , CXObjCPropertyAttr_nonatomic
-%  , CXObjCPropertyAttr_setter
-%  , CXObjCPropertyAttr_atomic
-%  , CXObjCPropertyAttr_weak
-%  , CXObjCPropertyAttr_strong
-%  , CXObjCPropertyAttr_unsafe_unretained
-%  ]
+#c
+enum ObjCPropertyAttrKind
+  { ObjCPropertyAttr_noattr           = CXObjCPropertyAttr_noattr
+  , ObjCPropertyAttr_readonly         = CXObjCPropertyAttr_readonly
+  , ObjCPropertyAttr_getter           = CXObjCPropertyAttr_getter
+  , ObjCPropertyAttr_assign           = CXObjCPropertyAttr_assign
+  , ObjCPropertyAttr_readwrite        = CXObjCPropertyAttr_readwrite
+  , ObjCPropertyAttr_retain           = CXObjCPropertyAttr_retain
+  , ObjCPropertyAttr_copy             = CXObjCPropertyAttr_copy
+  , ObjCPropertyAttr_nonatomic        = CXObjCPropertyAttr_nonatomic
+  , ObjCPropertyAttr_setter           = CXObjCPropertyAttr_setter
+  , ObjCPropertyAttr_atomic           = CXObjCPropertyAttr_atomic
+  , ObjCPropertyAttr_weak             = CXObjCPropertyAttr_weak
+  , ObjCPropertyAttr_strong           = CXObjCPropertyAttr_strong
+  , ObjCPropertyAttr_unsafe_unretained= CXObjCPropertyAttr_unsafe_unretained
+ };
+#endc
+{# enum ObjCPropertyAttrKind {} deriving  (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 instance BitFlags ObjCPropertyAttrKind where
   toBit ObjCPropertyAttr_noattr            = 0x0
@@ -3742,11 +3840,10 @@ instance BitFlags ObjCPropertyAttrKind where
   toBit ObjCPropertyAttr_unsafe_unretained = 0x800
 
 -- unsigned clang_Cursor_getObjCPropertyAttributes(CXCursor C, unsigned reserved);
-%fun clang_Cursor_getObjCPropertyAttributes :: Cursor s -> IO Int
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     unsigned r = clang_Cursor_getObjCPropertyAttributes(a, 0);
-%result (int r)
+{# fun clang_Cursor_getObjCPropertyAttributes { id `Ptr ()', `Int' } -> `CUInt' #}
+cursor_getObjCPropertyAttributes :: Cursor s -> IO Int
+cursor_getObjCPropertyAttributes c =
+  cursorToRawCursor c >>= \cPtr -> clang_Cursor_getObjCPropertyAttributes cPtr 0 >>= return . fromIntegral
 
 -- typedef enum {
 --   CXObjCDeclQualifier_None = 0x0,
@@ -3758,15 +3855,18 @@ instance BitFlags ObjCPropertyAttrKind where
 --   CXObjCDeclQualifier_Oneway = 0x20
 -- } CXObjCDeclQualifierKind;
 
-%enum ObjCDeclQualifierKind (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ CXObjCDeclQualifier_None
-%  , CXObjCDeclQualifier_In
-%  , CXObjCDeclQualifier_Inout
-%  , CXObjCDeclQualifier_Out
-%  , CXObjCDeclQualifier_Bycopy
-%  , CXObjCDeclQualifier_Byref
-%  , CXObjCDeclQualifier_Oneway
-%  ]
+#c
+enum ObjCDeclQualifierKind
+  { ObjCDeclQualifier_None   = CXObjCDeclQualifier_None
+  , ObjCDeclQualifier_In     = CXObjCDeclQualifier_In
+  , ObjCDeclQualifier_Inout  = CXObjCDeclQualifier_Inout
+  , ObjCDeclQualifier_Out    = CXObjCDeclQualifier_Out
+  , ObjCDeclQualifier_Bycopy = CXObjCDeclQualifier_Bycopy
+  , ObjCDeclQualifier_Byref  = CXObjCDeclQualifier_Byref
+  , ObjCDeclQualifier_Oneway = CXObjCDeclQualifier_Oneway
+ };
+#endc
+{# enum ObjCDeclQualifierKind {} deriving  (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 instance BitFlags ObjCDeclQualifierKind where
   toBit ObjCDeclQualifier_None   = 0x0
@@ -3778,63 +3878,51 @@ instance BitFlags ObjCDeclQualifierKind where
   toBit ObjCDeclQualifier_Oneway = 0x20
 
 -- unsigned clang_Cursor_getObjCDeclQualifiers(CXCursor C);
-%fun clang_Cursor_getObjCDeclQualifiers :: Cursor s -> IO Int
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     unsigned r = clang_Cursor_getObjCDeclQualifiers(a);
-%result (int r)
+{# fun clang_Cursor_getObjCDeclQualifiers { id `Ptr ()' } -> `CUInt' #}
+cursor_getObjCDeclQualifiers :: Cursor s -> IO Int
+cursor_getObjCDeclQualifiers c =
+  cursorToRawCursor c >>= clang_Cursor_getObjCDeclQualifiers >>= return . fromIntegral
 
 -- unsigned clang_Cursor_isObjCOptional(CXCursor);
-%fun clang_cursor_isObjCOptional :: Cursor s -> IO Bool
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     r = clang_Cursor_isObjCOptional(a);
-%result (bool r)
+{# fun clang_Cursor_isObjCOptional { id `Ptr ()' } -> `Bool' toBool #}
+cursor_isObjCOptional :: Cursor s -> IO Bool
+cursor_isObjCOptional c = cursorToRawCursor c >>= clang_Cursor_isObjCOptional
 
 -- unsigned clang_Cursor_isVariadic(CXCursor);
-%fun clang_cursor_isVariadic :: Cursor s -> IO Bool
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     r = clang_Cursor_isVariadic(a);
-%result (bool r)
+{# fun clang_Cursor_isVariadic { id `Ptr ()' } -> `Bool' toBool #}
+cursor_isVariadic :: Cursor s -> IO Bool
+cursor_isVariadic c = cursorToRawCursor c >>= clang_Cursor_isVariadic
 
 -- CXSourceRange clang_Cursor_getCommentRange(CXCursor C);
-%fun clang_Cursor_getCommentRange :: Proxy s -> Cursor s' -> IO (SourceRange s)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXSourceRange r = clang_Cursor_getCommentRange(a);
-%result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
+{# fun clang_Cursor_getCommentRange { id `Ptr ()' } -> `Ptr ()' id #}
+cursor_getCommentRange :: Proxy s -> Cursor s' -> IO (SourceRange s)
+cursor_getCommentRange _ c =
+  cursorToRawCursor c >>= clang_Cursor_getCommentRange >>= rawSourceRangeToSourceRange
 
 -- CXString clang_Cursor_getRawCommentText(CXCursor C);
-%fun unsafe_Cursor_getRawCommentText :: Cursor s' -> IO (ClangString ())
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXString out = clang_Cursor_getRawCommentText(a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_Cursor_getRawCommentText { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_Cursor_getRawCommentText :: Cursor s -> IO (ClangString ())
+unsafe_Cursor_getRawCommentText c =
+  cursorToRawCursor c >>= clang_Cursor_getRawCommentText >>= rawCXStringToClangString
 
 cursor_getRawCommentText :: ClangBase m => Cursor s' -> ClangT s m (ClangString s)
 cursor_getRawCommentText = registerClangString . unsafe_Cursor_getRawCommentText
 
 -- CXString clang_Cursor_getBriefCommentText(CXCursor C);
-%fun unsafe_Cursor_getBriefCommentText :: Cursor s' -> IO (ClangString ())
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXString out = clang_Cursor_getBriefCommentText(a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_Cursor_getBriefCommentText { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_Cursor_getBriefCommentText :: Cursor s -> IO (ClangString ())
+unsafe_Cursor_getBriefCommentText c =
+  cursorToRawCursor c >>= clang_Cursor_getBriefCommentText >>= rawCXStringToClangString
 
 cursor_getBriefCommentText :: ClangBase m => Cursor s' -> ClangT s m (ClangString s)
 cursor_getBriefCommentText = registerClangString . unsafe_Cursor_getBriefCommentText
 
 -- CXComment clang_Cursor_getParsedComment(CXCursor C);
-%fun clang_Cursor_getParsedComment :: Proxy s -> Cursor s' -> IO (Comment s)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXComment r = clang_Cursor_getParsedComment(a);
-%result (comment {r.ASTNode} {r.TranslationUnit})
+
+{# fun clang_Cursor_getParsedComment { id `Ptr ()' } -> `Ptr ()' id #}
+cursor_getParsedComment :: Proxy s -> Cursor s' -> IO (Comment s)
+cursor_getParsedComment _ c =
+  cursorToRawCursor c >>= clang_Cursor_getParsedComment >>= rawCommentToComment
 
 -- typedef void *CXModule;
 newtype Module s = Module { unModule :: Ptr () }
@@ -3842,7 +3930,7 @@ newtype Module s = Module { unModule :: Ptr () }
 
 instance ClangValue Module
 
-%dis cxmodule p = <unModule/Module> (ptr p)
+-- %dis cxmodule p = <unModule/Module> (ptr p)
 
 maybeModule :: Module s' -> Maybe (Module s)
 maybeModule (Module p) | p == nullPtr = Nothing
@@ -3852,115 +3940,96 @@ unMaybeModule :: Maybe (Module s') -> Module s
 unMaybeModule (Just f) = unsafeCoerce f
 unMaybeModule Nothing  = Module nullPtr
 
-%dis maybe_cxmodule m = <unMaybeModule/maybeModule> (cxmodule m)
-
 -- CXModule clang_Cursor_getModule(CXCursor C);
-%fun clang_Cursor_getModule :: Proxy s -> Cursor s' -> IO (Module s)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXModule r = clang_Cursor_getModule(a);
-%result (cxmodule r)
+{# fun clang_Cursor_getModule { id `Ptr ()' } -> `Ptr ()' id #}
+cursor_getModule :: Proxy s -> Cursor s' -> IO (Module s)
+cursor_getModule _ c =
+  cursorToRawCursor c >>= clang_Cursor_getModule >>= return . Module
 
 -- CXFile clang_Module_getASTFile(CXModule Module);
-%fun clang_Module_getASTFile :: Proxy s -> Module s' -> IO (File s)
-%call (proxy) (cxmodule m)
-%code CXFile r = clang_Module_getASTFile(m);
-%result (file r)
+{# fun clang_Module_getASTFile { id `Ptr ()' } -> `Ptr ()' id #}
+module_getASTFile :: Proxy s -> Module s' -> IO (File s)
+module_getASTFile _ m = clang_Module_getASTFile (unModule m) >>= return . File
 
 -- CXModule clang_Module_getParent(CXModule Module);
-%fun clang_Module_getParent :: Proxy s -> Module s' -> IO (Maybe (Module s))
-%call (proxy) (cxmodule m)
-%code CXModule r = clang_Module_getParent(m);
-%result (maybe_cxmodule r)
+{# fun clang_Module_getParent { id `Ptr ()' } -> `Ptr ()' id #}
+module_getParent :: Proxy s -> Module s' -> IO (Maybe (Module s))
+module_getParent _ m = clang_Module_getParent (unModule m) >>= return . maybeModule . Module
 
 -- CXString clang_Module_getName(CXModule Module);
-%fun unsafe_Module_getName :: Module s -> IO (ClangString ())
-%call (cxmodule m)
-%code CXString out = clang_Module_getName(m);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_Module_getName { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_Module_getName :: Module s -> IO (ClangString ())
+unsafe_Module_getName m = clang_Module_getName (unModule m) >>= rawCXStringToClangString
 
 module_getName :: ClangBase m => Module s' -> ClangT s m (ClangString s)
 module_getName = registerClangString . unsafe_Module_getName
 
 -- CXString clang_Module_getFullName(CXModule Module);
-%fun unsafe_Module_getFullName :: Module s -> IO (ClangString ())
-%call (cxmodule m)
-%code CXString out = clang_Module_getFullName(m);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_Module_getFullName { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_Module_getFullName :: Module s -> IO (ClangString ())
+unsafe_Module_getFullName m = clang_Module_getFullName (unModule m) >>= rawCXStringToClangString
 
 module_getFullName :: ClangBase m => Module s' -> ClangT s m (ClangString s)
 module_getFullName = registerClangString . unsafe_Module_getFullName
 
 -- unsigned clang_Module_getNumTopLevelHeaders(CXTranslationUnit, CXModule Module);
-%fun clang_Module_getNumTopLevelHeaders :: TranslationUnit s -> Module s' -> IO Int
-%call (translationUnit t) (cxmodule m)
-%code unsigned r = clang_Module_getNumTopLevelHeaders(t, m);
-%result (int r)
+{# fun clang_Module_getNumTopLevelHeaders { id `Ptr ()', id `Ptr ()' } -> `Int' #}
+module_getNumTopLevelHeaders :: TranslationUnit s -> Module s' -> IO Int
+module_getNumTopLevelHeaders t m = clang_Module_getNumTopLevelHeaders (unTranslationUnit t) (unModule m)
 
 -- CXFile clang_Module_getTopLevelHeader(CXTranslationUnit, CXModule Module, unsigned Index);
-%fun clang_Module_getTopLevelHeader :: Proxy s -> TranslationUnit s' -> Module s'' -> Int -> IO (File s)
-%call (proxy) (translationUnit t) (cxmodule m) (int idx)
-%code CXFile r = clang_Module_getTopLevelHeader(t, m, idx);
-%result (file r)
+{# fun clang_Module_getTopLevelHeader { id `Ptr ()', id `Ptr ()', `Int' } -> `Ptr ()' id #}
+module_getTopLevelHeader :: Proxy s -> TranslationUnit s' -> Module s'' -> Int -> IO (File s)
+module_getTopLevelHeader _ t m i = clang_Module_getTopLevelHeader (unTranslationUnit t) (unModule m) i >>= return . File
 
 -- unsigned clang_CXXMethod_isPureVirtual(CXCursor C);
-%fun clang_CXXMethod_isPureVirtual :: Cursor s -> IO Bool
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     r = clang_CXXMethod_isPureVirtual(a);
-%result (bool r)
+{# fun clang_CXXMethod_isPureVirtual { id `Ptr ()' } -> `Bool' toBool #}
+cXXMethod_isPureVirtual :: Cursor s -> IO Bool
+cXXMethod_isPureVirtual c = cursorToRawCursor c >>= clang_Cursor_isBitField
 
 -- unsigned clang_CXXMethod_isStatic(CXCursor C);
-%fun clang_CXXMethod_isStatic :: Cursor s -> IO Bool
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     r = clang_CXXMethod_isStatic(a);
-%result (bool r)
+{# fun clang_CXXMethod_isStatic { id `Ptr ()' } -> `Bool' toBool #}
+cXXMethod_isStatic :: Cursor s -> IO Bool
+cXXMethod_isStatic c = cursorToRawCursor c >>= clang_Cursor_isBitField
 
 -- unsigned clang_CXXMethod_isVirtual(CXCursor C);
-%fun clang_CXXMethod_isVirtual :: Cursor s -> IO Bool
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     r = clang_CXXMethod_isVirtual(a);
-%result (bool r)
+{# fun clang_CXXMethod_isVirtual { id `Ptr ()' } -> `Bool' toBool #}
+cXXMethod_isVirtual :: Cursor s -> IO Bool
+cXXMethod_isVirtual c = cursorToRawCursor c >>= clang_Cursor_isBitField
 
 -- enum CXCursorKind clang_getTemplateCursorKind(CXCursor C);
-%fun clang_getTemplateCursorKind :: Cursor s -> IO CursorKind
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     r = clang_getTemplateCursorKind(a);
-%result (cursorKind r)
+{# fun clang_getTemplateCursorKind { id `Ptr ()' } -> `Int' #}
+getTemplateCursorKind :: Cursor s -> IO CursorKind
+getTemplateCursorKind c =
+  cursorToRawCursor c >>= clang_getTemplateCursorKind >>= return . toEnum
 
 -- CXCursor clang_getSpecializedCursorTemplate(CXCursor C);
-%fun clang_getSpecializedCursorTemplate :: Proxy s -> Cursor s' -> IO (Cursor s)
-%call (proxy) (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXCursor r = clang_getSpecializedCursorTemplate(a);
-%result (cursor {r.kind} {r.xdata} {r.data[0]} {r.data[1]} {r.data[2]})
+{# fun clang_getSpecializedCursorTemplate { id `Ptr ()' } -> `Ptr ()' id #}
+getSpecializedCursorTemplate :: Proxy s -> Cursor s' -> IO (Cursor s)
+getSpecializedCursorTemplate _ c =
+  cursorToRawCursor c >>= clang_getSpecializedCursorTemplate >>= rawCursorToCursor
 
 -- CXSourceRange clang_getCursorReferenceNameRange(CXCursor C,
---                                                 unsigned NameFlags, 
+--                                                 unsigned NameFlags,
 --                                                 unsigned PieceIndex);
-%fun clang_getCursorReferenceNameRange :: Proxy s -> Cursor s' -> Int -> Int -> IO (SourceRange s)
-%call (proxy) (cursor k xdata p1 p2 p3) (int fs) (int idx)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%     CXSourceRange r = clang_getCursorReferenceNameRange(a, (unsigned) fs, (unsigned) idx);
-%result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
+{# fun clang_getCursorReferenceNameRange { id `Ptr ()', `Int' , `Int' } -> `Ptr ()' id #}
+getCursorReferenceNameRange :: Proxy s -> Cursor s' -> Int -> Int -> IO (SourceRange s)
+getCursorReferenceNameRange _ c fs idx =
+  cursorToRawCursor c >>= \cPtr -> clang_getCursorReferenceNameRange cPtr fs idx >>= rawSourceRangeToSourceRange
 
 -- enum CXNameRefFlags {
 --   CXNameRange_WantQualifier = 0x1,
 --   CXNameRange_WantTemplateArgs = 0x2,
 --   CXNameRange_WantSinglePiece = 0x4
 -- };
-%enum NameRefFlags (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ CXNameRange_WantQualifier
-%  , CXNameRange_WantTemplateArgs
-%  , CXNameRange_WantSinglePiece
-%  ]
+#c
+enum NameRefFlags
+  { NameRange_WantQualifier    = CXNameRange_WantQualifier
+  , NameRange_WantTemplateArgs = CXNameRange_WantTemplateArgs
+  , NameRange_WantSinglePiece  = CXNameRange_WantSinglePiece
+  };
+#endc
+{# enum NameRefFlags {} deriving  (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 instance BitFlags NameRefFlags where
   toBit NameRange_WantQualifier    = 0x01
@@ -3982,21 +4051,24 @@ instance BitFlags NameRefFlags where
 --   CXComment_VerbatimLine = 11,
 --   CXComment_FullComment = 12
 -- };
-%enum CommentKind (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ NullComment                 = CXComment_Null
-%  , TextComment                 = CXComment_Text
-%  , InlineCommandComment        = CXComment_InlineCommand
-%  , HTMLStartTagComment         = CXComment_HTMLStartTag
-%  , HTMLEndTagComment           = CXComment_HTMLEndTag
-%  , ParagraphComment            = CXComment_Paragraph
-%  , BlockCommandComment         = CXComment_BlockCommand
-%  , ParamCommandComment         = CXComment_ParamCommand
-%  , TParamCommandComment        = CXComment_TParamCommand
-%  , VerbatimBlockCommandComment = CXComment_VerbatimBlockCommand
-%  , VerbatimBlockLineComment    = CXComment_VerbatimBlockLine
-%  , VerbatimLineComment         = CXComment_VerbatimLine
-%  , FullComment                 = CXComment_FullComment
-%  ]
+#c
+enum CommentKind
+  { NullComment                 = CXComment_Null
+  , TextComment                 = CXComment_Text
+  , InlineCommandComment        = CXComment_InlineCommand
+  , HTMLStartTagComment         = CXComment_HTMLStartTag
+  , HTMLEndTagComment           = CXComment_HTMLEndTag
+  , ParagraphComment            = CXComment_Paragraph
+  , BlockCommandComment         = CXComment_BlockCommand
+  , ParamCommandComment         = CXComment_ParamCommand
+  , TParamCommandComment        = CXComment_TParamCommand
+  , VerbatimBlockCommandComment = CXComment_VerbatimBlockCommand
+  , VerbatimBlockLineComment    = CXComment_VerbatimBlockLine
+  , VerbatimLineComment         = CXComment_VerbatimLine
+  , FullComment                 = CXComment_FullComment
+ };
+#endc
+{# enum CommentKind {} deriving (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 -- enum CXCommentInlineCommandRenderKind {
 --   CXCommentInlineCommandRenderKind_Normal,
@@ -4006,13 +4078,15 @@ instance BitFlags NameRefFlags where
 -- };
 
 -- | A rendering style which should be used for the associated inline command in the comment AST.
-%enum InlineCommandRenderStyle (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ NormalInlineCommandRenderStyle     = CXCommentInlineCommandRenderKind_Normal
-%  , BoldInlineCommandRenderStyle       = CXCommentInlineCommandRenderKind_Bold
-%  , MonospacedInlineCommandRenderStyle = CXCommentInlineCommandRenderKind_Monospaced
-%  , EmphasizedInlineCommandRenderStyle = CXCommentInlineCommandRenderKind_Emphasized
-%  ]
-
+#c
+enum InlineCommandRenderStyle
+  { NormalInlineCommandRenderStyle     = CXCommentInlineCommandRenderKind_Normal
+  , BoldInlineCommandRenderStyle       = CXCommentInlineCommandRenderKind_Bold
+  , MonospacedInlineCommandRenderStyle = CXCommentInlineCommandRenderKind_Monospaced
+  , EmphasizedInlineCommandRenderStyle = CXCommentInlineCommandRenderKind_Emphasized
+ };
+#endc
+{# enum InlineCommandRenderStyle {} deriving (Bounded, Eq, Ord, Read, Show, Typeable) #}
 -- enum CXCommentParamPassDirection {
 --   CXCommentParamPassDirection_In,
 --   CXCommentParamPassDirection_Out,
@@ -4020,314 +4094,250 @@ instance BitFlags NameRefFlags where
 -- };
 
 -- | A parameter passing direction.
-%enum ParamPassDirectionKind (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ InParamPassDirection    = CXCommentParamPassDirection_In
-%  , OutParamPassDirection   = CXCommentParamPassDirection_Out
-%  , InOutParamPassDirection = CXCommentParamPassDirection_InOut
-%  ]
+#c
+enum ParamPassDirectionKind
+  { InParamPassDirection    = CXCommentParamPassDirection_In
+  , OutParamPassDirection   = CXCommentParamPassDirection_Out
+  , InOutParamPassDirection = CXCommentParamPassDirection_InOut
+  };
+#endc
+{#enum ParamPassDirectionKind {} deriving (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 -- enum CXCommentKind clang_Comment_getKind(CXComment Comment);
-%fun clang_Comment_getKind :: Comment s -> IO CommentKind
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     enum CXCommentKind r = clang_Comment_getKind(a);
-%result (commentKind r)
+{# fun clang_Comment_getKind { id `Ptr ()' } -> `Int' #}
+comment_getKind :: Comment s -> IO CommentKind
+comment_getKind c =
+  commentToRawComment c >>= clang_Comment_getKind >>= return . toEnum
 
 -- unsigned clang_Comment_getNumChildren(CXComment Comment);
-%fun clang_Comment_getNumChildren :: Comment s -> IO Int
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     unsigned r = clang_Comment_getNumChildren(a);
-%result (int r)
+{# fun clang_Comment_getNumChildren { id `Ptr ()' } -> `Int' #}
+comment_getNumChildren :: Comment s -> IO Int
+comment_getNumChildren c =
+  commentToRawComment c >>= clang_Comment_getNumChildren
 
 -- CXComment clang_Comment_getChild(CXComment Comment, unsigned ChildIdx);
-%fun clang_Comment_getChild :: Proxy s -> Comment s' -> Int -> IO (Comment s)
-%call (proxy) (comment p1 p2) (int idx)
-%code CXComment a = {p1, p2};
-%     CXComment r = clang_Comment_getChild(a, idx);
-%result (comment {r.ASTNode} {r.TranslationUnit})
+{# fun clang_Comment_getChild { id `Ptr ()', `Int' } -> `Ptr ()' id #}
+comment_getChild :: Proxy s -> Comment s' -> Int -> IO (Comment s)
+comment_getChild _ c i = commentToRawComment c >>= \cPtr -> clang_getOverloadedDecl cPtr i >>= rawCommentToComment
 
 -- unsigned clang_Comment_isWhitespace(CXComment Comment);
-%fun clang_Comment_isWhitespace :: Comment s -> IO Bool
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     unsigned r = clang_Comment_isWhitespace(a);
-%result (bool r)
+{# fun clang_Comment_isWhitespace { id `Ptr ()' } -> `Bool' toBool #}
+comment_isWhitespace :: Comment s -> IO Bool
+comment_isWhitespace c = commentToRawComment c >>= clang_Comment_isWhitespace
 
 -- unsigned clang_InlineContentComment_hasTrailingNewline(CXComment Comment);
-%fun clang_InlineContentComment_hasTrailingNewline :: Comment s -> IO Bool
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     unsigned r = clang_InlineContentComment_hasTrailingNewline(a);
-%result (bool r)
+{# fun clang_InlineContentComment_hasTrailingNewline { id `Ptr ()' } -> `Bool' toBool #}
+inlineContentComment_hasTrailingNewline :: Comment s -> IO Bool
+inlineContentComment_hasTrailingNewline c = commentToRawComment c >>= clang_InlineContentComment_hasTrailingNewline
 
 -- CXString clang_TextComment_getText(CXComment Comment);
-%fun unsafe_TextComment_getText :: Comment s -> IO (ClangString ())
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     CXString out = clang_TextComment_getText(a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_TextComment_getText { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_TextComment_getText :: Comment s -> IO (ClangString ())
+unsafe_TextComment_getText c =
+  commentToRawComment c >>= clang_TextComment_getText >>= rawCXStringToClangString
 
 textComment_getText :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
 textComment_getText = registerClangString . unsafe_TextComment_getText
 
 -- CXString clang_InlineCommandComment_getCommandName(CXComment Comment);
-%fun unsafe_InlineCommandComment_getCommandName :: Comment s -> IO (ClangString ())
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     CXString out = clang_InlineCommandComment_getCommandName(a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_InlineCommandComment_getCommandName { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_InlineCommandComment_getCommandName :: Comment s -> IO (ClangString ())
+unsafe_InlineCommandComment_getCommandName c =
+  commentToRawComment c >>= clang_InlineCommandComment_getCommandName >>= rawCXStringToClangString
 
 inlineCommandComment_getCommandName :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
 inlineCommandComment_getCommandName = registerClangString . unsafe_InlineCommandComment_getCommandName
 
 -- enum CXCommentInlineCommandRenderKind clang_InlineCommandComment_getRenderKind(CXComment Comment);
-%fun clang_InlineCommandComment_getRenderKind :: Comment s -> IO InlineCommandRenderStyle
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     enum CXCommentInlineCommandRenderKind r = clang_InlineCommandComment_getRenderKind(a);
-%result (inlineCommandRenderStyle r)
+{# fun clang_InlineCommandComment_getRenderKind { id `Ptr ()' } -> `Int' #}
+inlineCommandComment_getRenderKind :: Comment s -> IO InlineCommandRenderStyle
+inlineCommandComment_getRenderKind c =
+  commentToRawComment c >>= clang_InlineCommandComment_getRenderKind >>= return . toEnum
 
 -- unsigned clang_InlineCommandComment_getNumArgs(CXComment Comment);
-%fun clang_InlineCommandComment_getNumArgs :: Comment s -> IO Int
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     unsigned r = clang_InlineCommandComment_getNumArgs(a);
-%result (int r)
+{# fun clang_InlineCommandComment_getNumArgs { id `Ptr ()' } -> `Int' #}
+inlineCommandComment_getNumArgs :: Comment s -> IO Int
+inlineCommandComment_getNumArgs c =
+  commentToRawComment c >>= clang_InlineCommandComment_getNumArgs
 
 -- CXString clang_InlineCommandComment_getArgText(CXComment Comment, unsigned ArgIdx);
-%fun unsafe_InlineCommandComment_getArgText :: Comment s -> Int -> IO (ClangString ())
-%call (comment p1 p2) (int idx)
-%code CXComment a = {p1, p2};
-%     CXString out = clang_InlineCommandComment_getArgText(a, idx);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_InlineCommandComment_getArgText { id `Ptr ()', `Int' } -> `Ptr ()' id #}
+unsafe_InlineCommandComment_getArgText :: Comment s -> Int -> IO (ClangString ())
+unsafe_InlineCommandComment_getArgText c idx =
+  commentToRawComment c >>= \cPtr -> clang_InlineCommandComment_getArgText cPtr idx >>= rawCXStringToClangString
 
 inlineCommandComment_getArgText :: ClangBase m => Comment s' -> Int -> ClangT s m (ClangString s)
 inlineCommandComment_getArgText = (registerClangString .) . unsafe_InlineCommandComment_getArgText
 
 -- CXString clang_HTMLTagComment_getTagName(CXComment Comment);
-%fun unsafe_HTMLTagComment_getTagName :: Comment s -> IO (ClangString ())
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     CXString out = clang_HTMLTagComment_getTagName(a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_HTMLTagComment_getTagName { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_HTMLTagComment_getTagName :: Comment s -> IO (ClangString ())
+unsafe_HTMLTagComment_getTagName c =
+  commentToRawComment c >>= clang_HTMLTagComment_getTagName >>= rawCXStringToClangString
 
 hTMLTagComment_getTagName :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
 hTMLTagComment_getTagName = registerClangString . unsafe_HTMLTagComment_getTagName
 
 -- unsigned clang_HTMLStartTagComment_isSelfClosing(CXComment Comment);
-%fun clang_HTMLStartTagComment_isSelfClosing :: Comment s -> IO Bool
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     unsigned r = clang_HTMLStartTagComment_isSelfClosing(a);
-%result (bool r)
+{# fun clang_HTMLStartTagComment_isSelfClosing { id `Ptr ()' } -> `Bool' toBool #}
+hTMLStartTagComment_isSelfClosing :: Comment s -> IO Bool
+hTMLStartTagComment_isSelfClosing c = commentToRawComment c >>= clang_HTMLStartTagComment_isSelfClosing
 
 -- unsigned clang_HTMLStartTag_getNumAttrs(CXComment Comment);
-%fun clang_HTMLStartTag_getNumAttrs :: Comment s -> IO Int
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     unsigned r = clang_HTMLStartTag_getNumAttrs(a);
-%result (int r)
+{# fun clang_HTMLStartTag_getNumAttrs { id `Ptr ()' } -> `Int' #}
+hTMLStartTag_getNumAttrs :: Comment s -> IO Int
+hTMLStartTag_getNumAttrs c =
+  commentToRawComment c >>= clang_HTMLStartTag_getNumAttrs
 
 -- CXString clang_HTMLStartTag_getAttrName(CXComment Comment, unsigned AttrIdx);
-%fun unsafe_HTMLStartTag_getAttrName :: Comment s -> Int -> IO (ClangString ())
-%call (comment p1 p2) (int idx)
-%code CXComment a = {p1, p2};
-%     CXString out = clang_HTMLStartTag_getAttrName(a, idx);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_HTMLStartTag_getAttrName { id `Ptr ()', `Int' } -> `Ptr ()' id #}
+unsafe_HTMLStartTag_getAttrName :: Comment s -> Int -> IO (ClangString ())
+unsafe_HTMLStartTag_getAttrName c idx =
+  commentToRawComment c >>= \cPtr -> clang_HTMLStartTag_getAttrName cPtr idx >>= rawCXStringToClangString
 
 hTMLStartTag_getAttrName :: ClangBase m => Comment s' -> Int -> ClangT s m (ClangString s)
 hTMLStartTag_getAttrName = (registerClangString .) . unsafe_HTMLStartTag_getAttrName
 
 -- CXString clang_HTMLStartTag_getAttrValue(CXComment Comment, unsigned AttrIdx);
-%fun unsafe_HTMLStartTag_getAttrValue :: Comment s -> Int -> IO (ClangString ())
-%call (comment p1 p2) (int idx)
-%code CXComment a = {p1, p2};
-%     CXString out = clang_HTMLStartTag_getAttrValue(a, idx);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_HTMLStartTag_getAttrValue { id `Ptr ()', `Int' } -> `Ptr ()' id #}
+unsafe_HTMLStartTag_getAttrValue :: Comment s -> Int -> IO (ClangString ())
+unsafe_HTMLStartTag_getAttrValue c idx =
+  commentToRawComment c >>= \cPtr -> clang_HTMLStartTag_getAttrValue cPtr idx >>= rawCXStringToClangString
 
 hTMLStartTag_getAttrValue :: ClangBase m => Comment s' -> Int -> ClangT s m (ClangString s)
 hTMLStartTag_getAttrValue = (registerClangString .) . unsafe_HTMLStartTag_getAttrValue
 
 -- CXString clang_BlockCommandComment_getCommandName(CXComment Comment);
-%fun unsafe_BlockCommandComment_getCommandName :: Comment s -> IO (ClangString ())
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     CXString out = clang_BlockCommandComment_getCommandName(a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_BlockCommandComment_getCommandName { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_BlockCommandComment_getCommandName :: Comment s -> IO (ClangString ())
+unsafe_BlockCommandComment_getCommandName c =
+  commentToRawComment c >>= clang_BlockCommandComment_getCommandName >>= rawCXStringToClangString
 
 blockCommandComment_getCommandName :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
 blockCommandComment_getCommandName = registerClangString . unsafe_BlockCommandComment_getCommandName
 
 -- unsigned clang_BlockCommandComment_getNumArgs(CXComment Comment);
-%fun clang_BlockCommandComment_getNumArgs :: Comment s -> IO Int
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     unsigned r = clang_BlockCommandComment_getNumArgs(a);
-%result (int r)
+{# fun clang_BlockCommandComment_getNumArgs { id `Ptr ()' } -> `Int' #}
+blockCommandComment_getNumArgs :: Comment s -> IO Int
+blockCommandComment_getNumArgs c =
+  commentToRawComment c >>= clang_BlockCommandComment_getNumArgs
 
 -- CXString clang_BlockCommandComment_getArgText(CXComment Comment, unsigned ArgIdx);
-%fun unsafe_BlockCommandComment_getArgText :: Comment s -> Int -> IO (ClangString ())
-%call (comment p1 p2) (int idx)
-%code CXComment a = {p1, p2};
-%     CXString out = clang_BlockCommandComment_getArgText(a, idx);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_BlockCommandComment_getArgText { id `Ptr ()', `Int' } -> `Ptr ()' id #}
+unsafe_BlockCommandComment_getArgText :: Comment s -> Int -> IO (ClangString ())
+unsafe_BlockCommandComment_getArgText c idx =
+  commentToRawComment c >>= \cPtr -> clang_BlockCommandComment_getArgText cPtr idx >>= rawCXStringToClangString
 
 blockCommandComment_getArgText :: ClangBase m => Comment s' -> Int -> ClangT s m (ClangString s)
 blockCommandComment_getArgText = (registerClangString .) . unsafe_BlockCommandComment_getArgText
 
 -- CXComment clang_BlockCommandComment_getParagraph(CXComment Comment);
-%fun clang_BlockCommandComment_getParagraph :: Proxy s -> Comment s' -> IO (Comment s)
-%call (proxy) (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     CXComment r = clang_BlockCommandComment_getParagraph(a);
-%result (comment {r.ASTNode} {r.TranslationUnit})
+{# fun clang_BlockCommandComment_getParagraph { id `Ptr ()' } -> `Ptr ()' id #}
+blockCommandComment_getParagraph :: Proxy s -> Comment s' -> IO (Comment s)
+blockCommandComment_getParagraph _ c =
+  commentToRawComment c >>= clang_BlockCommandComment_getParagraph >>= rawCommentToComment
 
 -- CXString clang_ParamCommandComment_getParamName(CXComment Comment);
-%fun unsafe_ParamCommandComment_getParamName :: Comment s -> IO (ClangString ())
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     CXString out = clang_ParamCommandComment_getParamName(a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_ParamCommandComment_getParamName { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_ParamCommandComment_getParamName :: Comment s -> IO (ClangString ())
+unsafe_ParamCommandComment_getParamName c =
+  commentToRawComment c >>= clang_ParamCommandComment_getParamName >>= rawCXStringToClangString
 
 paramCommandComment_getParamName :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
 paramCommandComment_getParamName = registerClangString . unsafe_ParamCommandComment_getParamName
 
 -- unsigned clang_ParamCommandComment_isParamIndexValid(CXComment Comment);
-%fun clang_ParamCommandComment_isParamIndexValid :: Comment s -> IO Bool
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     unsigned r = clang_ParamCommandComment_isParamIndexValid(a);
-%result (bool r)
+{# fun clang_ParamCommandComment_isParamIndexValid { id `Ptr ()' } -> `Bool' toBool #}
+paramCommandComment_isParamIndexValid :: Comment s -> IO Bool
+paramCommandComment_isParamIndexValid c =
+  commentToRawComment c >>= clang_ParamCommandComment_isParamIndexValid
 
 -- unsigned clang_ParamCommandComment_getParamIndex(CXComment Comment);
-%fun clang_ParamCommandComment_getParamIndex :: Comment s -> IO Int
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     unsigned r = clang_ParamCommandComment_getParamIndex(a);
-%result (int r)
+{# fun clang_ParamCommandComment_getParamIndex { id `Ptr ()' } -> `Int' #}
+paramCommandComment_getParamIndex :: Comment s -> IO Int
+paramCommandComment_getParamIndex c =
+  commentToRawComment c >>= clang_ParamCommandComment_getParamIndex
 
 -- unsigned clang_ParamCommandComment_isDirectionExplicit(CXComment Comment);
-%fun clang_ParamCommandComment_isDirectionExplicit :: Comment s -> IO Bool
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     unsigned r = clang_ParamCommandComment_isDirectionExplicit(a);
-%result (bool r)
+{# fun clang_ParamCommandComment_isDirectionExplicit { id `Ptr ()' } -> `Bool' toBool #}
+paramCommandComment_isDirectionExplicit :: Comment s -> IO Bool
+paramCommandComment_isDirectionExplicit c =
+  commentToRawComment c >>= clang_ParamCommandComment_isDirectionExplicit
 
 -- enum CXCommentParamPassDirection clang_ParamCommandComment_getDirection(CXComment Comment);
-%fun clang_ParamCommandComment_getDirection :: Comment s -> IO ParamPassDirectionKind
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     enum CXCommentParamPassDirection r = clang_ParamCommandComment_getDirection(a);
-%result (paramPassDirectionKind r)
+{# fun clang_ParamCommandComment_getDirection { id `Ptr ()' } -> `Int' #}
+paramCommandComment_getDirection :: Comment s -> IO ParamPassDirectionKind
+paramCommandComment_getDirection c =
+  commentToRawComment c >>= clang_ParamCommandComment_getDirection >>= return . toEnum
 
 -- CXString clang_TParamCommandComment_getParamName(CXComment Comment);
-%fun unsafe_TParamCommandComment_getParamName :: Comment s -> IO (ClangString ())
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     CXString out = clang_TParamCommandComment_getParamName(a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_TParamCommandComment_getParamName { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_TParamCommandComment_getParamName :: Comment s -> IO (ClangString ())
+unsafe_TParamCommandComment_getParamName c =
+  commentToRawComment c >>= clang_TParamCommandComment_getParamName >>= rawCXStringToClangString
 
 tParamCommandComment_getParamName :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
 tParamCommandComment_getParamName = registerClangString . unsafe_TParamCommandComment_getParamName
 
 -- unsigned clang_TParamCommandComment_isParamPositionValid(CXComment Comment);
-%fun clang_TParamCommandComment_isParamPositionValid :: Comment s -> IO Bool
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     unsigned r = clang_TParamCommandComment_isParamPositionValid(a);
-%result (bool r)
+{# fun clang_TParamCommandComment_isParamPositionValid { id `Ptr ()' } -> `Bool' toBool #}
+tParamCommandComment_isParamPositionValid :: Comment s -> IO Bool
+tParamCommandComment_isParamPositionValid c =
+  commentToRawComment c >>= clang_TParamCommandComment_isParamPositionValid
 
 -- unsigned clang_TParamCommandComment_getDepth(CXComment Comment);
-%fun clang_TParamCommandComment_getDepth :: Comment s -> IO Int
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     unsigned r = clang_TParamCommandComment_getDepth(a);
-%result (int r)
+{# fun clang_TParamCommandComment_getDepth { id `Ptr ()' } -> `Int' #}
+tParamCommandComment_getDepth :: Comment s -> IO Int
+tParamCommandComment_getDepth c =
+  commentToRawComment c >>= clang_TParamCommandComment_getDepth
 
 -- unsigned clang_TParamCommandComment_getIndex(CXComment Comment, unsigned Depth);
-%fun clang_TParamCommandComment_getIndex :: Comment s -> Int -> IO Int
-%call (comment p1 p2) (int depth)
-%code CXComment a = {p1, p2};
-%     unsigned r = clang_TParamCommandComment_getIndex(a, depth);
-%result (int r)
+{# fun clang_TParamCommandComment_getIndex { id `Ptr ()', `Int' } -> `Int' #}
+tParamCommandComment_getIndex :: Comment s -> Int -> IO Int
+tParamCommandComment_getIndex c idx =
+  commentToRawComment c >>= \cPtr -> clang_TParamCommandComment_getIndex cPtr idx
 
 -- CXString clang_VerbatimBlockLineComment_getText(CXComment Comment);
-%fun unsafe_VerbatimBlockLineComment_getText :: Comment s -> IO (ClangString ())
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     CXString out = clang_VerbatimBlockLineComment_getText(a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_VerbatimBlockLineComment_getText { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_VerbatimBlockLineComment_getText :: Comment s -> IO (ClangString ())
+unsafe_VerbatimBlockLineComment_getText c =
+  commentToRawComment c >>= clang_VerbatimBlockLineComment_getText >>= rawCXStringToClangString
 
 verbatimBlockLineComment_getText :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
 verbatimBlockLineComment_getText = registerClangString . unsafe_VerbatimBlockLineComment_getText
 
 -- CXString clang_VerbatimLineComment_getText(CXComment Comment);
-%fun unsafe_VerbatimLineComment_getText :: Comment s -> IO (ClangString ())
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     CXString out = clang_VerbatimLineComment_getText(a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_VerbatimLineComment_getText { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_VerbatimLineComment_getText :: Comment s -> IO (ClangString ())
+unsafe_VerbatimLineComment_getText c =
+  commentToRawComment c >>= clang_VerbatimLineComment_getText >>= rawCXStringToClangString
 
 verbatimLineComment_getText :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
 verbatimLineComment_getText = registerClangString . unsafe_VerbatimLineComment_getText
 
 -- CXString clang_HTMLTagComment_getAsString(CXComment Comment);
-%fun unsafe_HTMLTagComment_getAsString :: Comment s -> IO (ClangString ())
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     CXString out = clang_HTMLTagComment_getAsString(a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_HTMLTagComment_getAsString { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_HTMLTagComment_getAsString :: Comment s -> IO (ClangString ())
+unsafe_HTMLTagComment_getAsString c =
+  commentToRawComment c >>= clang_HTMLTagComment_getAsString >>= rawCXStringToClangString
 
 hTMLTagComment_getAsString :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
 hTMLTagComment_getAsString = registerClangString . unsafe_HTMLTagComment_getAsString
 
 -- CXString clang_FullComment_getAsHTML(CXComment Comment);
-%fun unsafe_FullComment_getAsHTML :: Comment s -> IO (ClangString ())
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     CXString out = clang_FullComment_getAsHTML(a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_FullComment_getAsHTML { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_FullComment_getAsHTML :: Comment s -> IO (ClangString ())
+unsafe_FullComment_getAsHTML c =
+  commentToRawComment c >>= clang_FullComment_getAsHTML >>= rawCXStringToClangString
 
 fullComment_getAsHTML :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
 fullComment_getAsHTML = registerClangString . unsafe_FullComment_getAsHTML
 
 -- CXString clang_FullComment_getAsXML(CXComment Comment);
-%fun unsafe_FullComment_getAsXML :: Comment s -> IO (ClangString ())
-%call (comment p1 p2)
-%code CXComment a = {p1, p2};
-%     CXString out = clang_FullComment_getAsXML(a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_FullComment_getAsXML { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_FullComment_getAsXML :: Comment s -> IO (ClangString ())
+unsafe_FullComment_getAsXML c =
+  commentToRawComment c >>= clang_FullComment_getAsXML >>= rawCXStringToClangString
 
 fullComment_getAsXML :: ClangBase m => Comment s' -> ClangT s m (ClangString s)
 fullComment_getAsXML = registerClangString . unsafe_FullComment_getAsXML
@@ -4339,13 +4349,16 @@ fullComment_getAsXML = registerClangString . unsafe_FullComment_getAsXML
 --   CXToken_Literal,
 --   CXToken_Comment
 -- } CXTokenKind;
-%enum TokenKind (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ PunctuationToken = CXToken_Punctuation
-%  , KeywordToken     = CXToken_Keyword
-%  , IdentifierToken  = CXToken_Identifier
-%  , LiteralToken     = CXToken_Literal
-%  , CommentToken     = CXToken_Comment
-%  ]
+#c
+enum TokenKind
+  { PunctuationToken = CXToken_Punctuation
+  , KeywordToken     = CXToken_Keyword
+  , IdentifierToken  = CXToken_Identifier
+  , LiteralToken     = CXToken_Literal
+  , CommentToken     = CXToken_Comment
+ };
+#endc
+{# enum TokenKind {} deriving (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 -- typedef struct {
 --   unsigned int_data[4];
@@ -4353,9 +4366,28 @@ fullComment_getAsXML = registerClangString . unsafe_FullComment_getAsXML
 -- } CXToken;
 data Token s = Token !Int !Int !Int !Int !(Ptr ())
                deriving (Eq, Ord, Typeable)
-                        
+
 instance ClangValue Token
-%dis token w x y z p = Token (int w) (int x) (int y) (int z) (ptr p)
+
+rawTokenToToken :: Ptr () -> IO (Token a)
+rawTokenToToken cs = do
+    ptrToTokenStruct <- mallocBytes {# sizeof CXToken #}
+    poke ptrToTokenStruct (castPtr cs)
+    int_data <- {#get CXToken->int_data #} ptrToTokenStruct >>= peekArray 4
+    ptr_data <- {#get CXToken->ptr_data #} ptrToTokenStruct
+    free ptrToTokenStruct
+    return $! Token (fromIntegral (int_data !! 0)) (fromIntegral (int_data !! 1)) (fromIntegral (int_data !! 2)) (fromIntegral (int_data !! 3)) ptr_data
+
+tokenToRawToken :: Token a -> IO (Ptr ())
+tokenToRawToken (Token i0 i1 i2 i3 p) = do
+    ptrToTokenStruct <- mallocBytes {# sizeof CXToken #}
+    intsArray <- mallocArray 4
+    pokeArray intsArray (map fromIntegral [i0,i1,i2,i3])
+    {#set CXToken->int_data #} ptrToTokenStruct intsArray
+    {#set CXToken->ptr_data #} ptrToTokenStruct p
+    tokenStruct <- peek (castPtr ptrToTokenStruct :: Ptr (Ptr ()))
+    free ptrToTokenStruct
+    return tokenStruct
 
 instance Storable (Token s) where
     sizeOf _ = sizeOfCXToken
@@ -4365,55 +4397,42 @@ instance Storable (Token s) where
     {-# INLINE alignment #-}
 
     peek p = do
-      i1 <- peekByteOff p offsetCXTokenI1
-      i2 <- peekByteOff p offsetCXTokenI2
-      i3 <- peekByteOff p offsetCXTokenI3
-      i4 <- peekByteOff p offsetCXTokenI4
-      d <- peekByteOff p offsetCXTokenData
-      return $! Token i1 i2 i3 i4 d
+      rawPtr <- peek (castPtr p :: Ptr (Ptr ()))
+      rawTokenToToken rawPtr
     {-# INLINE peek #-}
 
-    poke p (Token i1 i2 i3 i4 d) = do
-      pokeByteOff p offsetCXTokenI1 i1
-      pokeByteOff p offsetCXTokenI2 i2
-      pokeByteOff p offsetCXTokenI3 i3
-      pokeByteOff p offsetCXTokenI4 i4
-      pokeByteOff p offsetCXTokenData d
+    poke p token = do
+      rawPtr <- tokenToRawToken token
+      poke (castPtr p :: Ptr (Ptr ())) rawPtr
     {-# INLINE poke #-}
 
 -- CXTokenKind clang_getTokenKind(CXToken);
-%fun clang_getTokenKind :: Token s -> IO TokenKind
-%call (token w x y z p)
-%code CXToken a = {{w, x, y, z}, p};
-%     r = clang_getTokenKind(a);
-%result (tokenKind r)
+{# fun clang_getTokenKind { id `Ptr ()' } -> `Int' #}
+getTokenKind :: Token s -> IO TokenKind
+getTokenKind t =
+  tokenToRawToken t >>= clang_getTokenKind  >>= return . toEnum
 
 -- CXString clang_getTokenSpelling(CXTranslationUnit, CXToken);
-%fun unsafe_getTokenSpelling :: TranslationUnit s -> Token s' -> IO (ClangString ())
-%call (translationUnit t) (token w x y z p)
-%code CXToken a = {{w, x, y, z}, p};
-%     CXString out = clang_getTokenSpelling(t, a);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_getTokenSpelling { id `Ptr ()', id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_getTokenSpelling :: TranslationUnit s -> Token s' -> IO (ClangString ())
+unsafe_getTokenSpelling tu t =
+   tokenToRawToken t >>= clang_getTokenSpelling (unTranslationUnit tu) >>= rawCXStringToClangString
 
 getTokenSpelling :: ClangBase m => TranslationUnit s' -> Token s'' -> ClangT s m (ClangString s)
 getTokenSpelling = (registerClangString .) . unsafe_getTokenSpelling
 
 -- CXSourceLocation clang_getTokenLocation(CXTranslationUnit,
 --                                                        CXToken);
-%fun clang_getTokenLocation :: Proxy s -> TranslationUnit s' -> Token s'' -> IO (SourceLocation s)
-%call (proxy) (translationUnit t) (token w x y z p)
-%code CXToken a = {{w, x, y, z}, p};
-%     CXSourceLocation r = clang_getTokenLocation(t, a);
-%result (sourceLocation {r.ptr_data[0]} {r.ptr_data[1]} {r.int_data})
+{# fun clang_getTokenLocation { id `Ptr ()', id `Ptr ()' } -> `Ptr ()' id #}
+getTokenLocation :: Proxy s -> TranslationUnit t -> Token s' -> IO (SourceLocation s)
+getTokenLocation _ tu t =
+  tokenToRawToken t >>= \tPtr -> clang_getTokenLocation (unTranslationUnit tu) tPtr >>= rawSourceLocationToSourceLocation
 
 -- CXSourceRange clang_getTokenExtent(CXTranslationUnit, CXToken);
-%fun clang_getTokenExtent :: Proxy s -> TranslationUnit s' -> Token s'' -> IO (SourceRange s)
-%call (proxy) (translationUnit t) (token w x y z p)
-%code CXToken a = {{w, x, y, z}, p};
-%     CXSourceRange r = clang_getTokenExtent(t, a);
-%result (sourceRange {r.ptr_data[0]} {r.ptr_data[1]} {r.begin_int_data} {r.end_int_data})
+{# fun clang_getTokenExtent { id `Ptr ()', id `Ptr ()' } -> `Ptr ()' id #}
+getTokenExtent :: Proxy s -> TranslationUnit t -> Token s' -> IO (SourceRange s)
+getTokenExtent _ tu t =
+  tokenToRawToken t >>= clang_getTokenExtent (unTranslationUnit tu) >>= rawSourceRangeToSourceRange
 
 -- We deliberately don't export the constructor for UnsafeTokenList.
 -- The only way to unwrap it is registerTokenList.
@@ -4423,10 +4442,10 @@ data UnsafeTokenList = UnsafeTokenList !(Ptr ()) !Int
 
 foreign import ccall unsafe "FFI_stub_ffi.h clang_disposeTokens" clang_disposeTokens :: Ptr () -> Ptr () -> CUInt -> IO ()
 
--- void clang_disposeTokens(CXTranslationUnit TU, CXToken *Tokens, unsigned NumTokens);
-%fun clang_disposeTokens :: TranslationUnit s -> TokenList s' -> IO ()
-%call (translationUnit t) (tokenList toks n)
-%code clang_disposeTokens(t, toks, n);
+disposeTokens :: TranslationUnit s -> TokenList s' -> IO ()
+disposeTokens tu tl =
+ let (tPtr, n) = fromTokenList tl in
+ clang_disposeTokens (unTranslationUnit tu) tPtr (fromIntegral n)
 
 registerTokenList :: ClangBase m => TranslationUnit s' -> IO UnsafeTokenList
                   -> ClangT s m (TokenList s)
@@ -4448,16 +4467,15 @@ fromTokenList ts = let (p, _, _) = DVS.unsafeToForeignPtr ts in
 toTokenList :: (Ptr (), Int) -> UnsafeTokenList
 toTokenList (ts, n) = UnsafeTokenList ts n
 
-%dis tokenList ts n = <fromTokenList/toTokenList> (ptr ts) (int n)
-
 -- void clang_tokenize(CXTranslationUnit TU, CXSourceRange Range,
 --                                    CXToken **Tokens, unsigned *NumTokens);
-%fun unsafe_tokenize :: TranslationUnit s -> SourceRange s' -> IO UnsafeTokenList
-%call (translationUnit t) (sourceRange p1 p2 d1 d2)
-%code CXSourceRange a = {{p1, p2}, d1, d2};
-%     CXToken* tokens; unsigned numTokens;
-%     clang_tokenize(t, a, &tokens, &numTokens);
-%result (tokenList tokens numTokens)
+{# fun clang_tokenize { id `Ptr ()', id `Ptr ()', id `Ptr (Ptr ())', alloca- `CUInt' peek* } -> `()'#}
+unsafe_tokenize :: TranslationUnit s -> SourceRange s' -> IO UnsafeTokenList
+unsafe_tokenize tu sr = do
+  srPtr <- sourceRangeToRawSourceRange sr
+  tokensPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr (Token ())))))
+  numTokens <- clang_tokenize (unTranslationUnit tu) (castPtr srPtr) (castPtr tokensPtr)
+  return (toTokenList (tokensPtr, fromIntegral numTokens))
 
 tokenize :: ClangBase m => TranslationUnit s' -> SourceRange s'' -> ClangT s m (TokenList s)
 tokenize tu = registerTokenList tu . unsafe_tokenize tu
@@ -4469,23 +4487,22 @@ tokenize tu = registerTokenList tu . unsafe_tokenize tu
 -- void clang_annotateTokens(CXTranslationUnit TU,
 --                                          CXToken *Tokens, unsigned NumTokens,
 --                                          CXCursor *Cursors);
-%fun unsafe_annotateTokens :: TranslationUnit s -> TokenList s' -> IO UnsafeCursorList
-%call (translationUnit t) (tokenList toks nts)
-%code CXCursor * cs = (CXCursor *)malloc(sizeof(CXCursor)*nts);
-%     unsigned count = nts;
-%     clang_annotateTokens(t, toks, nts, cs);
-%result (cursorList cs count)
+{# fun clang_annotateTokens { id `Ptr ()', id `Ptr ()', `Int', id `Ptr ()' } -> `()' id#}
+unsafe_annotateTokens :: TranslationUnit s -> TokenList s' -> IO UnsafeCursorList
+unsafe_annotateTokens tu tl =
+  let (tPtr, numTokens) = fromTokenList tl in
+  do
+    cPtr <- mallocBytes ((sizeOf (undefined :: (Ptr (Cursor ())))) * numTokens)
+    clang_annotateTokens (unTranslationUnit tu) tPtr numTokens (castPtr cPtr)
+    return (toCursorList (cPtr, numTokens))
 
 annotateTokens :: ClangBase m => TranslationUnit s' -> TokenList s'' -> ClangT s m (CursorList s)
 annotateTokens = (registerCursorList .) . unsafe_annotateTokens
 
 -- CXString clang_getCursorKindSpelling(enum CXCursorKind Kind);
-%fun unsafe_getCursorKindSpelling :: CursorKind -> IO (ClangString ())
-%call (cursorKind k)
-%code CXString out = clang_getCursorKindSpelling(k);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_getCursorKindSpelling { `CInt' } -> `Ptr ()' id #}
+unsafe_getCursorKindSpelling :: CursorKind -> IO (ClangString ())
+unsafe_getCursorKindSpelling ck = clang_getCursorKindSpelling (fromIntegral (fromEnum ck)) >>= rawCXStringToClangString
 
 getCursorKindSpelling :: ClangBase m => CursorKind -> ClangT s m (ClangString s)
 getCursorKindSpelling = registerClangString . unsafe_getCursorKindSpelling
@@ -4496,7 +4513,7 @@ foreign import ccall unsafe "clang-c/Index.h clang_enableStackTraces" enableStac
 -- typedef void *CXCompletionString;
 
 -- | A semantic string that describes a code completion result.
--- 
+--
 -- A 'CompletionString' describes the formatting of a code completion
 -- result as a single \"template\" of text that should be inserted into the
 -- source buffer when a particular code completion result is selected.
@@ -4508,7 +4525,6 @@ newtype CompletionString s = CompletionString (Ptr ())
                              deriving (Eq, Ord, Typeable)
 
 instance ClangValue CompletionString
-%dis completionString x = CompletionString (ptr x)
 
 -- typedef struct {
 --   enum CXCursorKind CursorKind;
@@ -4516,9 +4532,8 @@ instance ClangValue CompletionString
 -- } CXCompletionResult;
 data CompletionResult s = CompletionResult !CursorKind !(CompletionString s)
                           deriving (Eq, Ord, Typeable)
-                                   
+
 instance ClangValue CompletionResult
-%dis completionResult k s = CompletionResult (cursorKind k) (competionString s)
 
 -- enum CXCompletionChunkKind {
 --   CXCompletionChunk_Optional,
@@ -4545,7 +4560,7 @@ instance ClangValue CompletionResult
 -- };
 
 -- | Describes a single piece of text within a code completion string.
--- 
+--
 -- * 'OptionalChunkKind': A code completion string that describes "optional" text that
 --   could be a part of the template (but is not required).
 --   This is the only kind of chunk that has a code completion
@@ -4600,19 +4615,19 @@ instance ClangValue CompletionResult
 --
 -- * 'RightParenChunkKind': A right parenthesis (\')\'), used to finish a function call or
 --   signal the end of a function parameter list.
---   
+--
 -- * 'LeftBracketChunkKind': A left bracket (\'[\').
---   
+--
 -- * 'RightBracketChunkKind': A right bracket (\']\').
---   
+--
 -- * 'LeftBraceChunkKind': A left brace (\'{\').
---   
+--
 -- * 'RightBraceChunkKind': A right brace (\'}\').
---   
+--
 -- * 'LeftAngleChunkKind': A left angle bracket (\'<\').
---   
+--
 -- * 'RightAngleChunkKind': A right angle bracket (\'>\').
---   
+--
 -- * 'CommaChunkKind': A comma separator (\',\').
 --
 -- * 'ResultTypeChunkKind': Text that specifies the result type of a given result.
@@ -4630,44 +4645,46 @@ instance ClangValue CompletionResult
 --
 -- * 'VerticalSpaceChunkKind': Vertical space (\'\\n\'), after which it is generally
 --   a good idea to perform indentation.
-%enum ChunkKind (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ OptionalChunkKind         = CXCompletionChunk_Optional
-%  , TypedTextChunkKind        = CXCompletionChunk_TypedText
-%  , TextChunkKind             = CXCompletionChunk_Text
-%  , PlaceholderChunkKind      = CXCompletionChunk_Placeholder
-%  , InformativeChunkKind      = CXCompletionChunk_Informative
-%  , CurrentParameterChunkKind = CXCompletionChunk_CurrentParameter
-%  , LeftParenChunkKind        = CXCompletionChunk_LeftParen
-%  , RightParenChunkKind       = CXCompletionChunk_RightParen
-%  , LeftBracketChunkKind      = CXCompletionChunk_LeftBracket
-%  , RightBracketChunkKind     = CXCompletionChunk_RightBracket
-%  , LeftBraceChunkKind        = CXCompletionChunk_LeftBrace
-%  , RightBraceChunkKind       = CXCompletionChunk_RightBrace
-%  , LeftAngleChunkKind        = CXCompletionChunk_LeftAngle
-%  , RightAngleChunkKind       = CXCompletionChunk_RightAngle
-%  , CommaChunkKind            = CXCompletionChunk_Comma
-%  , ResultTypeChunkKind       = CXCompletionChunk_ResultType
-%  , ColonChunkKind            = CXCompletionChunk_Colon
-%  , SemiColonChunkKind        = CXCompletionChunk_SemiColon
-%  , EqualChunkKind            = CXCompletionChunk_Equal
-%  , HorizontalSpaceChunkKind  = CXCompletionChunk_HorizontalSpace
-%  , VerticalSpaceChunkKind    = CXCompletionChunk_VerticalSpace
-%  ]
+#c
+enum ChunkKind
+  { OptionalChunkKind         = CXCompletionChunk_Optional
+  , TypedTextChunkKind        = CXCompletionChunk_TypedText
+  , TextChunkKind             = CXCompletionChunk_Text
+  , PlaceholderChunkKind      = CXCompletionChunk_Placeholder
+  , InformativeChunkKind      = CXCompletionChunk_Informative
+  , CurrentParameterChunkKind = CXCompletionChunk_CurrentParameter
+  , LeftParenChunkKind        = CXCompletionChunk_LeftParen
+  , RightParenChunkKind       = CXCompletionChunk_RightParen
+  , LeftBracketChunkKind      = CXCompletionChunk_LeftBracket
+  , RightBracketChunkKind     = CXCompletionChunk_RightBracket
+  , LeftBraceChunkKind        = CXCompletionChunk_LeftBrace
+  , RightBraceChunkKind       = CXCompletionChunk_RightBrace
+  , LeftAngleChunkKind        = CXCompletionChunk_LeftAngle
+  , RightAngleChunkKind       = CXCompletionChunk_RightAngle
+  , CommaChunkKind            = CXCompletionChunk_Comma
+  , ResultTypeChunkKind       = CXCompletionChunk_ResultType
+  , ColonChunkKind            = CXCompletionChunk_Colon
+  , SemiColonChunkKind        = CXCompletionChunk_SemiColon
+  , EqualChunkKind            = CXCompletionChunk_Equal
+  , HorizontalSpaceChunkKind  = CXCompletionChunk_HorizontalSpace
+  , VerticalSpaceChunkKind    = CXCompletionChunk_VerticalSpace
+ };
+#endc
+{# enum ChunkKind {} deriving (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 -- enum CXCompletionChunkKind
 -- clang_getCompletionChunkKind(CXCompletionString completion_string,
 --                              unsigned chunk_number);
-%fun clang_getCompletionChunkKind :: CompletionString s -> Int -> IO ChunkKind
+{# fun clang_getCompletionChunkKind { id `Ptr ()', `Int'} -> `Int' #}
+getCompletionChunkKind :: CompletionString s -> Int -> IO ChunkKind
+getCompletionChunkKind (CompletionString ptr) i = clang_getCompletionChunkKind ptr i >>= return . toEnum
 
 -- CXString
 -- clang_getCompletionChunkText(CXCompletionString completion_string,
 --                              unsigned chunk_number);
-%fun unsafe_getCompletionChunkText :: CompletionString s -> Int -> IO (ClangString ())
-%call (completionString s) (int i)
-%code CXString out = clang_getCompletionChunkText(s, i);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_getCompletionChunkText { id `Ptr ()' , `Int' } -> `Ptr ()' id #}
+unsafe_getCompletionChunkText :: CompletionString s -> Int -> IO (ClangString ())
+unsafe_getCompletionChunkText (CompletionString ptr) i = clang_getCompletionChunkText ptr i >>= rawCXStringToClangString
 
 getCompletionChunkText :: ClangBase m => CompletionString s' -> Int -> ClangT s m (ClangString s)
 getCompletionChunkText = (registerClangString .) . unsafe_getCompletionChunkText
@@ -4675,63 +4692,65 @@ getCompletionChunkText = (registerClangString .) . unsafe_getCompletionChunkText
 -- CXCompletionString
 -- clang_getCompletionChunkCompletionString(CXCompletionString completion_string,
 --                                          unsigned chunk_number);
-%fun clang_getCompletionChunkCompletionString :: CompletionString s' -> Int -> IO (CompletionString s)
+{# fun clang_getCompletionChunkCompletionString { id `Ptr ()' , `Int' } -> `Ptr ()' id #}
+getCompletionChunkCompletionString :: CompletionString s -> Int -> IO (CompletionString s')
+getCompletionChunkCompletionString (CompletionString ptr) i =
+  clang_getCompletionChunkCompletionString ptr i >>= return . CompletionString
 
 -- unsigned
 -- clang_getNumCompletionChunks(CXCompletionString completion_string);
-%fun clang_getNumCompletionChunks :: CompletionString s -> IO Int
+{# fun clang_getNumCompletionChunks { id `Ptr ()' } -> `Int' #}
+getNumCompletionChunks :: CompletionString s -> IO Int
+getNumCompletionChunks (CompletionString ptr) = clang_getNumCompletionChunks ptr
 
 -- unsigned
 -- clang_getCompletionPriority(CXCompletionString completion_string);
-%fun clang_getCompletionPriority :: CompletionString s -> IO Int
-  
--- enum CXAvailabilityKind 
+{# fun clang_getCompletionPriority { id `Ptr ()' } -> `Int' #}
+getCompletionPriority :: CompletionString s -> IO Int
+getCompletionPriority (CompletionString ptr) = clang_getCompletionPriority ptr
+
+-- enum CXAvailabilityKind
 -- clang_getCompletionAvailability(CXCompletionString completion_string);
-%fun clang_getCompletionAvailability :: CompletionString s -> IO AvailabilityKind
+{# fun clang_getCompletionAvailability { id `Ptr ()' } -> `Int' #}
+getCompletionAvailability :: CompletionString s ->  IO AvailabilityKind
+getCompletionAvailability (CompletionString ptr) = clang_getCompletionAvailability ptr >>= return . toEnum
 
 -- unsigned clang_getCompletionNumAnnotations(CXCompletionString completion_string);
-%fun clang_getCompletionNumAnnotations :: CompletionString s -> IO Int
+{# fun clang_getCompletionNumAnnotations { id `Ptr ()' } -> `Int' #}
+getCompletionNumAnnotations :: CompletionString s -> IO Int
+getCompletionNumAnnotations (CompletionString ptr) = clang_getCompletionNumAnnotations ptr
 
 -- CXString clang_getCompletionAnnotation(CXCompletionString completion_string,
 --                                        unsigned annotation_number);
-%fun unsafe_getCompletionAnnotation :: CompletionString s -> Int -> IO (ClangString ())
-%call (completionString s) (int i)
-%code CXString out = clang_getCompletionAnnotation(s, i);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_getCompletionAnnotation { id `Ptr ()' , `Int' } -> `Ptr ()' id #}
+unsafe_getCompletionAnnotation :: CompletionString s -> Int -> IO (ClangString ())
+unsafe_getCompletionAnnotation (CompletionString ptr) i = clang_getCompletionAnnotation ptr i >>= rawCXStringToClangString
 
 getCompletionAnnotation :: ClangBase m => CompletionString s' -> Int -> ClangT s m (ClangString s)
 getCompletionAnnotation = (registerClangString .) . unsafe_getCompletionAnnotation
 
 -- CXString clang_getCompletionParent(CXCompletionString completion_string,
 --                                    enum CXCursorKind *kind);
-%fun unsafe_getCompletionParent :: CompletionString s -> IO (ClangString ())
-%call (completionString s)
-%code CXString out = clang_getCompletionParent(s, NULL);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_getCompletionParent { id `Ptr ()' , `CInt' } -> `Ptr ()' id #}
+unsafe_getCompletionParent :: CompletionString s  -> IO (ClangString ())
+unsafe_getCompletionParent (CompletionString ptr) = clang_getCompletionParent ptr 0 >>= rawCXStringToClangString
 
 getCompletionParent :: ClangBase m => CompletionString s' -> ClangT s m (ClangString s)
 getCompletionParent = registerClangString . unsafe_getCompletionParent
 
 -- CXString clang_getCompletionBriefComment(CXCompletionString completion_string);
-%fun unsafe_getCompletionBriefComment :: CompletionString s -> IO (ClangString ())
-%call (completionString s)
-%code CXString out = clang_getCompletionBriefComment(s);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_getCompletionBriefComment { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_getCompletionBriefComment :: CompletionString s  -> IO (ClangString ())
+unsafe_getCompletionBriefComment (CompletionString ptr) = clang_getCompletionBriefComment ptr >>= rawCXStringToClangString
 
 getCompletionBriefComment :: ClangBase m => CompletionString s' -> ClangT s m (ClangString s)
 getCompletionBriefComment = registerClangString . unsafe_getCompletionBriefComment
 
 -- CXCompletionString clang_getCursorCompletionString(CXCursor cursor);
-%fun unsafe_getCursorCompletionString :: Cursor s' -> IO (CompletionString ())
-%call (cursor k xdata p1 p2 p3)
-%code CXCursor a = {k, xdata, {p1, p2, p3}};
-%result (completionString {clang_getCursorCompletionString(a)})
+{# fun clang_getCursorCompletionString { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_getCursorCompletionString :: Cursor s'  -> IO (ClangString ())
+unsafe_getCursorCompletionString c =
+  cursorToRawCursor c >>= clang_getCursorCompletionString >>= rawCXStringToClangString
 
 getCursorCompletionString :: ClangBase m => Cursor s' -> ClangT s m (CompletionString s)
 getCursorCompletionString c =
@@ -4753,11 +4772,14 @@ getCursorCompletionString c =
 --
 -- * 'IncludeBriefComments': Whether to include brief documentation within the set of code
 --   completions returned.
-%enum CodeCompleteFlags (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int
-%  [ IncludeMacros        = CXCodeComplete_IncludeMacros
-%  , IncludeCodePatterns  = CXCodeComplete_IncludeCodePatterns
-%  , IncludeBriefComments = CXCodeComplete_IncludeBriefComments
-%  ]
+#c
+enum CodeCompleteFlags
+  { IncludeMacros        = CXCodeComplete_IncludeMacros
+  , IncludeCodePatterns  = CXCodeComplete_IncludeCodePatterns
+  , IncludeBriefComments = CXCodeComplete_IncludeBriefComments
+ };
+#endc
+{# enum CodeCompleteFlags {} deriving  (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 instance BitFlags CodeCompleteFlags where
   toBit IncludeMacros        = 0x01
@@ -4765,7 +4787,7 @@ instance BitFlags CodeCompleteFlags where
   toBit IncludeBriefComments = 0x04
 
 -- unsigned clang_defaultCodeCompleteOptions(void);
-%fun clang_defaultCodeCompleteOptions :: IO Int
+{# fun clang_defaultCodeCompleteOptions as defaultCodeCompleteOptions {} -> `Int' #}
 
 -- typedef struct {
 --   CXCompletionResult *Results;
@@ -4778,12 +4800,10 @@ newtype CodeCompleteResults s = CodeCompleteResults { unCodeCompleteResults :: P
 
 instance ClangValue CodeCompleteResults
 
-%dis codeCompleteResults p = <unCodeCompleteResults/CodeCompleteResults> (ptr p)
-
 -- void clang_disposeCodeCompleteResults(CXCodeCompleteResults *Results);
-%fun clang_disposeCodeCompleteResults :: CodeCompleteResults s -> IO ()
-%call (codeCompleteResults rs)
-%code clang_disposeCodeCompleteResults(rs);
+{# fun clang_disposeCodeCompleteResults { id `Ptr ()' } -> `()' #}
+disposeCodeCompleteResults :: CodeCompleteResults s -> IO ()
+disposeCodeCompleteResults rs = clang_disposeCodeCompleteResults (unCodeCompleteResults rs)
 
 registerCodeCompleteResults :: ClangBase m => IO (CodeCompleteResults ())
                             -> ClangT s m (CodeCompleteResults s)
@@ -4800,10 +4820,10 @@ registerCodeCompleteResults action = do
 --                                             struct CXUnsavedFile *unsaved_files,
 --                                             unsigned num_unsaved_files,
 --                                             unsigned options);
-%fun unsafe_codeCompleteAt :: TranslationUnit s -> String -> Int -> Int -> Ptr CUnsavedFile -> Int -> Int -> IO (CodeCompleteResults ())
-%call (translationUnit t) (string s) (int i1) (int i2) (ptr ufs) (int nufs) (int i3)
-%code rs = clang_codeCompleteAt(t, s, i1, i2, ufs, nufs, i3)
-%result (codeCompleteResults rs)
+{# fun clang_codeCompleteAt { id `Ptr ()', `CString', `Int', `Int', id `Ptr ()', `Int', `Int' } -> `Ptr ()' id #}
+unsafe_codeCompleteAt :: TranslationUnit s -> String -> Int -> Int -> Ptr CUnsavedFile -> Int -> Int -> IO (CodeCompleteResults ())
+unsafe_codeCompleteAt tu s i1 i2 ufs nufs i3 =
+  withCString s (\sPtr -> clang_codeCompleteAt (unTranslationUnit tu) sPtr i1 i2 (castPtr ufs) nufs i3 >>= return . CodeCompleteResults)
 
 codeCompleteAt :: ClangBase m => TranslationUnit s' -> String -> Int -> Int
                -> DV.Vector UnsavedFile -> Int -> ClangT s m (CodeCompleteResults s)
@@ -4815,46 +4835,47 @@ codeCompleteAt tu f l c ufs os =
 -- This function, along with codeCompleteGetResult, exist to allow iteration over
 -- the completion strings at the Haskell level. They're (obviously) not real
 -- libclang functions.
-%fun codeCompleteGetNumResults :: CodeCompleteResults s -> IO Int
-%call (codeCompleteResults rs)
-%code unsigned n = codeCompleteGetNumResults(rs);
-%result (int n)
+{# fun codeCompleteGetNumResults as codeCompleteGetNumResults' { id `Ptr ()' } -> `Int' #}
+codeCompleteGetNumResults :: CodeCompleteResults s -> IO Int
+codeCompleteGetNumResults rs = codeCompleteGetNumResults' (unCodeCompleteResults rs)
 
 -- We don't need to register CompletionStrings; they're always owned by another object.
 -- They still need to be scoped, though.
-%fun unsafe_codeCompleteGetResult :: CodeCompleteResults s -> Int -> IO (CompletionString (), CursorKind)
-%call (codeCompleteResults rs) (int i)
-%code CXCompletionString string;
-%     enum CXCursorKind k = codeCompleteGetResult(rs, i, string);
-%result (completionString string, cursorKind k)
+{# fun codeCompleteGetResult as codeCompleteGetResult' { id `Ptr ()', `CInt', id `Ptr (Ptr ())' } -> `CInt' id #}
+unsafe_codeCompleteGetResult :: CodeCompleteResults s -> Int -> IO (CompletionString (), CursorKind)
+unsafe_codeCompleteGetResult rs idx = do
+ sPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr ()))))
+ kind <- codeCompleteGetResult' (unCodeCompleteResults rs) (fromIntegral idx) (castPtr sPtr)
+ return ((CompletionString sPtr), toEnum (fromIntegral kind))
 
 codeCompleteGetResult :: ClangBase m => CodeCompleteResults s' -> Int
                       -> ClangT s m (CompletionString s, CursorKind)
 codeCompleteGetResult rs n = do
   (string, kind) <- liftIO $ unsafe_codeCompleteGetResult rs n
   return (unsafeCoerce string, kind)
-  
+
 -- void clang_sortCodeCompletionResults(CXCompletionResult *Results,
 --                                      unsigned NumResults);
-%fun clang_sortCodeCompletionResults :: CodeCompleteResults s -> IO ()
-%call (codeCompleteResults rs)
-%code if (rs) {
-%       CXCodeCompleteResults* results = (CXCodeCompleteResults*) rs;
-%       clang_sortCodeCompletionResults(results->Results, results->NumResults);
-%     }
+{# fun clang_sortCodeCompletionResults { id `Ptr ()', `Int' } -> `()' #}
+sortCodeCompletionResults :: CodeCompleteResults s -> IO ()
+sortCodeCompletionResults rs =
+  let results = unCodeCompleteResults rs in
+  do
+    rPtr <- peek (results `plusPtr` offsetCXCodeCompleteResultsResults)
+    numRs <- peek (results `plusPtr` offsetCXCodeCompleteResultsNumResults)
+    clang_sortCodeCompletionResults rPtr numRs
 
 -- unsigned clang_codeCompleteGetNumDiagnostics(CXCodeCompleteResults *Results);
-%fun clang_codeCompleteGetNumDiagnostics :: CodeCompleteResults s -> IO Int
-%call (codeCompleteResults rs)
-%code nd = clang_codeCompleteGetNumDiagnostics(rs);
-%result (int nd)
+{# fun clang_codeCompleteGetNumDiagnostics { id `Ptr ()' } -> `Int' #}
+codeCompleteGetNumDiagnostics :: CodeCompleteResults s -> IO Int
+codeCompleteGetNumDiagnostics rs = clang_codeCompleteGetNumDiagnostics (unCodeCompleteResults rs)
 
 -- CXDiagnostic clang_codeCompleteGetDiagnostic(CXCodeCompleteResults *Results,
 --                                              unsigned Index);
-%fun unsafe_codeCompleteGetDiagnostic :: CodeCompleteResults s -> Int -> IO (Diagnostic ())
-%call (codeCompleteResults rs) (int i)
-%code CXDiagnostic r = clang_codeCompleteGetDiagnostic(rs, i);
-%result (diag r)
+{# fun clang_codeCompleteGetDiagnostic { id `Ptr ()' , `Int' } -> `Ptr ()' id #}
+unsafe_codeCompleteGetDiagnostic :: CodeCompleteResults s -> Int -> IO (Diagnostic ())
+unsafe_codeCompleteGetDiagnostic rs idx =
+   clang_codeCompleteGetDiagnostic (unCodeCompleteResults rs) idx >>= return . mkDiagnostic
 
 codeCompleteGetDiagnostic :: ClangBase m => CodeCompleteResults s' -> Int
                           -> ClangT s m (Diagnostic s)
@@ -4890,98 +4911,101 @@ codeCompleteGetDiagnostic = (registerDiagnostic .) . unsafe_codeCompleteGetDiagn
 
 -- | Contexts under which completion may occur. Multiple contexts may be
 -- present at the same time.
--- 
+--
 -- * 'UnexposedCompletionContext': The context for completions is unexposed,
 --   as only Clang results should be included.
--- 
+--
 -- * 'AnyTypeCompletionContext': Completions for any possible type should be
 --   included in the results.
--- 
+--
 -- * 'AnyValueCompletionContext': Completions for any possible value (variables,
 --   function calls, etc.) should be included in the results.
--- 
+--
 -- * 'ObjCObjectValueCompletionContext': Completions for values that resolve to
 --   an Objective-C object should be included in the results.
--- 
+--
 -- * 'ObjCSelectorValueCompletionContext': Completions for values that resolve
 --   to an Objective-C selector should be included in the results.
--- 
+--
 -- * 'CXXClassTypeValueCompletionContext': Completions for values that resolve
 --   to a C++ class type should be included in the results.
--- 
+--
 -- * 'DotMemberAccessCompletionContext': Completions for fields of the member
 --   being accessed using the dot operator should be included in the results.
--- 
+--
 -- * 'ArrowMemberAccessCompletionContext': Completions for fields of the member
 --   being accessed using the arrow operator should be included in the results.
--- 
+--
 -- * 'ObjCPropertyAccessCompletionContext': Completions for properties of the
 --   Objective-C object being accessed using the dot operator should be included in the results.
--- 
+--
 -- * 'EnumTagCompletionContext': Completions for enum tags should be included in the results.
--- 
+--
 -- * 'UnionTagCompletionContext': Completions for union tags should be included in the results.
--- 
+--
 -- * 'StructTagCompletionContext': Completions for struct tags should be included in the
 --   results.
--- 
+--
 -- * 'ClassTagCompletionContext': Completions for C++ class names should be included in the
 --   results.
--- 
+--
 -- * 'NamespaceCompletionContext': Completions for C++ namespaces and namespace aliases should
 --   be included in the results.
--- 
+--
 -- * 'NestedNameSpecifierCompletionContext': Completions for C++ nested name specifiers should
 --   be included in the results.
--- 
+--
 -- * 'ObjCInterfaceCompletionContext': Completions for Objective-C interfaces (classes) should
 --   be included in the results.
--- 
+--
 -- * 'ObjCProtocolCompletionContext': Completions for Objective-C protocols should be included
 --   in the results.
--- 
+--
 -- * 'ObjCCategoryCompletionContext': Completions for Objective-C categories should be included
 --   in the results.
--- 
+--
 -- * 'ObjCInstanceMessageCompletionContext': Completions for Objective-C instance messages
 --   should be included in the results.
--- 
+--
 -- * 'ObjCClassMessageCompletionContext': Completions for Objective-C class messages should be
 --   included in the results.
--- 
+--
 -- * 'ObjCSelectorNameCompletionContext': Completions for Objective-C selector names should be
 --   included in the results.
--- 
+--
 -- * 'MacroNameCompletionContext': Completions for preprocessor macro names should be included
 --   in the results.
--- 
+--
 -- * 'NaturalLanguageCompletionContext': Natural language completions should be included in the
 --   results.
-%enum CompletionContext (Bounded, Enum, Eq, Ord, Read, Show, Typeable) Int64
-%  [ UnexposedCompletionContext            = CXCompletionContext_Unexposed
-%  , AnyTypeCompletionContext              = CXCompletionContext_AnyType
-%  , AnyValueCompletionContext             = CXCompletionContext_AnyValue
-%  , ObjCObjectValueCompletionContext      = CXCompletionContext_ObjCObjectValue
-%  , ObjCSelectorValueCompletionContext    = CXCompletionContext_ObjCSelectorValue
-%  , CX_CXXClassTypeValueCompletionContext = CXCompletionContext_CXXClassTypeValue
-%  , DotMemberAccessCompletionContext      = CXCompletionContext_DotMemberAccess
-%  , ArrowMemberAccessCompletionContext    = CXCompletionContext_ArrowMemberAccess
-%  , ObjCPropertyAccessCompletionContext   = CXCompletionContext_ObjCPropertyAccess
-%  , EnumTagCompletionContext              = CXCompletionContext_EnumTag
-%  , UnionTagCompletionContext             = CXCompletionContext_UnionTag
-%  , StructTagCompletionContext            = CXCompletionContext_StructTag
-%  , ClassTagCompletionContext             = CXCompletionContext_ClassTag
-%  , NamespaceCompletionContext            = CXCompletionContext_Namespace
-%  , NestedNameSpecifierCompletionContext  = CXCompletionContext_NestedNameSpecifier
-%  , ObjCInterfaceCompletionContext        = CXCompletionContext_ObjCInterface
-%  , ObjCProtocolCompletionContext         = CXCompletionContext_ObjCProtocol
-%  , ObjCCategoryCompletionContext         = CXCompletionContext_ObjCCategory
-%  , ObjCInstanceMessageCompletionContext  = CXCompletionContext_ObjCInstanceMessage
-%  , ObjCClassMessageCompletionContext     = CXCompletionContext_ObjCClassMessage
-%  , ObjCSelectorNameCompletionContext     = CXCompletionContext_ObjCSelectorName
-%  , MacroNameCompletionContext            = CXCompletionContext_MacroName
-%  , NaturalLanguageCompletionContext      = CXCompletionContext_NaturalLanguage
-%  ]
+#c
+enum CompletionContext
+  { UnexposedCompletionContext            = CXCompletionContext_Unexposed
+  , AnyTypeCompletionContext              = CXCompletionContext_AnyType
+  , AnyValueCompletionContext             = CXCompletionContext_AnyValue
+  , ObjCObjectValueCompletionContext      = CXCompletionContext_ObjCObjectValue
+  , ObjCSelectorValueCompletionContext    = CXCompletionContext_ObjCSelectorValue
+  , CXXClassTypeValueCompletionContext    = CXCompletionContext_CXXClassTypeValue
+  , DotMemberAccessCompletionContext      = CXCompletionContext_DotMemberAccess
+  , ArrowMemberAccessCompletionContext    = CXCompletionContext_ArrowMemberAccess
+  , ObjCPropertyAccessCompletionContext   = CXCompletionContext_ObjCPropertyAccess
+  , EnumTagCompletionContext              = CXCompletionContext_EnumTag
+  , UnionTagCompletionContext             = CXCompletionContext_UnionTag
+  , StructTagCompletionContext            = CXCompletionContext_StructTag
+  , ClassTagCompletionContext             = CXCompletionContext_ClassTag
+  , NamespaceCompletionContext            = CXCompletionContext_Namespace
+  , NestedNameSpecifierCompletionContext  = CXCompletionContext_NestedNameSpecifier
+  , ObjCInterfaceCompletionContext        = CXCompletionContext_ObjCInterface
+  , ObjCProtocolCompletionContext         = CXCompletionContext_ObjCProtocol
+  , ObjCCategoryCompletionContext         = CXCompletionContext_ObjCCategory
+  , ObjCInstanceMessageCompletionContext  = CXCompletionContext_ObjCInstanceMessage
+  , ObjCClassMessageCompletionContext     = CXCompletionContext_ObjCClassMessage
+  , ObjCSelectorNameCompletionContext     = CXCompletionContext_ObjCSelectorName
+  , MacroNameCompletionContext            = CXCompletionContext_MacroName
+  , NaturalLanguageCompletionContext      = CXCompletionContext_NaturalLanguage
+ };
+#endc
+{# enum CompletionContext {} deriving (Bounded, Eq, Ord, Read, Show, Typeable) #}
 
 instance BitFlags CompletionContext where
   type FlagInt CompletionContext             = Int64
@@ -5010,57 +5034,52 @@ instance BitFlags CompletionContext where
   toBit NaturalLanguageCompletionContext     = 0x200000
 
 -- unsigned long long clang_codeCompleteGetContexts(CXCodeCompleteResults *Results);
-%fun clang_codeCompleteGetContexts :: CodeCompleteResults s -> IO Int64
-%call (codeCompleteResults rs)
-%code long long r = clang_codeCompleteGetContexts(rs);
-%result (int64 r)
+{# fun clang_codeCompleteGetContexts { id `Ptr ()' } -> `Int64' #}
+codeCompleteGetContexts :: CodeCompleteResults s -> IO Int64
+codeCompleteGetContexts rs = clang_codeCompleteGetContexts (unCodeCompleteResults rs)
 
 -- enum CXCursorKind clang_codeCompleteGetContainerKind(CXCodeCompleteResults *Results,
 --                                                      unsigned *IsIncomplete);
-%fun clang_codeCompleteGetContainerKind :: CodeCompleteResults s -> IO (CursorKind, Bool)
-%call (codeCompleteResults rs)
-%code unsigned isIncomplete;
-%     enum CXCursorKind k = clang_codeCompleteGetContainerKind(rs, &isIncomplete);
-%result (cursorKind k, bool isIncomplete)
+{# fun clang_codeCompleteGetContainerKind { id `Ptr ()', id `Ptr CUInt' } -> `Int' #}
+codeCompleteGetContainerKind :: CodeCompleteResults s -> IO (CursorKind, Bool)
+codeCompleteGetContainerKind rs =
+  alloca (\(iPtr :: (Ptr CUInt)) -> do
+     k <- clang_codeCompleteGetContainerKind (unCodeCompleteResults rs) iPtr
+     bool <- peek iPtr
+     return (toEnum k, toBool ((fromIntegral bool) :: Int)))
 
 -- CXString clang_codeCompleteGetContainerUSR(CXCodeCompleteResults *Results);
-%fun unsafe_codeCompleteGetContainerUSR :: CodeCompleteResults s -> IO (ClangString ())
-%call (codeCompleteResults rs)
-%code CXString out = clang_codeCompleteGetContainerUSR(rs);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_codeCompleteGetContainerUSR { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_codeCompleteGetContainerUSR :: CodeCompleteResults s -> IO (ClangString ())
+unsafe_codeCompleteGetContainerUSR rs = clang_codeCompleteGetContainerUSR (unCodeCompleteResults rs) >>= rawCXStringToClangString
 
 codeCompleteGetContainerUSR :: ClangBase m => CodeCompleteResults s' -> ClangT s m (ClangString s)
 codeCompleteGetContainerUSR = registerClangString . unsafe_codeCompleteGetContainerUSR
 
 -- CXString clang_codeCompleteGetObjCSelector(CXCodeCompleteResults *Results);
-%fun unsafe_codeCompleteGetObjCSelector :: CodeCompleteResults s -> IO (ClangString ())
-%call (codeCompleteResults rs)
-%code CXString out = clang_codeCompleteGetObjCSelector(rs);
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_codeCompleteGetObjCSelector { id `Ptr ()' } -> `Ptr ()' id #}
+unsafe_codeCompleteGetObjCSelector :: CodeCompleteResults s -> IO (ClangString ())
+unsafe_codeCompleteGetObjCSelector rs = clang_codeCompleteGetObjCSelector (unCodeCompleteResults rs) >>= rawCXStringToClangString
 
 codeCompleteGetObjCSelector :: ClangBase m => CodeCompleteResults s' -> ClangT s m (ClangString s)
 codeCompleteGetObjCSelector = registerClangString . unsafe_codeCompleteGetObjCSelector
 
 -- CXString clang_getClangVersion();
-%fun unsafe_getClangVersion :: IO (ClangString ())
-%code CXString out = clang_getClangVersion();
-%     const void* outData = out.data;
-%     unsigned outFlags = out.private_flags;
-%result (clangString (ptr outData) (word32 outFlags))
+{# fun clang_getClangVersion {} -> `Ptr ()' id #}
+unsafe_getClangVersion :: IO (ClangString ())
+unsafe_getClangVersion = clang_getClangVersion >>= rawCXStringToClangString
 
 getClangVersion :: ClangBase m => ClangT s m (ClangString s)
 getClangVersion = registerClangString $ unsafe_getClangVersion
-  
+
 -- -- void clang_toggleCrashRecovery(unsigned isEnabled);
-%fun clang_toggleCrashRecovery :: Bool -> IO ()
+{# fun clang_toggleCrashRecovery as toggleCrashRecovery' { `Int' } -> `()' #}
+toggleCrashRecovery :: Bool -> IO ()
+toggleCrashRecovery b = toggleCrashRecovery' (fromBool b)
 
 data Inclusion s = Inclusion !(File s) !(SourceLocation s) !Bool
                    deriving (Eq, Ord, Typeable)
-                            
+
 instance ClangValue Inclusion
 
 instance Storable (Inclusion s) where
@@ -5091,9 +5110,11 @@ instance ClangValueList Inclusion
 data UnsafeInclusionList = UnsafeInclusionList !(Ptr ()) !Int
 
 -- void freeInclusions(struct Inclusion* inclusions);
-%fun freeInclusions :: InclusionList s -> IO ()
-%call (inclusionList is n)
-%code freeInclusionList(is);
+{# fun freeInclusionList as freeInclusionList' { id `Ptr ()' } -> `()' #}
+freeInclusions :: InclusionList s -> IO ()
+freeInclusions is =
+  let (isPtr, n) = fromInclusionList is in
+  freeInclusionList' isPtr
 
 registerInclusionList :: ClangBase m => IO UnsafeInclusionList -> ClangT s m (InclusionList s)
 registerInclusionList action = do
@@ -5112,15 +5133,20 @@ fromInclusionList is = let (p, _, _) = DVS.unsafeToForeignPtr is in
 toInclusionList :: (Ptr (), Int) -> UnsafeInclusionList
 toInclusionList (is, n) = UnsafeInclusionList is n
 
-%dis inclusionList is n = <fromInclusionList/toInclusionList> (ptr is) (int n)
+#c
+typedef Inclusion** PtrPtrInclusion;
+#endc
 
 -- A more efficient alternative to clang_getInclusions.
 -- void getInclusions(CXTranslationUnit tu, struct Inclusion** inclusionsOut, unsigned* countOut)
-%fun unsafe_getInclusions :: TranslationUnit s -> IO UnsafeInclusionList
-%call (translationUnit t)
-%code Inclusion* inclusions; unsigned count;
-%     getInclusions(t, &inclusions, &count);
-%result (inclusionList inclusions count)
+{# fun getInclusions as getInclusions' { id `Ptr ()', id `Ptr (Ptr ())', alloca- `CUInt' peek* } -> `()' #}
+unsafe_getInclusions :: TranslationUnit s -> IO UnsafeInclusionList
+unsafe_getInclusions tu = do
+  iPtrPtr <- mallocBytes {#sizeof PtrPtrInclusion #}
+  n <- getInclusions' (unTranslationUnit tu) (castPtr iPtrPtr)
+  firstInclusion <- peek (castPtr iPtrPtr :: Ptr (Ptr ()))
+  return (toInclusionList (firstInclusion, fromIntegral n))
+
 
 getInclusions :: ClangBase m => TranslationUnit s' -> ClangT s m (InclusionList s)
 getInclusions = registerInclusionList . unsafe_getInclusions
@@ -5135,9 +5161,9 @@ mkRemapping :: Ptr () -> Remapping ()
 mkRemapping = Remapping
 
 -- void clang_remap_dispose(CXRemapping);
-%fun clang_remap_dispose :: Remapping s -> IO ()
-%call (remapping d)
-%code clang_remap_dispose(d);
+{# fun clang_remap_dispose { id `Ptr ()' } -> `()' #}
+remap_dispose :: Remapping s -> IO ()
+remap_dispose d = clang_remap_dispose (unRemapping d)
 
 registerRemapping :: ClangBase m => IO (Remapping ()) -> ClangT s m (Remapping s)
 registerRemapping action = do
@@ -5146,7 +5172,7 @@ registerRemapping action = do
   return idx
 {-# INLINEABLE registerRemapping #-}
 
-%dis remapping i = <unRemapping/mkRemapping> (ptr i)
+-- %dis remapping i = <unRemapping/mkRemapping> (ptr i)
 
 maybeRemapping :: Remapping s' -> Maybe (Remapping s)
 maybeRemapping (Remapping p) | p == nullPtr = Nothing
@@ -5156,13 +5182,11 @@ unMaybeRemapping :: Maybe (Remapping s') -> Remapping s
 unMaybeRemapping (Just f) = unsafeCoerce f
 unMaybeRemapping Nothing  = Remapping nullPtr
 
-%dis maybe_remapping m = <unMaybeRemapping/maybeRemapping> (remapping m)
-
 -- CXRemapping clang_getRemappings(const char *path);
-%fun unsafe_getRemappings :: FilePath -> IO (Maybe (Remapping ()))
-%call (string path)
-%code CXRemapping r = clang_getRemappings(path);
-%result (maybe_remapping r)
+{# fun clang_getRemappings { `CString' } -> `Ptr ()' id #}
+unsafe_getRemappings :: FilePath -> IO (Maybe (Remapping ()))
+unsafe_getRemappings fp =
+  withCString fp (\sPtr -> clang_getRemappings sPtr >>= return . maybeRemapping . mkRemapping )
 
 getRemappings :: ClangBase m => FilePath -> ClangT s m (Maybe (Remapping s))
 getRemappings path = do
@@ -5172,10 +5196,10 @@ getRemappings path = do
     Nothing         -> return Nothing
 
 -- CXRemapping clang_getRemappingsFromFileList(const char **filePaths, unsigned numFiles);
-%fun unsafe_getRemappingsFromFileList :: Ptr CString -> Int -> IO (Maybe (Remapping ()))
-%call (ptr paths) (int numPaths)
-%code CXRemapping r = clang_getRemappingsFromFileList(paths, (unsigned) numPaths);
-%result (maybe_remapping r)
+{# fun clang_getRemappingsFromFileList { id `Ptr CString' , `Int' } -> `Ptr ()' id #}
+unsafe_getRemappingsFromFileList :: Ptr CString -> Int -> IO (Maybe (Remapping ()))
+unsafe_getRemappingsFromFileList paths numPaths =
+  clang_getRemappingsFromFileList paths numPaths >>= return . maybeRemapping . mkRemapping
 
 getRemappingsFromFileList :: ClangBase m => [FilePath] -> ClangT s m (Maybe (Remapping s))
 getRemappingsFromFileList paths = do
@@ -5185,23 +5209,22 @@ getRemappingsFromFileList paths = do
     Nothing         -> return Nothing
 
 -- unsigned clang_remap_getNumFiles(CXRemapping);
-%fun clang_remap_getNumFiles :: Remapping s -> IO Int
-%call (remapping remaps)
-%code unsigned r = clang_remap_getNumFiles(remaps);
-%result (int r)
+{# fun clang_remap_getNumFiles { id `Ptr ()' } -> `Int' #}
+remap_getNumFiles :: Remapping s -> IO Int
+remap_getNumFiles remaps =
+  clang_remap_getNumFiles (unRemapping remaps)
 
 -- void clang_remap_getFilenames(CXRemapping, unsigned index,
 --                               CXString *original, CXString *transformed);
-%fun unsafe_remap_getFilenames :: Remapping s -> Int -> IO (ClangString (), ClangString ())
-%call (remapping remaps) (int idx)
-%code CXString original;
-%     CXString transformed;
-%     clang_remap_getFilenames(remaps, (unsigned) idx, &original, &transformed);
-%     const void* origData = original.data;
-%     unsigned origFlags = original.private_flags;
-%     const void* trData = transformed.data;
-%     unsigned trFlags = transformed.private_flags;
-%result (clangString (ptr origData) (word32 origFlags), clangString (ptr trData) (word32 trFlags))
+{# fun clang_remap_getFilenames { id `Ptr ()', `Int', id `Ptr ()', id `Ptr ()' } -> `()' #}
+unsafe_remap_getFilenames :: Remapping s -> Int -> IO (ClangString (), ClangString ())
+unsafe_remap_getFilenames remaps idx = do
+    origPtr <- mallocBytes (sizeOf (undefined :: (Ptr (ClangString ()))))
+    txPtr <- mallocBytes (sizeOf (undefined :: (Ptr (ClangString ()))))
+    clang_remap_getFilenames (unRemapping remaps) idx origPtr txPtr
+    orig <- peek (castPtr origPtr)
+    tx <- peek (castPtr txPtr)
+    return (orig, tx)
 
 remap_getFilenames :: ClangBase m => Remapping s' -> Int -> ClangT s m (ClangString s, ClangString s)
 remap_getFilenames r idx = do

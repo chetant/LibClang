@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 import System.Environment(getArgs)
 import Control.Monad.IO.Class(liftIO)
 import qualified Data.Vector.Storable as DVS(mapM_)
