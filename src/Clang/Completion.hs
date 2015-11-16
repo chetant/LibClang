@@ -6,7 +6,7 @@
 --
 -- To get started with code completion, it's enough to parse a file with
 -- 'Clang.parseSourceFile' and pass the 'FFI.TranslationUnit' to 'codeCompleteAt'.
--- This will return a 'FFI.CodeCompleteResults' value, from which you can 
+-- This will return a 'FFI.CodeCompleteResults' value, from which you can
 -- retrieve a list of completion strings using 'getResults'. Each completion
 -- string in turn consists of a series of chunks, which you can retrieve using
 -- 'getChunks'.
@@ -41,7 +41,6 @@ module Clang.Completion
 , getBriefComment
 ) where
 
-import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Typeable
@@ -52,7 +51,7 @@ import qualified Clang.Internal.FFI as FFI
 import Clang.Internal.Monad
 
 -- | Perform code completion at a given location in a translation unit.
--- 
+--
 -- This function performs code completion at a particular file, line, and
 -- column within source code, providing results that suggest potential
 -- code snippets based on the context of the completion. The basic model
@@ -63,7 +62,7 @@ import Clang.Internal.Monad
 -- current location in the C \/ Objective-C \/ C++ grammar and the state of
 -- semantic analysis, what completions to provide. These completions are
 -- returned via a 'FFI.CodeCompleteResults' value.
--- 
+--
 -- Code completion itself is meant to be triggered by the client when the
 -- user types punctuation characters or whitespace, at which point the
 -- code completion location will coincide with the cursor. For example, if \'p\'
@@ -112,7 +111,7 @@ codeCompleteAt t fname l c ufs mayOpts = do
 
 -- | Retrieves a list of code completion results.
 --
--- The first element of each tuple is the completion string, which describes how to insert 
+-- The first element of each tuple is the completion string, which describes how to insert
 -- this result into the editing buffer. Use 'getChunks' to analyze it further.
 --
 -- The second element of each tuple is the kind of entity that this completion refers to.
@@ -191,7 +190,7 @@ getChunks cs = do
 
 -- | Determines the priority of this code completion string.
 --
--- The priority of a code completion indicates how likely it is that this 
+-- The priority of a code completion indicates how likely it is that this
 -- particular completion is the completion that the user will select. The
 -- priority is selected by various internal heuristics. Smaller values
 -- indicate more likely completions.
@@ -211,7 +210,7 @@ getAnnotations cs = do
 
 -- | Retrieves the parent context of the given completion string.
 --
--- The parent context of a completion string is the semantic parent of 
+-- The parent context of a completion string is the semantic parent of
 -- the declaration (if any) that the code completion represents. For example,
 -- a code completion for an Objective-C method would have the method's class
 -- or protocol as its context. A completion string representing a method on
