@@ -22,7 +22,6 @@ module Clang.File
 ) where
 
 import Control.Monad.IO.Class
-import Control.Applicative ((<$>))
 import Data.Time.Clock.POSIX (POSIXTime, posixSecondsToUTCTime)
 import Data.Time.Clock (UTCTime)
 

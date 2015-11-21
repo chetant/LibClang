@@ -9,7 +9,6 @@ module Clang.Internal.Comment
 , getFFIComment
 ) where
 
-import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Typeable
@@ -78,14 +77,14 @@ data ParsedComment s
   -- | A full comment attached to a declaration. Contains block content.
   | FullComment (FFI.Comment s)
     deriving (Eq, Ord, Typeable)
-    
+
 -- | A parameter passing direction, either explicitly provided in the comment text or
 -- inferred.
 data ParamPassDirection
   = ExplicitParamPassDirection FFI.ParamPassDirectionKind
   | InferredParamPassDirection FFI.ParamPassDirectionKind
     deriving (Eq, Ord, Read, Show, Typeable)
-             
+
 parseComment :: ClangBase m => FFI.Comment s -> ClangT s m (Maybe (ParsedComment s))
 parseComment c = do
   kind <- liftIO $ FFI.comment_getKind c
@@ -150,7 +149,7 @@ htmlStartTagComment_getAttrs c = do
     attrName <- FFI.hTMLStartTag_getAttrName c attr
     attrValue <- FFI.hTMLStartTag_getAttrValue c attr
     return (attrName, attrValue)
-  
+
 htmlStartTagComment_isSelfClosing :: ClangBase m => FFI.Comment s' -> ClangT s m Bool
 htmlStartTagComment_isSelfClosing c = liftIO $ FFI.hTMLStartTagComment_isSelfClosing c
 
