@@ -68,7 +68,7 @@ module Clang.Internal.FFIConstants
 ) where
 
 #include <stddef.h>
-#include "clang/include/clang-c/Index.h"
+#include "clang-c/Index.h"
 #include "cbits/visitors.h"
 
 -- CXCursor constants.
