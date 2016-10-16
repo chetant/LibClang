@@ -1,0 +1,7 @@
+# use ghc 7.10.3 snapshot because Setup.hs required Cabal < 1.24.
+resolver: lts-6.22
+packages:
+- '.'
+extra-deps: []
+flags: {}
+extra-package-dbs: []
