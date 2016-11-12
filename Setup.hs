@@ -1,5 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE CPP #-}
 
 import Control.Exception
 import Control.Monad
@@ -8,7 +9,9 @@ import Data.List (isPrefixOf)
 import Distribution.PackageDescription
 import Distribution.Verbosity
 import Distribution.Simple
-import Distribution.Simple.BuildPaths
+#if MIN_VERSION_Cabal(1,24,0)
+import Distribution.Simple.BuildPaths hiding (mkLibName)
+#endif
 import Distribution.Simple.LocalBuildInfo
 import Distribution.Simple.Setup
 import Distribution.Simple.Utils
@@ -197,8 +200,11 @@ libClangBuildHook pkg lbi usrHooks flags = do
     -- Merge the libclang static libraries into each Haskell static library.
     forM_ componentLibs $ \componentLib -> do
       when (withVanillaLib lbi') $
+#if MIN_VERSION_Cabal(1,24,0)
+        mergeLibs $ mkLibName (getHSLibraryName componentLib)
+#else
         mergeLibs $ mkLibName componentLib
-
+#endif
       when (withProfLib lbi') $
         mergeLibs $ mkProfLibName componentLib
 
@@ -263,14 +269,29 @@ runAr v lbi args script =
     progWithStdin prog = (programInvocation prog args') { progInvokeInput = Just script }
     args' = if v >= deafening then "-v" : args else args
 
+#if MIN_VERSION_Cabal(1,24,0)
+mkLibName :: String -> String
+mkLibName lname =
+  "lib" ++ lname <.> "a"
+#endif
+
 mkStaticLib :: String -> String
+#if MIN_VERSION_Cabal(1,24,0)
+mkStaticLib lname = mkLibName lname
+#else
 mkStaticLib lname = mkLibName (LibraryName lname)
+#endif
 
 mkSharedLib :: String -> String
 mkSharedLib lname = "lib" ++ lname <.> dllExtension
 
+#if MIN_VERSION_Cabal(1,24,0)
+componentLibNames :: (ComponentName, ComponentLocalBuildInfo, [ComponentName]) -> [UnitId]
+componentLibNames (_, LibComponentLocalBuildInfo {..}, _) = [componentUnitId]
+#else
 componentLibNames :: (ComponentName, ComponentLocalBuildInfo, [ComponentName]) -> [LibraryName]
 componentLibNames (_, LibComponentLocalBuildInfo {..}, _) = componentLibraries
+#endif
 componentLibNames _                                       = []
 
 confProgram, libtoolProgram, makeProgram, swVersProgram :: Program

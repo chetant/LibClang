@@ -2451,7 +2451,6 @@ instance Hashable (Cursor s) where
           kindHash = hashWithSalt salt (fromEnum k)
           pAsInt = fromIntegral (ptrToIntPtr p) :: Int
       in hashWithSalt kindHash pAsInt
-    {-# INLINE hash #-}
 
 -- CXCursor clang_getNullCursor(void);
 getNullCursor :: ClangBase m => ClangT s m (Cursor s)
