@@ -37,7 +37,7 @@ Flag preferlibstdcpp
 
 Library
   ghc-options:     -Wall -funbox-strict-fields
-  build-tools:     c2hs >= 0.26.2
+  build-tools:     c2hs >= 0.28.1
   build-depends:   base >= 4.6 && < 5,
                    bytestring >= 0.10 && < 0.11,
                    filepath >= 1.3 && < 1.5,
@@ -45,10 +45,10 @@ Library
                    mtl >= 2.1 && < 2.3,
                    resourcet >= 1.1 && < 1.2,
                    text >= 1.1 && < 1.3,
-                   time >= 1.4 && < 1.6,
-                   transformers >= 0.3 && < 0.5,
+                   time >= 1.4 && < 1.7,
+                   transformers >= 0.3 && < 0.6,
                    transformers-base >= 0.4 && < 0.5,
-                   vector >= 0.10 && < 0.11
+                   vector >= 0.10 && < 0.12
   hs-source-dirs:  src
   c-sources:       cbits/utils.c,
                    cbits/visitors.c,

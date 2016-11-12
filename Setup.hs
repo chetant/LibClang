@@ -180,7 +180,7 @@ libClangBuildHook pkg lbi usrHooks flags = do
       (onLibrary
        (\l -> onLibBuildInfo
           (\bi -> onCSources
-             (\srcs -> ["dist/build/Clang/Internal/FFI.chs.c"] ++ srcs)
+             (\srcs -> [(buildDir lbi') </> "Clang" </> "Internal" </> "FFI.chs.c"] ++ srcs)
              bi )
           l)
        (localPkgDescr lbi'))
