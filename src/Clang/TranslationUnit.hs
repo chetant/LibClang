@@ -36,12 +36,12 @@ module Clang.TranslationUnit
 import Control.Monad.IO.Class
 import Data.Maybe (fromMaybe)
 import qualified Data.Vector as DV
-import System.FilePath ((</>))
+-- import System.FilePath ((</>))
 
 import Clang.Internal.BitFlags
 import Clang.Internal.Monad
 import qualified Clang.Internal.FFI as FFI
-import Paths_LibClang (getDataFileName)
+-- import Paths_LibClang (getDataFileName)
 
 -- | Creates a translation unit by parsing source code.
 --
@@ -65,7 +65,7 @@ withParsed :: ClangBase m
            -> ClangT s' m (Maybe a)  -- ^ The return value of the callback, or 'Nothing'
                                      --   if the file couldn't be parsed.
 withParsed idx mayPath args ufs flags f = do
-    liftIO $ FFI.setClangResourcesPath idx =<< clangResourcesPath
+    -- liftIO $ FFI.setClangResourcesPath idx =<< clangResourcesPath
     mayTU <- FFI.parseTranslationUnit idx mayPath args ufs (orFlags flags)
     traverse go mayTU
   where
@@ -80,7 +80,7 @@ withLoaded :: ClangBase m
            -> (forall s. FFI.TranslationUnit s -> ClangT s m a)  -- ^ A callback.
            -> ClangT s' m a
 withLoaded idx path f = do
-  liftIO $ FFI.setClangResourcesPath idx =<< clangResourcesPath
+  -- liftIO $ FFI.setClangResourcesPath idx =<< clangResourcesPath
   f =<< FFI.createTranslationUnit idx path
 
 
@@ -108,7 +108,7 @@ withReparsing :: ClangBase m
                                         --   'ParseComplete', or 'Nothing' if the file could
                                         --   not be parsed.
 withReparsing idx mayPath args ufs flags f = do
-    liftIO $ FFI.setClangResourcesPath idx =<< clangResourcesPath
+    -- liftIO $ FFI.setClangResourcesPath idx =<< clangResourcesPath
     mayTU <- FFI.parseTranslationUnit idx mayPath args ufs (orFlags flags)
     case mayTU of
       Nothing -> return Nothing
@@ -146,9 +146,9 @@ data ParseContinuation m r
   -- will be returned by 'withReparsing'.
   | ParseComplete r
 
-clangResourcesPath :: IO FilePath
-clangResourcesPath =
-  getDataFileName $ "build" </> "out" </> "lib" </> "clang" </> "3.4"
+-- clangResourcesPath :: IO FilePath
+-- clangResourcesPath =
+--   getDataFileName $ "build" </> "out" </> "lib" </> "clang" </> "3.4"
 
 -- | Saves a translation unit as an AST file with can be loaded later using 'withLoaded'.
 save :: ClangBase m

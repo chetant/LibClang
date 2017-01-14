@@ -69,7 +69,8 @@ module Clang.Internal.FFIConstants
 
 #include <stddef.h>
 #include "clang-c/Index.h"
-#include "cbits/visitors.h"
+#include "clang-c/Documentation.h"
+#include "visitors.h"
 
 -- CXCursor constants.
 sizeOfCXCursor = (#const sizeof(CXCursor)) :: Int

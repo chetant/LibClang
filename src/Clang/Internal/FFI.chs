@@ -89,7 +89,6 @@ module Clang.Internal.FFI
 , TranslationUnitFlags(..)
 , defaultEditingTranslationUnitOptions
 , parseTranslationUnit
-, setClangResourcesPath
 , SaveTranslationUnitFlags(..)
 , defaultSaveOptions
 , saveTranslationUnit
@@ -1453,13 +1452,6 @@ withStringList strs f = do
     go arr len ptr (s : ss) = withCString s $ \cs -> do
       poke ptr cs
       go arr len (advancePtr ptr 1) ss
-
--- void clang_setClangResourcesPath(CXIndex CIdx, const char* path);
-{# fun clang_setClangResourcesPath { id `Ptr ()' , `CString' } -> `()' #}
-setClangResourcesPath :: Index s -> String -> IO ()
-setClangResourcesPath i s =
-  withCString s (\stringPtr -> clang_setClangResourcesPath (unIndex i) stringPtr)
-
 
 -- enum CXSaveTranslationUnit_Flags {
 --   CXSaveTranslationUnit_None = 0x0
@@ -2933,7 +2925,6 @@ type_LastBuiltin  = Type_ObjCSel
 --   CXCallingConv_X86Pascal = 5,
 --   CXCallingConv_AAPCS = 6,
 --   CXCallingConv_AAPCS_VFP = 7,
---   CXCallingConv_PnaclCall = 8,
 --   CXCallingConv_IntelOclBicc = 9,
 --   CXCallingConv_X86_64Win64 = 10,
 --   CXCallingConv_X86_64SysV = 11,
@@ -2950,7 +2941,6 @@ enum CallingConv
   , CallingConv_X86Pascal   = CXCallingConv_X86Pascal
   , CallingConv_AAPCS       = CXCallingConv_AAPCS
   , CallingConv_AAPCS_VFP   = CXCallingConv_AAPCS_VFP
-  , CallingConv_PnaclCall   = CXCallingConv_PnaclCall
   , CallingConv_IntelOclBic = CXCallingConv_IntelOclBicc
   , CallingConv_X86_64Win64 = CXCallingConv_X86_64Win64
   , CallingConv_X86_64SysV  = CXCallingConv_X86_64SysV

@@ -1,8 +1,0 @@
-[submodule "llvm"]
-	path = llvm
-	url = https://github.com/llvm-mirror/llvm.git
-        ignore = untracked
-[submodule "clang"]
-	path = clang
-	url = https://github.com/sethfowler/clang.git
-        ignore = untracked

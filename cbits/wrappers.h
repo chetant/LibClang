@@ -1,4 +1,5 @@
 #include <clang-c/Index.h>
+#include <clang-c/Documentation.h>
 
 // This file contains wrappers around clang_* functions that return
 // bare structs. Since bare structs are not supported by the Haskell

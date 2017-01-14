@@ -9,3 +9,5 @@ src/Clang/Internal/FFI_stub_ffi.h
 cabal-dev
 build/*
 fficonst/fficonst
+.cabal-sandbox/
+cabal.sandbox.config
