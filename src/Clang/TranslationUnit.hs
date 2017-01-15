@@ -33,6 +33,7 @@ module Clang.TranslationUnit
 
 ) where
 
+import Data.Traversable
 import Control.Monad.IO.Class
 import Data.Maybe (fromMaybe)
 import qualified Data.Vector as DV

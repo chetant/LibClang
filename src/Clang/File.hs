@@ -21,6 +21,7 @@ module Clang.File
 , FFI.UniqueId
 ) where
 
+import Control.Applicative
 import Control.Monad.IO.Class
 import Data.Time.Clock.POSIX (POSIXTime, posixSecondsToUTCTime)
 import Data.Time.Clock (UTCTime)

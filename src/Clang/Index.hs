@@ -21,6 +21,7 @@ module Clang.Index
 , FFI.threadBackgroundPriorityForAll
 ) where
 
+import Control.Applicative
 import Control.Monad.IO.Class
 
 import Clang.Internal.BitFlags

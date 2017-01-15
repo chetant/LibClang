@@ -17,9 +17,12 @@ Description:
   Please use <https://github.com/chetant/LibClang/issues> to report bugs
 
 Category: Language
+Tested-With: GHC == 7.8.4
+           , GHC == 7.10.3
+           , GHC == 8.0.2
 Build-type: Custom
 Extra-Source-Files: cbits/utils.h, cbits/visitors.h, cbits/wrappers.h,
-                    test/*.hs, test/*.c, test/runTest.sh
+                    test/*.hs, test/*.c, test/runTest.sh, test/Makefile
 Source-Repository head
   type: git
   location: git://github.com/chetant/LibClang.git
@@ -68,5 +71,5 @@ Library
                  Clang.Internal.FFI,
                  Clang.Internal.FFIConstants
   default-language: Haskell2010
-  pkgconfig-depends: ncurses, llvm == 3.8.0
-  extra-libraries: clang-3.8.0
+  pkgconfig-depends: ncurses
+  extra-libraries: clang-3.8

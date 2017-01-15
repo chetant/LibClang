@@ -341,6 +341,7 @@ module Clang.Internal.FFI
 , remap_getFilenames
 ) where
 
+import Control.Applicative
 import Control.Monad (forM_)
 import Control.Monad.Trans
 import qualified Data.ByteString as B
