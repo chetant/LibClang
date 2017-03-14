@@ -27,6 +27,11 @@ Source-Repository head
   type: git
   location: git://github.com/chetant/LibClang.git
 
+Flag StaticBuild
+   Description: All all the LLVM static archives to the Haskell bindings library archive.
+   Manual: True
+   Default: False
+
 Library
   ghc-options:     -Wall -funbox-strict-fields
   build-tools:     c2hs >= 0.28.1
@@ -72,4 +77,4 @@ Library
                  Clang.Internal.FFIConstants
   default-language: Haskell2010
   pkgconfig-depends: ncurses
-  extra-libraries: clang-3.8
+  extra-libraries: clang

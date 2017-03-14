@@ -1,10 +1,9 @@
-LLVM_CFG=../build/out/bin/llvm-config
 CC=gcc
-CFLAGS=-std=gnu99 
-LLVM_CFLAGS=$(shell $(LLVM_CFG) --cflags)
-LDFLAGS=$(shell $(LLVM_CFG) --ldflags)
-LIBS=-ldl -pthread -Wl,-rpath -Wl,$(shell $(LLVM_CFG) --libdir) $(shell $(LLVM_CFG) --libs core) -lclang
+CFLAGS=-std=gnu99
 
+LLVM_CFLAGS=$(shell $(LLVM_CONFIG) --cflags)
+LDFLAGS=$(shell $(LLVM_CONFIG) --ldflags)
+LIBS=-ldl -pthread -Wl,-rpath -Wl,$(shell $(LLVM_CONFIG) --libdir) $(shell $(LLVM_CONFIG) --libs core) -lclang
 all: Test_Diagnostics_c Test_Diagnostics_hs Test_InclusionVisitor_c Test_InclusionVisitor_hs Test_ChildVisitor_c Test_ChildVisitor_hs
 
 test: all
