@@ -4306,8 +4306,9 @@ toTokenList (ts, n) = UnsafeTokenList ts n
 {# fun clang_tokenize { id `Ptr ()',withVoided* %`SourceRange a', id `Ptr (Ptr ())', alloca- `CUInt' peek* } -> `()'#}
 unsafe_tokenize :: TranslationUnit s -> SourceRange s' -> IO UnsafeTokenList
 unsafe_tokenize tu sr = do
-  tokensPtr <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr (Token ())))))
-  numTokens <- clang_tokenize (unTranslationUnit tu) sr (castPtr tokensPtr)
+  tokensPtrArray <- mallocBytes (sizeOf (undefined :: (Ptr (Ptr (Token ())))))
+  numTokens <- clang_tokenize (unTranslationUnit tu) sr (castPtr tokensPtrArray)
+  tokensPtr <- peek tokensPtrArray
   return (toTokenList (tokensPtr, fromIntegral numTokens))
 
 tokenize :: ClangBase m => TranslationUnit s' -> SourceRange s'' -> ClangT s m (TokenList s)
