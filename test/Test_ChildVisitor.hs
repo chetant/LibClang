@@ -10,10 +10,11 @@ import Clang(parseSourceFile, getChildren)
 import Clang.Cursor(getKind, getDisplayName, getCursorKindSpelling)
 
 test tu = getCursor tu >>= getChildren >>= DVS.mapM_ printInfo
-    where printInfo c = do
-            name <- getDisplayName c >>= unpack
-            tstr <- getCursorKindSpelling (getKind c) >>= unpack
-            liftIO $ printf "Name:%s, Kind:%s\n" name tstr
+  where
+    printInfo c = do
+      name <- getDisplayName c >>= unpack
+      tstr <- getCursorKindSpelling (getKind c) >>= unpack
+      liftIO $ printf "Name:%s, Kind:%s\n" name tstr
 
 main = do
   (arg:args) <- getArgs
